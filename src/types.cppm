@@ -37,8 +37,7 @@ export namespace mka::audio::dsp {
     /**
      * @brief Number of audio frames (samples per channel), on 32 bits.
      * @details Zero denotes an empty block and permits no sample access. This
-     * alias defines the target backend-compatible contract; migrating the legacy
-     * ProcessContext::frames field is part of the ProcessContext integration.
+     * alias is the backend-compatible contract used by ProcessContext::frames.
      * Validate backend sizes and prepared capacities on the control side before
      * narrowing; this type alone does not validate buffer lengths.
      */
