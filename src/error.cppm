@@ -24,7 +24,11 @@ export namespace mka::audio::dsp {
         /// A port layout exceeds the 65536 representable distinct channel indices.
         LayoutCapacityExceeded,
         /// A prepared execution plan still borrows this Node; retry after retirement.
-        NodeInUse
+        NodeInUse,
+        /// Prepared storage sizes cannot be represented safely by this platform.
+        PreparationCapacityExceeded,
+        /// The supplied task sequence is not a unique producer-before-consumer order.
+        InvalidExecutionOrder
     };
 
     /**
