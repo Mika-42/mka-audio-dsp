@@ -11,6 +11,7 @@ module;
 #include <vector>
 export module mka.audio.dsp.execution_plan;
 export import mka.audio.dsp.node;
+export import mka.audio.dsp.connection;
 
 export namespace mka::audio::dsp {
     /** Control-side maximum callback shape; counts are physical, not ChannelIDs. */
@@ -34,11 +35,8 @@ export namespace mka::audio::dsp {
 }
 
 export namespace mka::audio::dsp::detail {
-    /// Logical edges used only during control-side plan preparation.
-    struct PlanConnection {
-        ChannelID from;
-        ChannelID to;
-    };
+    /// Compatibility alias: DAG storage and preparation use the same value type.
+    using PlanConnection = Connection;
 }
 
 export namespace mka::audio::dsp {
@@ -149,7 +147,7 @@ export namespace mka::audio::dsp {
          * Failure leaves existing prepared state unchanged. No slot recycling.
          */
         [[nodiscard]] Result prepareBackend(const BackendConfig& config,
-            const std::span<const detail::PlanConnection> connections,
+            const std::span<const Connection> connections,
             const std::span<const NodeID> outputNodes) {
             auto state = std::make_unique<AudioState>();
             state->config = config;

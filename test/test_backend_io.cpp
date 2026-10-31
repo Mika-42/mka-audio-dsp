@@ -698,11 +698,12 @@ namespace {
         const auto addedB = graph.add<Processor>();
         ASSERT_TRUE(addedB);
         auto& b = *static_cast<Processor*>(graph.node(*addedB));
-        ASSERT_TRUE(graph.connect(Channel{a.id(), 65536, PortType::Out}, Channel{b.id(), 0, PortType::In}));
-        auto plan = graph.compile(BackendConfig{.maxFrames = 1});
-        ASSERT_FALSE(plan);
-        EXPECT_EQ(plan.error(), ErrorType::InvalidChannelIndex);
-        ASSERT_TRUE(graph.remove(a.id())); // Failed compilation retained no borrow.
+        const auto rejected = graph.connect(Channel{a.id(), 65536, PortType::Out},
+                                            Channel{b.id(), 0, PortType::In});
+        ASSERT_FALSE(rejected);
+        EXPECT_EQ(rejected.error(), ErrorType::InvalidChannelIndex);
+        EXPECT_TRUE(graph.connections().empty());
+        ASSERT_TRUE(graph.remove(a.id())); // Rejected insertion retained no borrow.
     }
 
     TEST(BackendCallbackAdapter, DescriptorViewsUsePhysicalInputsAndBackendOutputsOnly) {

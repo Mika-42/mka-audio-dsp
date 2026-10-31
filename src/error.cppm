@@ -38,7 +38,9 @@ export namespace mka::audio::dsp {
         /// A derived Node constructor threw a non-allocation exception.
         NodeConstructionFailed,
         /// A derived constructor did not preserve the NodeID assigned by the DAG.
-        InvalidNodeIdentity
+        InvalidNodeIdentity,
+        /// The control-side collection of logical edges cannot grow further.
+        ConnectionCapacityExceeded
     };
 
     /**
