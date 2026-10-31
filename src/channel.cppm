@@ -3,6 +3,8 @@
 //
 module;
 #include <cstdint>
+#include <expected>
+#include <span>
 
 export module mka.audio.dsp.channel;
 export import mka.audio.dsp.types;
@@ -107,6 +109,87 @@ export namespace mka::audio::dsp {
      */
     [[nodiscard]] constexpr ChannelIndex decodeChannel(const ChannelID id) noexcept {
         return static_cast<ChannelIndex>(id & ChannelID{0xFFFF});
+    }
+
+    /**
+     * @brief Non-owning read-only view of one channel's float samples.
+     * @details For internal DAG data, channel identifies a logical channel and
+     * the prepared plan owns the samples. For backend data, channel is zero and
+     * ignored: the descriptor's position in its span selects the physical lane.
+     * Backend samples remain backend-owned and valid only during that callback.
+     * The owner must rebind descriptors for each callback; a Node must not retain
+     * a backend pointer. Copying/destroying a descriptor never manages samples.
+     * @pre If consumed with frames > 0, buffer points to at least frames valid
+     * floats. Disconnected inputs use borrowed silence storage, never nullptr.
+     * No sample may be read for frames == 0. Null is allowed during preparation.
+     */
+    struct InputChannel {
+        ChannelID channel{}; ///< Logical identity; zero/ignored for backend views.
+        const float* buffer = nullptr; ///< Borrowed samples; no writes through this pointer.
+    };
+
+    /**
+     * @brief Non-owning writable view of one channel's float samples.
+     * @details Internal samples belong to the prepared plan; backend samples
+     * belong to the backend for one callback only. For backend views, channel
+     * is zero/ignored and physical numbering follows descriptor span positions.
+     * A const descriptor prevents rebinding its pointer, but the pointed-to
+     * samples remain writable. Rebinding belongs to the descriptor owner at each
+     * callback; Nodes must not retain backend pointers. No allocation/ownership.
+     * @pre If consumed with frames > 0, buffer points to at least frames writable
+     * floats. No sample may be written for frames == 0. Null is allowed during
+     * preparation but not for a descriptor consumed by a positive-frame block.
+     */
+    struct OutputChannel {
+        ChannelID channel{}; ///< Logical identity; zero/ignored for backend views.
+        float* buffer = nullptr; ///< Borrowed writable samples; never freed here.
+    };
+
+    /**
+     * @brief Check non-null pointers for the input descriptors to be consumed.
+     * @param consumed Valid descriptor storage selected by the caller for use.
+     * @param frames Number of samples per channel that the caller will consume.
+     * @return ErrorType::NullBuffer if frames > 0 and any buffer is null;
+     * success for zero frames or no consumed descriptors.
+     * @warning Only pointer presence is checked, not sample capacity, lifetime
+     * or channel identity. The caller still guarantees at least frames live
+     * floats per consumed buffer. This function never reads sample memory.
+     * @note Pure constexpr/noexcept control-side validation without allocation,
+     * locks or I/O. No Node call or runtime context binding is performed here.
+     */
+    [[nodiscard]] constexpr Result
+    validateChannelBuffers(const std::span<const InputChannel> consumed,
+                           const FrameCount frames) noexcept {
+        if (frames != 0) {
+            for (const auto& channel : consumed) {
+                if (channel.buffer == nullptr) {
+                    return std::unexpected(ErrorType::NullBuffer);
+                }
+            }
+        }
+        return {};
+    }
+
+    /**
+     * @brief Check non-null pointers for the output descriptors to be consumed.
+     * @return ErrorType::NullBuffer if frames > 0 and any buffer is null;
+     * success for zero frames or no consumed descriptors.
+     * @warning Validates pointer presence only: capacity and lifetime of writable
+     * sample buffers remain caller preconditions. Samples are never accessed.
+     * @note Pure constexpr/noexcept control-side operation without allocation,
+     * locks or I/O. See the InputChannel overload for the complete contract.
+     */
+    [[nodiscard]] constexpr Result
+    validateChannelBuffers(const std::span<const OutputChannel> consumed,
+                           const FrameCount frames) noexcept {
+        if (frames != 0) {
+            for (const auto& channel : consumed) {
+                if (channel.buffer == nullptr) {
+                    return std::unexpected(ErrorType::NullBuffer);
+                }
+            }
+        }
+        return {};
     }
 
     struct Channel {
