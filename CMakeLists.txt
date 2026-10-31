@@ -1,23 +1,119 @@
 cmake_minimum_required(VERSION 4.3)
 
-project(mka_audio_dsp
+project(mka-audio-dsp
         VERSION 0.1.0
+        DESCRIPTION "DSP graph and execution engine"
         LANGUAGES CXX
 )
+
+# ============================================================
+# Project options
+# ============================================================
+
+option(MKA_BUILD_TESTS
+        "Build unit tests"
+        ON
+)
+
+
+# ============================================================
+# Global C++ configuration
+# ============================================================
 
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_executable(mka_audio_dsp
-        src/main.cpp
-        src/error.cppm
+include(FetchContent)
+
+FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG v1.17.0
 )
 
-target_sources(mka_audio_dsp
-        PRIVATE
-        FILE_SET modules
-        TYPE CXX_MODULES
+FetchContent_MakeAvailable(googletest)
+
+
+# ============================================================
+# DSP library
+# ============================================================
+
+add_library(mka-audio-dsp
+        src/process_context.cppm)
+
+target_sources(mka-audio-dsp
+        PUBLIC
+        FILE_SET CXX_MODULES
+        BASE_DIRS
+        src
         FILES
-        src/graph.cppm
- )
+        src/error.cppm
+        src/node.cppm
+        src/channel.cppm
+        src/dag.cppm
+        src/execution_plan.cppm
+)
+
+target_compile_features(
+        mka-audio-dsp
+        PUBLIC
+        cxx_std_26
+)
+
+
+# ============================================================
+# Application
+# ============================================================
+
+add_executable(mka_audio_dsp
+        src/main.cpp
+)
+
+target_link_libraries(mka_audio_dsp
+        PRIVATE
+        mka-audio-dsp
+)
+
+target_compile_features(
+        mka_audio_dsp
+        PRIVATE
+        cxx_std_26
+)
+
+
+# ============================================================
+# Tests
+# ============================================================
+
+if (MKA_BUILD_TESTS)
+
+    enable_testing()
+
+    add_executable(mka-audio-dsp-tests
+            test/test_dag.cpp
+            test/test_regressions.cpp
+            test/test_values.cpp
+            test/test_model.cpp
+    )
+
+    target_link_libraries(mka-audio-dsp-tests
+            PRIVATE
+            mka-audio-dsp
+            GTest::gtest_main
+    )
+
+    target_compile_features(
+            mka-audio-dsp-tests
+            PRIVATE
+            cxx_std_26
+    )
+
+    include(GoogleTest)
+
+    gtest_discover_tests(
+            mka-audio-dsp-tests
+            TEST_PREFIX "dsp."
+    )
+
+endif ()

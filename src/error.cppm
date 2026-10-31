@@ -9,8 +9,10 @@ export namespace mka::audio::dsp {
     enum class ErrorType {
         CycleDetected,
         NodeNotFound,
-        EdgeAlreadyExists,
-        EdgeNotFound
+        ConnexionAlreadyExists,
+        ConnexionNotFound,
+        ChannelAlreadyConnected,
+        InvalidPort
     };
 
     using Result = std::expected<void, ErrorType>;
