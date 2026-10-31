@@ -13,7 +13,7 @@ export module mka.audio.dsp.dag;
 export import mka.audio.dsp.error;
 export import mka.audio.dsp.node;
 import mka.audio.dsp.channel;
-import mka.audio.dsp.execution_plan;
+export import mka.audio.dsp.execution_plan;
 
 // non-RT graph
 namespace mka::audio::dsp {
@@ -76,7 +76,22 @@ namespace mka::audio::dsp {
             std::erase_if(connexions_, [nodeId](const Connexion &conn) {
                 return conn.from.nodeID == nodeId || conn.to.nodeID == nodeId;
             });
+            std::erase(outputsNodes_, static_cast<NodeID>(nodeId));
 
+            return {};
+        }
+
+        /**
+         * @brief Mark an existing Node for direct access to all backend outputs.
+         * @details Control-side, idempotent and independent of source status,
+         * logical layouts and outgoing edges. Existing plans retain their role
+         * snapshot; compile a new plan to apply this edit.
+         */
+        [[nodiscard]] std::expected<void, GraphError> markAsOutput(const NodeID id) {
+            if (!nodeExists(id)) return std::unexpected(GraphError::NodeNotFound);
+            if (std::ranges::find(outputsNodes_, id) == outputsNodes_.end()) {
+                outputsNodes_.push_back(id);
+            }
             return {};
         }
 
@@ -177,6 +192,34 @@ namespace mka::audio::dsp {
             };
         }
 
+        /**
+         * @brief Compile and prepare direct backend I/O on control, before RT.
+         * @details Each logical output has distinct plan-owned storage. This
+         * baseline does not recycle slots or implement PDC/publication.
+         */
+        [[nodiscard]] std::expected<ExecutionPlan, ErrorType>
+        compile(const BackendConfig& config) const {
+            auto plan = compile();
+            if (!plan) return std::unexpected(plan.error());
+            std::vector<detail::PlanConnection> connections;
+            connections.reserve(connexions_.size());
+            for (const auto& connection : connexions_) {
+                if (connection.from.channel > maxChannelIndex || connection.to.channel > maxChannelIndex) {
+                    return std::unexpected(ErrorType::InvalidChannelIndex);
+                }
+                connections.push_back({
+                    encode(static_cast<NodeID>(connection.from.nodeID), connection.from.port,
+                           static_cast<ChannelIndex>(connection.from.channel)),
+                    encode(static_cast<NodeID>(connection.to.nodeID), connection.to.port,
+                           static_cast<ChannelIndex>(connection.to.channel))
+                });
+            }
+            if (const auto result = plan->prepareBackend(config, connections, outputsNodes_); !result) {
+                return std::unexpected(result.error());
+            }
+            return plan;
+        }
+
     private:
         [[nodiscard]] bool nodeExists(const std::uint64_t id) const {
             const auto nodeIt = std::ranges::find(nodes_, id, &Node::id);
@@ -243,8 +286,8 @@ namespace mka::audio::dsp {
             std::vector<std::vector<std::size_t> > successors(count);
 
             for (const auto &connexion: connexions_) {
-                const auto source = indices.find(connexion.to.nodeID);
-                const auto destination = indices.find(connexion.from.nodeID);
+                const auto source = indices.find(connexion.from.nodeID);
+                const auto destination = indices.find(connexion.to.nodeID);
 
                 if (source == indices.end() || destination == indices.end()) {
                     return std::unexpected(ErrorType::NodeNotFound);
@@ -325,6 +368,7 @@ namespace mka::audio::dsp {
 
         std::vector<std::unique_ptr<Node> > nodes_;
         std::vector<Connexion> connexions_;
+        std::vector<NodeID> outputsNodes_;
         std::uint64_t nextId = 1;
     };
 }

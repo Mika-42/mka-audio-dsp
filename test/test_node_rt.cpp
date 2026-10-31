@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 import mka.audio.dsp.node;
+import mka.audio.dsp.dag;
 
 namespace {
     // Constant-initialized thread-local counters avoid allocation in the probe.
@@ -90,7 +91,7 @@ namespace {
 
     class GainNode final : public Node {
     public:
-        GainNode() : Node(1, Config{.layoutInput = {0}, .layoutAuxiliary = {},
+        explicit GainNode(const NodeID id = 1) : Node(id, Config{.layoutInput = {0}, .layoutAuxiliary = {},
                                     .layoutOutput = {0}}) {}
 
         void process(const ProcessContext& context) noexcept override {
@@ -148,5 +149,42 @@ namespace {
         }
         // Destruction and its vector/token deallocations happen on control,
         // outside the measured process window.
+    }
+
+    TEST(BackendRealtimeContract, PreparedGraphRebindsAndProcessesWithoutCppHeapOperations) {
+        DAG graph;
+        auto& source = graph.add<GainNode>();
+        auto& sink = graph.add<GainNode>();
+        ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 0), sink.channel(PortType::In, 0)));
+        ASSERT_TRUE(graph.markAsOutput(source.id()));
+        ASSERT_TRUE(graph.markAsOutput(sink.id()));
+        auto plan = graph.compile(BackendConfig{.maxFrames = 32, .inputChannels = 1, .outputChannels = 1});
+        ASSERT_TRUE(plan);
+        std::array<float, 32> input{}, first{}, second{};
+        for (std::size_t i = 0; i < input.size(); ++i) input[i] = static_cast<float>(i);
+        const std::array<const float*, 1> inputs{input.data()};
+        const std::array firstOutputs{first.data()};
+        const std::array secondOutputs{second.data()};
+        bool accepted = true;
+        bool rejectedOverflow = false;
+        {
+            const AllocationWindow window;
+            rejectedOverflow = !plan->exec(BackendBlock{inputs, firstOutputs, 33});
+            for (unsigned callback = 0; callback < 64; ++callback) {
+                const auto outputs = callback % 2 == 0 ? std::span<float* const>{firstOutputs} :
+                                                        std::span<float* const>{secondOutputs};
+                accepted = plan->exec(BackendBlock{inputs, outputs, 32}) && accepted;
+            }
+        }
+        EXPECT_TRUE(rejectedOverflow);
+        EXPECT_TRUE(accepted);
+        EXPECT_EQ(source.calls, 64U);
+        EXPECT_EQ(sink.calls, 64U);
+        EXPECT_EQ(allocations, 0U);
+        EXPECT_EQ(deallocations, 0U);
+        for (std::size_t i = 0; i < input.size(); ++i) {
+            EXPECT_FLOAT_EQ(first[i], input[i] * 2.F + 100.F);
+            EXPECT_FLOAT_EQ(second[i], input[i] * 2.F + 100.F);
+        }
     }
 }
