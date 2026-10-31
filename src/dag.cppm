@@ -39,6 +39,13 @@ namespace mka::audio::dsp {
 
     export class DAG {
     public:
+        DAG() = default;
+        DAG(const DAG&) = delete;
+        DAG& operator=(const DAG&) = delete;
+        // Replacing/transferring an owner could bypass remove()'s borrow guard.
+        DAG(DAG&&) = delete;
+        DAG& operator=(DAG&&) = delete;
+
         template<std::derived_from<Node> T>
         [[nodiscard]]
         T &add() {
@@ -58,6 +65,12 @@ namespace mka::audio::dsp {
                 return std::unexpected(ErrorType::NodeNotFound);
             }
 
+            // Plans borrow Nodes without owning them. Defer this removal until
+            // every plan has been retired on control; reject without mutation.
+            if (detail::NodeBorrowAccess::inUse(**nodeIt)) {
+                return std::unexpected(ErrorType::NodeInUse);
+            }
+
             nodes_.erase(nodeIt);
 
             std::erase_if(connexions_, [nodeId](const Connexion &conn) {
@@ -65,6 +78,19 @@ namespace mka::audio::dsp {
             });
 
             return {};
+        }
+
+        /**
+         * @brief Connect numeric logical channel identities from Node::channel.
+         * @details Decode without normalizing unknown port codes, then reuse the
+         * existing graph checks. Storage remains the historical Channel value.
+         */
+        [[nodiscard]] std::expected<void, GraphError>
+        connect(const ChannelID from, const ChannelID to) {
+            return connect(
+                Channel{.nodeID = decodeNode(from), .channel = decodeChannel(from), .port = decodePort(from)},
+                Channel{.nodeID = decodeNode(to), .channel = decodeChannel(to), .port = decodePort(to)}
+            );
         }
 
         /**

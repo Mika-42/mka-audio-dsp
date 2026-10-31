@@ -79,6 +79,13 @@ namespace {
     };
     constexpr ChannelIndex index = 0;
 
+    // Malformed IDs must be constructed without calling Node::channel/encode
+    // outside their valid-port precondition.
+    constexpr ChannelID rawChannelID(const NodeID node, const PortType port) noexcept {
+        return (ChannelID{node} << 32U) |
+               (ChannelID{static_cast<std::uint16_t>(port)} << 16U);
+    }
+
     TEST(PortTypeContract, HasFixedSixteenBitCodes) {
         EXPECT_EQ(sizeof(PortType), sizeof(std::uint16_t));
         EXPECT_EQ(static_cast<std::uint16_t>(PortType::In), 0);
@@ -168,8 +175,8 @@ namespace {
                 DAG graph;
                 const auto& source = graph.add<PortTestNode>();
                 const auto& destination = graph.add<PortTestNode>();
-                const auto result = graph.connect(source.channel(pair.source, index),
-                                                  destination.channel(pair.destination, index));
+                const auto result = graph.connect(rawChannelID(source.id(), pair.source),
+                                                  rawChannelID(destination.id(), pair.destination));
                 ASSERT_FALSE(result.has_value());
                 EXPECT_EQ(result.error(), GraphError::InvalidDirection);
                 const auto absent = graph.disconnect(source.id(), destination.id());
@@ -201,7 +208,7 @@ namespace {
                 }
                 SCOPED_TRACE(static_cast<std::uint16_t>(from));
                 SCOPED_TRACE(static_cast<std::uint16_t>(to));
-                const auto rejected = graph.connect(c.channel(from, index), d.channel(to, index));
+                const auto rejected = graph.connect(rawChannelID(c.id(), from), rawChannelID(d.id(), to));
                 ASSERT_FALSE(rejected.has_value());
                 EXPECT_EQ(rejected.error(), GraphError::InvalidDirection);
                 const auto existing = graph.connect(originalFrom, originalTo);
@@ -258,8 +265,8 @@ namespace {
         const auto& c = graph.add<PortTestNode>();
         const auto aOut = a.channel(PortType::Out, index);
         const auto bIn = b.channel(PortType::In, index);
-        const auto unknownOut = Channel{maxNodeID, index, PortType::Out};
-        const auto unknownIn = Channel{maxNodeID, index, PortType::In};
+        const auto unknownOut = encode(maxNodeID, PortType::Out, index);
+        const auto unknownIn = encode(maxNodeID, PortType::In, index);
         expectError(graph.connect(unknownOut, bIn), GraphError::NodeNotFound);
         expectError(graph.connect(aOut, unknownIn), GraphError::NodeNotFound);
         expectError(graph.connect(aOut, a.channel(PortType::In, index)), GraphError::CycleDetected);
