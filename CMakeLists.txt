@@ -49,6 +49,7 @@ target_sources(mka-audio-dsp
         FILES
         src/error.cppm
         src/types.cppm
+        src/config.cppm
         src/process_context.cppm
         src/node.cppm
         src/channel.cppm
@@ -96,6 +97,7 @@ if (MKA_BUILD_TESTS)
             test/test_ports.cpp
             test/test_channel_id.cpp
             test/test_audio_channels.cpp
+            test/test_config.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests

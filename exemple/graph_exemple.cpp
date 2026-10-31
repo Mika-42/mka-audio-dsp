@@ -12,8 +12,9 @@ namespace {
     public:
         explicit StereoEffect(const std::uint64_t id)
             : Node(id, {
-                       .layoutInput = Layout::Stereo,
-                       .layoutOutput = Layout::Stereo
+                       .layoutInput = {0, 1},
+                       .layoutAuxiliary = {},
+                       .layoutOutput = {0, 1}
                    }) {
         }
     };
