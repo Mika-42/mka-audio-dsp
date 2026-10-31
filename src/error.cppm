@@ -22,7 +22,9 @@ export namespace mka::audio::dsp {
         /// A logical channel index is repeated within a single port layout.
         DuplicateChannelIndex,
         /// A port layout exceeds the 65536 representable distinct channel indices.
-        LayoutCapacityExceeded
+        LayoutCapacityExceeded,
+        /// A prepared execution plan still borrows this Node; retry after retirement.
+        NodeInUse
     };
 
     /**

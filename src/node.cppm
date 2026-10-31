@@ -3,13 +3,30 @@
 //
 module;
 #include <cstdint>
+#include <memory>
 export module mka.audio.dsp.node;
 export import mka.audio.dsp.config;
-import mka.audio.dsp.channel;
-import mka.audio.dsp.process_context;
+export import mka.audio.dsp.channel;
+export import mka.audio.dsp.process_context;
+
+// Defined in this module to avoid attaching cross-module DAG/ExecutionPlan
+// forward declarations to the Node module. Tokens borrow; they do not own Node.
+export namespace mka::audio::dsp::detail {
+    struct NodeBorrowState {};
+    using NodeBorrowToken = std::shared_ptr<const NodeBorrowState>;
+    struct NodeBorrowAccess;
+}
 
 export namespace mka::audio::dsp {
 
+    /**
+     * @brief Abstract processor owned by DAG and borrowed by prepared plans.
+     * @details Identity/address and Config remain stable while any plan uses
+     * this node. Construct, prepare, assign latency snapshots and destroy on
+     * control only, after all processing and plan borrows have quiesced.
+     * Backend pointers are borrowed from ProcessContext for one call and must
+     * never be retained as Node state. No universal prepare() API is imposed.
+     */
     class Node {
     public:
 
@@ -18,32 +35,75 @@ export namespace mka::audio::dsp {
 
         /**
          * @brief Copy an independently owned configuration on the control thread.
-         * @pre validateConfig(cfg) succeeds. This constructor does not validate.
+         * @pre id != invalidNodeID and validateConfig(cfg) succeeds. Identity is
+         * assigned on control by DAG; this constructor does not validate it.
          * @note Copying vectors can allocate/throw; construction is not noexcept.
          * Keep this snapshot stable while a plan uses it. No runtime editing API
          * is provided; backend access is not determined by these layouts.
          */
-        explicit Node(const std::uint32_t id, const Config &cfg) : id_(id), config_(cfg) {}
+        explicit Node(const NodeID id, const Config &cfg) : id_(id), config_(cfg) {}
+
+        Node(const Node&) = delete;
+        Node& operator=(const Node&) = delete;
+        Node(Node&&) = delete;
+        Node& operator=(Node&&) = delete;
 
         /// Borrow this node's stable, read-only layout snapshot; no allocation.
         [[nodiscard]] const Config& config() const noexcept {
             return config_;
         }
 
-        [[nodiscard]] Channel channel(const PortType port, const std::uint64_t channel) const noexcept {
-            return { .nodeID = id_, .channel = channel, .port = port };
-        };
+        /**
+         * @brief Numeric identity of a logical channel, independent of layouts.
+         * @pre isValidPort(port). Validate decoded ports and wide raw indices
+         * on control before calling; use toChannelIndex before narrowing.
+         * @note Pure, allocation-free lookup: no graph or backend access.
+         */
+        [[nodiscard]] ChannelID channel(const PortType port, const ChannelIndex index) const noexcept {
+            return encode(id_, port, index);
+        }
 
-        [[nodiscard]] const std::uint64_t& id() const noexcept {
+        /// Stable logical identity returned by value, with no allocation.
+        [[nodiscard]] NodeID id() const noexcept {
             return id_;
         }
 
+        /**
+         * @brief Process borrowed views synchronously on the audio thread.
+         * @details Overrides must perform no allocation, deallocation, locks,
+         * waits, logging, I/O or exception propagation. Read inputs, write only
+         * permitted samples, and never retain context/backend pointers.
+         */
         virtual void process(const ProcessContext& context) noexcept = 0;
 
+        /**
+         * @brief Intrinsic latency in whole samples, zero unless overridden.
+         * @note Read on control from coherent state. Preparing a new plan must
+         * not mutate DSP state simultaneously used by the active plan.
+         */
+        [[nodiscard]] virtual std::uint32_t latencySamples() const noexcept {
+            return 0;
+        }
+
+        /// Public polymorphic destruction, on control after all borrows end.
         virtual ~Node() = default;
 
     private:
-        std::uint64_t id_;
-        Config config_;
+        friend struct detail::NodeBorrowAccess;
+        NodeID id_{};
+        Config config_{};
+        detail::NodeBorrowToken borrowState_ = std::make_shared<detail::NodeBorrowState>();
+    };
+}
+
+export namespace mka::audio::dsp::detail {
+    /** Internal control-side borrow tracking; never copied/released in process. */
+    struct NodeBorrowAccess {
+        static NodeBorrowToken retain(const Node& node) noexcept {
+            return node.borrowState_;
+        }
+        static bool inUse(const Node& node) noexcept {
+            return node.borrowState_.use_count() > 1;
+        }
     };
 }

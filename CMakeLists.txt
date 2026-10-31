@@ -99,6 +99,8 @@ if (MKA_BUILD_TESTS)
             test/test_audio_channels.cpp
             test/test_config.cpp
             test/test_process_context.cpp
+            test/test_node.cpp
+            test/test_node_lifetime.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests
@@ -119,5 +121,12 @@ if (MKA_BUILD_TESTS)
             mka-audio-dsp-tests
             TEST_PREFIX "dsp."
     )
+
+    # Keep allocation interception local to this executable: it is not part of
+    # the library and does not change the allocator used by application clients.
+    add_executable(mka-node-rt-tests test/test_node_rt.cpp)
+    target_link_libraries(mka-node-rt-tests PRIVATE mka-audio-dsp GTest::gtest_main)
+    target_compile_features(mka-node-rt-tests PRIVATE cxx_std_26)
+    gtest_discover_tests(mka-node-rt-tests TEST_PREFIX "dsp.rt.")
 
 endif ()
