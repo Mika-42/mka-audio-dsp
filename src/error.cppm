@@ -12,7 +12,9 @@ export namespace mka::audio::dsp {
         ConnexionAlreadyExists,
         ConnexionNotFound,
         ChannelAlreadyConnected,
-        InvalidPort
+        InvalidPort,
+        /// An integer cannot be represented as a ChannelIndex (0..65535).
+        InvalidChannelIndex
     };
 
     using Result = std::expected<void, ErrorType>;

@@ -2,9 +2,9 @@
 // Created by mika on 10/16/26.
 //
 module;
+#include <cstdint>
 
 export module mka.audio.dsp.channel;
-#include <cstdint>
 
 export namespace mka::audio::dsp {
 

@@ -39,8 +39,7 @@ FetchContent_MakeAvailable(googletest)
 # DSP library
 # ============================================================
 
-add_library(mka-audio-dsp
-        src/process_context.cppm)
+add_library(mka-audio-dsp)
 
 target_sources(mka-audio-dsp
         PUBLIC
@@ -49,6 +48,8 @@ target_sources(mka-audio-dsp
         src
         FILES
         src/error.cppm
+        src/types.cppm
+        src/process_context.cppm
         src/node.cppm
         src/channel.cppm
         src/dag.cppm
@@ -91,10 +92,7 @@ if (MKA_BUILD_TESTS)
     enable_testing()
 
     add_executable(mka-audio-dsp-tests
-            test/test_dag.cpp
-            test/test_regressions.cpp
-            test/test_values.cpp
-            test/test_model.cpp
+            test/test_types.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests
