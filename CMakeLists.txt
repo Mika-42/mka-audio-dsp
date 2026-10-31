@@ -102,6 +102,7 @@ if (MKA_BUILD_TESTS)
             test/test_node.cpp
             test/test_node_lifetime.cpp
             test/test_backend_io.cpp
+            test/test_dag_storage.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests

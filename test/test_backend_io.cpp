@@ -127,7 +127,9 @@ namespace {
 
     TEST(BackendRoles, MarkingRejectsMissingNodesAndIsIdempotent) {
         DAG graph;
-        auto& writer = graph.add<EmptyProcessor>();
+        const auto addedWriter = graph.add<EmptyProcessor>();
+        ASSERT_TRUE(addedWriter);
+        auto& writer = *static_cast<EmptyProcessor*>(graph.node(*addedWriter));
         writer.mode = Mode::Constant;
         writer.value = 5.F;
         expectError(graph.markAsOutput(invalidNodeID), ErrorType::NodeNotFound);
@@ -145,11 +147,15 @@ namespace {
 
     TEST(BackendRoles, RemovingANodeClearsItsOutputMarkerBeforeTheNextCompilation) {
         DAG graph;
-        const auto removed = graph.add<EmptyProcessor>().id();
+        const auto addedRemoved = graph.add<EmptyProcessor>();
+        ASSERT_TRUE(addedRemoved);
+        const auto removed = *addedRemoved;
         ASSERT_TRUE(graph.markAsOutput(removed));
         ASSERT_TRUE(graph.remove(removed));
         expectError(graph.markAsOutput(removed), ErrorType::NodeNotFound);
-        auto& unmarked = graph.add<EmptyProcessor>();
+        const auto addedUnmarked = graph.add<EmptyProcessor>();
+        ASSERT_TRUE(addedUnmarked);
+        auto& unmarked = *static_cast<EmptyProcessor*>(graph.node(*addedUnmarked));
         unmarked.mode = Mode::Constant;
         unmarked.value = 9;
         auto plan = graph.compile(BackendConfig{.maxFrames = 1, .outputChannels = 1});
@@ -163,7 +169,9 @@ namespace {
 
     TEST(BackendRoles, EmptyLayoutSourceAndOutputSeesAllSixPhysicalLanesDirectly) {
         DAG graph;
-        auto& node = graph.add<EmptyProcessor>();
+        const auto addedNode = graph.add<EmptyProcessor>();
+        ASSERT_TRUE(addedNode);
+        auto& node = *static_cast<EmptyProcessor*>(graph.node(*addedNode));
         node.inputLane = 5;
         node.outputLane = 5;
         node.secondInputLane = 0; // Explicit effect-defined sum, not a graph mix.
@@ -200,7 +208,9 @@ namespace {
 
     TEST(BackendRoles, AnUnmarkedSourceCannotWriteTheBackend) {
         DAG graph;
-        auto& node = graph.add<Processor>();
+        const auto addedNode = graph.add<Processor>();
+        ASSERT_TRUE(addedNode);
+        auto& node = *static_cast<Processor*>(graph.node(*addedNode));
         auto plan = graph.compile(BackendConfig{.maxFrames = 2, .inputChannels = 2, .outputChannels = 1});
         ASSERT_TRUE(plan);
         const std::array<float, 2> input{3, 5};
@@ -216,8 +226,12 @@ namespace {
 
     TEST(BackendRouting, MarkedNonSourceExecutesAfterItsProducerEvenWithLowerNodeID) {
         DAG graph;
-        auto& sink = graph.add<Processor>();
-        auto& source = graph.add<Processor>();
+        const auto addedSink = graph.add<Processor>();
+        ASSERT_TRUE(addedSink);
+        auto& sink = *static_cast<Processor*>(graph.node(*addedSink));
+        const auto addedSource = graph.add<Processor>();
+        ASSERT_TRUE(addedSource);
+        auto& source = *static_cast<Processor*>(graph.node(*addedSource));
         source.gain = 2;
         sink.gain = 3;
         ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 0), sink.channel(PortType::In, 0)));
@@ -241,8 +255,12 @@ namespace {
 
     TEST(BackendRouting, MarkedSourceRetainsDistinctLogicalOutputsForItsSuccessor) {
         DAG graph;
-        auto& sink = graph.add<Processor>();
-        auto& source = graph.add<Processor>();
+        const auto addedSink = graph.add<Processor>();
+        ASSERT_TRUE(addedSink);
+        auto& sink = *static_cast<Processor*>(graph.node(*addedSink));
+        const auto addedSource = graph.add<Processor>();
+        ASSERT_TRUE(addedSource);
+        auto& source = *static_cast<Processor*>(graph.node(*addedSource));
         source.gain = 2;
         source.backendBias = 100;
         sink.gain = 3;
@@ -266,8 +284,12 @@ namespace {
 
     TEST(BackendRouting, SameLaneUsesTheLastEffectiveWriteWithoutMixingOrIntermediateClears) {
         DAG graph;
-        auto& first = graph.add<EmptyProcessor>();
-        auto& second = graph.add<EmptyProcessor>();
+        const auto addedFirst = graph.add<EmptyProcessor>();
+        ASSERT_TRUE(addedFirst);
+        auto& first = *static_cast<EmptyProcessor*>(graph.node(*addedFirst));
+        const auto addedSecond = graph.add<EmptyProcessor>();
+        ASSERT_TRUE(addedSecond);
+        auto& second = *static_cast<EmptyProcessor*>(graph.node(*addedSecond));
         first.mode = second.mode = Mode::Constant;
         first.value = 2;
         second.value = 7;
@@ -304,7 +326,9 @@ namespace {
 
     TEST(BackendLifetime, EveryCallbackUsesItsCurrentAddressesAndChannelCounts) {
         DAG graph;
-        auto& node = graph.add<EmptyProcessor>();
+        const auto addedNode = graph.add<EmptyProcessor>();
+        ASSERT_TRUE(addedNode);
+        auto& node = *static_cast<EmptyProcessor*>(graph.node(*addedNode));
         ASSERT_TRUE(graph.markAsOutput(node.id()));
         auto plan = graph.compile(BackendConfig{.maxFrames = 2, .inputChannels = 2, .outputChannels = 2});
         ASSERT_TRUE(plan);
@@ -341,7 +365,9 @@ namespace {
 
     TEST(BackendGuards, RejectedBlocksTouchNoSamplesAndTheNextValidCallbackRecovers) {
         DAG graph;
-        auto& node = graph.add<EmptyProcessor>();
+        const auto addedNode = graph.add<EmptyProcessor>();
+        ASSERT_TRUE(addedNode);
+        auto& node = *static_cast<EmptyProcessor*>(graph.node(*addedNode));
         ASSERT_TRUE(graph.markAsOutput(node.id()));
         auto plan = graph.compile(BackendConfig{.maxFrames = 2, .inputChannels = 1, .outputChannels = 1});
         ASSERT_TRUE(plan);
@@ -368,7 +394,9 @@ namespace {
 
     TEST(BackendPreparation, StructuralPlansRejectBackendExecutionUntilPrepared) {
         DAG graph;
-        auto& node = graph.add<EmptyProcessor>();
+        const auto addedNode = graph.add<EmptyProcessor>();
+        ASSERT_TRUE(addedNode);
+        auto& node = *static_cast<EmptyProcessor*>(graph.node(*addedNode));
         auto plan = graph.compile();
         ASSERT_TRUE(plan);
         EXPECT_FALSE(plan->isBackendPrepared());
@@ -378,7 +406,9 @@ namespace {
 
     TEST(BackendPreparation, ZeroMaximumFramesCanPrepareANoopPlan) {
         DAG graph;
-        auto& node = graph.add<Processor>();
+        const auto addedNode = graph.add<Processor>();
+        ASSERT_TRUE(addedNode);
+        auto& node = *static_cast<Processor*>(graph.node(*addedNode));
         ASSERT_TRUE(graph.markAsOutput(node.id()));
         auto plan = graph.compile(BackendConfig{.inputChannels = 1, .outputChannels = 1});
         ASSERT_TRUE(plan);
@@ -391,7 +421,9 @@ namespace {
 
     TEST(BackendRoles, MarkersAreSnapshottedWithoutChangingExistingPlans) {
         DAG graph;
-        auto& node = graph.add<EmptyProcessor>();
+        const auto addedNode = graph.add<EmptyProcessor>();
+        ASSERT_TRUE(addedNode);
+        auto& node = *static_cast<EmptyProcessor*>(graph.node(*addedNode));
         node.mode = Mode::Constant;
         node.value = 8;
         auto oldPlan = graph.compile(BackendConfig{.maxFrames = 1, .outputChannels = 1});
@@ -410,8 +442,12 @@ namespace {
 
     TEST(BackendRouting, AnyIncomingAuxEdgePreventsSourceStatusEvenOutsideTheLayout) {
         DAG graph;
-        auto& source = graph.add<EmptyProcessor>();
-        auto& sink = graph.add<EmptyProcessor>();
+        const auto addedSource = graph.add<EmptyProcessor>();
+        ASSERT_TRUE(addedSource);
+        auto& source = *static_cast<EmptyProcessor*>(graph.node(*addedSource));
+        const auto addedSink = graph.add<EmptyProcessor>();
+        ASSERT_TRUE(addedSink);
+        auto& sink = *static_cast<EmptyProcessor*>(graph.node(*addedSink));
         source.mode = Mode::NoWrite;
         sink.mode = Mode::Constant;
         sink.value = 7;
@@ -431,8 +467,12 @@ namespace {
 
     TEST(BackendRouting, UnproducedLogicalChannelsReadSilenceInsteadOfPhysicalInputs) {
         DAG graph;
-        auto& source = graph.add<EmptyProcessor>(); // No declared logical outputs.
-        auto& sink = graph.add<Processor>();
+        const auto addedSource = graph.add<EmptyProcessor>();
+        ASSERT_TRUE(addedSource);
+        auto& source = *static_cast<EmptyProcessor*>(graph.node(*addedSource)); // No declared logical outputs.
+        const auto addedSink = graph.add<Processor>();
+        ASSERT_TRUE(addedSink);
+        auto& sink = *static_cast<Processor*>(graph.node(*addedSink));
         ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 65535), sink.channel(PortType::In, 0)));
         ASSERT_TRUE(graph.markAsOutput(sink.id()));
         auto plan = graph.compile(BackendConfig{.maxFrames = 1, .inputChannels = 1, .outputChannels = 1});
@@ -450,8 +490,12 @@ namespace {
 
     TEST(BackendRouting, UnwrittenInternalOutputsAreResetForEachCallback) {
         DAG graph;
-        auto& source = graph.add<Processor>();
-        auto& sink = graph.add<Processor>();
+        const auto addedSource = graph.add<Processor>();
+        ASSERT_TRUE(addedSource);
+        auto& source = *static_cast<Processor*>(graph.node(*addedSource));
+        const auto addedSink = graph.add<Processor>();
+        ASSERT_TRUE(addedSink);
+        auto& sink = *static_cast<Processor*>(graph.node(*addedSink));
         source.mode = Mode::Constant;
         source.value = 3;
         ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 0), sink.channel(PortType::In, 0)));
@@ -469,8 +513,12 @@ namespace {
 
     TEST(BackendRouting, SparseLogicalIndicesBindByIdentityInsteadOfArrayPosition) {
         DAG graph;
-        auto& source = graph.add<SparseProcessor>();
-        auto& sink = graph.add<SparseProcessor>();
+        const auto addedSource = graph.add<SparseProcessor>();
+        ASSERT_TRUE(addedSource);
+        auto& source = *static_cast<SparseProcessor*>(graph.node(*addedSource));
+        const auto addedSink = graph.add<SparseProcessor>();
+        ASSERT_TRUE(addedSink);
+        auto& sink = *static_cast<SparseProcessor*>(graph.node(*addedSink));
         source.gain = 2;
         sink.gain = 5;
         ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 42), sink.channel(PortType::In, 65535)));
@@ -490,8 +538,12 @@ namespace {
 
     TEST(BackendRouting, ConnectedAuxiliaryReceivesLogicalSamplesAndMakesANonSource) {
         DAG graph;
-        auto& source = graph.add<SparseProcessor>();
-        auto& sink = graph.add<SparseProcessor>();
+        const auto addedSource = graph.add<SparseProcessor>();
+        ASSERT_TRUE(addedSource);
+        auto& source = *static_cast<SparseProcessor*>(graph.node(*addedSource));
+        const auto addedSink = graph.add<SparseProcessor>();
+        ASSERT_TRUE(addedSink);
+        auto& sink = *static_cast<SparseProcessor*>(graph.node(*addedSink));
         source.mode = Mode::Constant;
         source.value = 5;
         sink.mode = Mode::Auxiliary;
@@ -512,9 +564,15 @@ namespace {
 
     TEST(BackendRouting, LogicalFanOutFeedsIndependentWritersWithoutReservingPhysicalLanes) {
         DAG graph;
-        auto& source = graph.add<Processor>();
-        auto& first = graph.add<Processor>();
-        auto& second = graph.add<Processor>();
+        const auto addedSource = graph.add<Processor>();
+        ASSERT_TRUE(addedSource);
+        auto& source = *static_cast<Processor*>(graph.node(*addedSource));
+        const auto addedFirst = graph.add<Processor>();
+        ASSERT_TRUE(addedFirst);
+        auto& first = *static_cast<Processor*>(graph.node(*addedFirst));
+        const auto addedSecond = graph.add<Processor>();
+        ASSERT_TRUE(addedSecond);
+        auto& second = *static_cast<Processor*>(graph.node(*addedSecond));
         source.mode = Mode::Constant;
         source.value = 4;
         first.gain = 2;
@@ -535,8 +593,12 @@ namespace {
 
     TEST(BackendLifetime, CopiesOwnIndependentLogicalStorageAndMovesTransferPreparation) {
         DAG graph;
-        auto& source = graph.add<Processor>();
-        auto& sink = graph.add<Processor>();
+        const auto addedSource = graph.add<Processor>();
+        ASSERT_TRUE(addedSource);
+        auto& source = *static_cast<Processor*>(graph.node(*addedSource));
+        const auto addedSink = graph.add<Processor>();
+        ASSERT_TRUE(addedSink);
+        auto& sink = *static_cast<Processor*>(graph.node(*addedSink));
         source.mode = Mode::Constant;
         source.value = 4;
         sink.gain = 3;
@@ -587,13 +649,22 @@ namespace {
         EXPECT_FALSE(moved.exec(BackendBlock{.outputs = outputs, .frames = 1}));
         ASSERT_TRUE(destination->exec(BackendBlock{.outputs = outputs, .frames = 1}));
         EXPECT_EQ(result, 12);
-        expectError(graph.remove(source.id()), ErrorType::NodeInUse);
+        ASSERT_TRUE(graph.remove(source.id()));
+        EXPECT_EQ(graph.node(*addedSource), nullptr);
+        EXPECT_EQ(graph.collectRetiredNodes(), 0U);
+        // Retirement keeps the old copied/moved plan's raw pointers usable.
+        ASSERT_TRUE(destination->exec(BackendBlock{.outputs = outputs, .frames = 1}));
+        EXPECT_EQ(result, 12);
     }
 
     TEST(BackendPreparation, SemanticFailuresPreservePreviouslyPreparedState) {
         DAG graph;
-        auto& a = graph.add<EmptyProcessor>();
-        auto& b = graph.add<EmptyProcessor>();
+        const auto addedA = graph.add<EmptyProcessor>();
+        ASSERT_TRUE(addedA);
+        auto& a = *static_cast<EmptyProcessor*>(graph.node(*addedA));
+        const auto addedB = graph.add<EmptyProcessor>();
+        ASSERT_TRUE(addedB);
+        auto& b = *static_cast<EmptyProcessor*>(graph.node(*addedB));
         a.mode = Mode::Constant;
         a.value = 5;
         ASSERT_TRUE(graph.markAsOutput(a.id()));
@@ -621,8 +692,12 @@ namespace {
 
     TEST(BackendPreparation, UnencodableLegacyIndicesAreRejectedBeforeNarrowing) {
         DAG graph;
-        auto& a = graph.add<Processor>();
-        auto& b = graph.add<Processor>();
+        const auto addedA = graph.add<Processor>();
+        ASSERT_TRUE(addedA);
+        auto& a = *static_cast<Processor*>(graph.node(*addedA));
+        const auto addedB = graph.add<Processor>();
+        ASSERT_TRUE(addedB);
+        auto& b = *static_cast<Processor*>(graph.node(*addedB));
         ASSERT_TRUE(graph.connect(Channel{a.id(), 65536, PortType::Out}, Channel{b.id(), 0, PortType::In}));
         auto plan = graph.compile(BackendConfig{.maxFrames = 1});
         ASSERT_FALSE(plan);
@@ -632,7 +707,9 @@ namespace {
 
     TEST(BackendCallbackAdapter, DescriptorViewsUsePhysicalInputsAndBackendOutputsOnly) {
         DAG graph;
-        auto& node = graph.add<EmptyProcessor>();
+        const auto addedNode = graph.add<EmptyProcessor>();
+        ASSERT_TRUE(addedNode);
+        auto& node = *static_cast<EmptyProcessor*>(graph.node(*addedNode));
         ASSERT_TRUE(graph.markAsOutput(node.id()));
         auto plan = graph.compile(BackendConfig{.maxFrames = 1, .inputChannels = 1, .outputChannels = 1});
         ASSERT_TRUE(plan);

@@ -212,8 +212,12 @@ namespace {
 
     TEST(ConfigGraphContract, EmptyLayoutsDoNotRejectLogicalConnections) {
         DAG graph;
-        const auto& source = graph.add<EmptyLayoutNode>();
-        const auto& destination = graph.add<EmptyLayoutNode>();
+        const auto addedSource = graph.add<EmptyLayoutNode>();
+        ASSERT_TRUE(addedSource);
+        const auto& source = *static_cast<EmptyLayoutNode*>(graph.node(*addedSource));
+        const auto addedDestination = graph.add<EmptyLayoutNode>();
+        ASSERT_TRUE(addedDestination);
+        const auto& destination = *static_cast<EmptyLayoutNode*>(graph.node(*addedDestination));
         ASSERT_TRUE(validateConfig(source.config()));
         ASSERT_TRUE(validateConfig(destination.config()));
         ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 65535),
@@ -224,8 +228,12 @@ namespace {
 
     TEST(ConfigGraphContract, SparseLayoutsDoNotFilterUndeclaredMainOrAuxiliaryChannels) {
         DAG graph;
-        const auto& source = graph.add<SparseLayoutNode>();
-        const auto& destination = graph.add<SparseLayoutNode>();
+        const auto addedSource = graph.add<SparseLayoutNode>();
+        ASSERT_TRUE(addedSource);
+        const auto& source = *static_cast<SparseLayoutNode*>(graph.node(*addedSource));
+        const auto addedDestination = graph.add<SparseLayoutNode>();
+        ASSERT_TRUE(addedDestination);
+        const auto& destination = *static_cast<SparseLayoutNode*>(graph.node(*addedDestination));
         ASSERT_TRUE(validateConfig(source.config()));
         ASSERT_TRUE(validateConfig(destination.config()));
         ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 65535),

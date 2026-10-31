@@ -23,12 +23,22 @@ export namespace mka::audio::dsp {
         DuplicateChannelIndex,
         /// A port layout exceeds the 65536 representable distinct channel indices.
         LayoutCapacityExceeded,
-        /// A prepared execution plan still borrows this Node; retry after retirement.
+        /// Legacy refusal code; retained as DAG now supports deferred Node retirement.
         NodeInUse,
         /// Prepared storage sizes cannot be represented safely by this platform.
         PreparationCapacityExceeded,
         /// The supplied task sequence is not a unique producer-before-consumer order.
-        InvalidExecutionOrder
+        InvalidExecutionOrder,
+        /// The DAG has issued every available 32-bit NodeID; identities never wrap.
+        NodeIDExhausted,
+        /// The DAG's owned-node quota or storage capacity has been reached.
+        NodeCapacityExceeded,
+        /// A control-side allocation failed; the requested mutation was not committed.
+        AllocationFailed,
+        /// A derived Node constructor threw a non-allocation exception.
+        NodeConstructionFailed,
+        /// A derived constructor did not preserve the NodeID assigned by the DAG.
+        InvalidNodeIdentity
     };
 
     /**

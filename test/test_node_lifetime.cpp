@@ -77,27 +77,37 @@ namespace {
         return std::move(*compiled);
     }
 
-    TEST(NodePlanLifetime, CompiledBorrowRejectsRemovalWithoutChangingNodeOrEdges) {
+    TEST(NodePlanLifetime, RemovedNodeRemainsAliveForAnOldPlanAndDisappearsFromTheDesiredGraph) {
         LifetimeTrace trace;
         const TraceScope tracking{trace};
         {
             DAG graph;
-            const auto& a = graph.add<LifetimeNode>();
-            const auto& b = graph.add<LifetimeNode>();
+            const auto addedA = graph.add<LifetimeNode>();
+            ASSERT_TRUE(addedA);
+            const auto& a = *static_cast<LifetimeNode*>(graph.node(*addedA));
+            const auto addedB = graph.add<LifetimeNode>();
+            ASSERT_TRUE(addedB);
+            const auto& b = *static_cast<LifetimeNode*>(graph.node(*addedB));
             const auto from = a.channel(PortType::Out, 0);
             const auto to = b.channel(PortType::In, 0);
             ASSERT_TRUE(graph.connect(from, to));
             auto plan = compiledPlan(graph);
             ASSERT_TRUE(plan.has_value());
 
-            expectGraphError(graph.remove(a.id()), ErrorType::NodeInUse);
-            EXPECT_EQ(graph.node(a.id()), &a);
+            ASSERT_TRUE(graph.remove(a.id()));
+            EXPECT_EQ(graph.node(a.id()), nullptr);
             EXPECT_EQ(graph.node(b.id()), &b);
-            expectGraphError(graph.connect(from, to), ErrorType::ConnexionAlreadyExists);
+            expectGraphError(graph.connect(from, to), ErrorType::NodeNotFound);
+            expectGraphError(graph.disconnect(a.id(), b.id()), ErrorType::ConnexionNotFound);
+            auto replacement = graph.compile();
+            ASSERT_TRUE(replacement);
+            ASSERT_EQ(replacement->tasks().size(), 1U);
+            EXPECT_EQ(replacement->tasks().front(), &b);
             ASSERT_FALSE(plan->tasks().empty());
             plan->tasks().front()->process(ProcessContext{});
             EXPECT_EQ(trace.processCalls, 1U);
             EXPECT_EQ(trace.destructions, 0U);
+            EXPECT_EQ(graph.collectRetiredNodes(), 0U);
         } // Plan retires before its owning DAG is destroyed.
         EXPECT_EQ(trace.destructions, 2U);
         EXPECT_TRUE(trace.destroyedOnOwner);
@@ -107,16 +117,20 @@ namespace {
         LifetimeTrace trace;
         const TraceScope tracking{trace};
         DAG graph;
-        const auto id = graph.add<LifetimeNode>().id();
+        const auto addedId = graph.add<LifetimeNode>();
+        ASSERT_TRUE(addedId);
+        const auto id = *addedId;
         auto plan = compiledPlan(graph);
         ASSERT_TRUE(plan.has_value());
-        expectGraphError(graph.remove(id), ErrorType::NodeInUse);
+        ASSERT_TRUE(graph.remove(id));
         EXPECT_EQ(trace.destructions, 0U);
+        EXPECT_EQ(graph.collectRetiredNodes(), 0U);
 
         plan.reset();
         // The borrow token never owns or destroys the Node itself.
         EXPECT_EQ(trace.destructions, 0U);
-        ASSERT_TRUE(graph.remove(id));
+        EXPECT_EQ(graph.collectRetiredNodes(), 1U);
+        EXPECT_EQ(graph.collectRetiredNodes(), 0U);
         EXPECT_EQ(trace.destructions, 1U);
         EXPECT_EQ(graph.node(id), nullptr);
         expectGraphError(graph.remove(id), ErrorType::NodeNotFound);
@@ -128,16 +142,19 @@ namespace {
         LifetimeTrace trace;
         const TraceScope tracking{trace};
         DAG graph;
-        const auto id = graph.add<LifetimeNode>().id();
+        const auto addedId = graph.add<LifetimeNode>();
+        ASSERT_TRUE(addedId);
+        const auto id = *addedId;
         auto first = compiledPlan(graph);
         auto second = compiledPlan(graph);
         ASSERT_TRUE(first.has_value());
         ASSERT_TRUE(second.has_value());
+        ASSERT_TRUE(graph.remove(id));
         first.reset();
-        expectGraphError(graph.remove(id), ErrorType::NodeInUse);
+        EXPECT_EQ(graph.collectRetiredNodes(), 0U);
         EXPECT_EQ(trace.destructions, 0U);
         second.reset();
-        ASSERT_TRUE(graph.remove(id));
+        EXPECT_EQ(graph.collectRetiredNodes(), 1U);
         EXPECT_EQ(trace.destructions, 1U);
     }
 
@@ -145,7 +162,9 @@ namespace {
         LifetimeTrace trace;
         const TraceScope tracking{trace};
         DAG graph;
-        const auto id = graph.add<LifetimeNode>().id();
+        const auto addedId = graph.add<LifetimeNode>();
+        ASSERT_TRUE(addedId);
+        const auto id = *addedId;
         auto original = compiledPlan(graph);
         ASSERT_TRUE(original.has_value());
         std::optional<ExecutionPlan> copy{*original};
@@ -155,10 +174,11 @@ namespace {
         EXPECT_EQ(moved->tasks().front()->id(), id);
         copy.reset();
         original.reset();
-        expectGraphError(graph.remove(id), ErrorType::NodeInUse);
+        ASSERT_TRUE(graph.remove(id));
+        EXPECT_EQ(graph.collectRetiredNodes(), 0U);
         EXPECT_EQ(trace.destructions, 0U);
         moved.reset();
-        ASSERT_TRUE(graph.remove(id));
+        EXPECT_EQ(graph.collectRetiredNodes(), 1U);
         EXPECT_EQ(trace.destructions, 1U);
     }
 
@@ -166,8 +186,12 @@ namespace {
         LifetimeTrace trace;
         const TraceScope tracking{trace};
         DAG graph;
-        auto& a = graph.add<LifetimeNode>();
-        auto& b = graph.add<LifetimeNode>();
+        const auto addedA = graph.add<LifetimeNode>();
+        ASSERT_TRUE(addedA);
+        auto& a = *static_cast<LifetimeNode*>(graph.node(*addedA));
+        const auto addedB = graph.add<LifetimeNode>();
+        ASSERT_TRUE(addedB);
+        auto& b = *static_cast<LifetimeNode*>(graph.node(*addedB));
         const auto aID = a.id();
         const auto bID = b.id();
         std::optional<ExecutionPlan> left{std::in_place, std::vector<Node*>{&a},
@@ -183,9 +207,10 @@ namespace {
         ASSERT_EQ(left->tasks().size(), 1U);
         EXPECT_EQ(left->tasks().front()->id(), bID);
         right.reset();
-        expectGraphError(graph.remove(bID), ErrorType::NodeInUse);
-        left.reset();
         ASSERT_TRUE(graph.remove(bID));
+        EXPECT_EQ(graph.collectRetiredNodes(), 0U);
+        left.reset();
+        EXPECT_EQ(graph.collectRetiredNodes(), 1U);
         EXPECT_EQ(trace.destructions, 2U);
     }
 
@@ -193,8 +218,12 @@ namespace {
         LifetimeTrace trace;
         const TraceScope tracking{trace};
         DAG graph;
-        auto& a = graph.add<LifetimeNode>();
-        auto& b = graph.add<LifetimeNode>();
+        const auto addedA = graph.add<LifetimeNode>();
+        ASSERT_TRUE(addedA);
+        auto& a = *static_cast<LifetimeNode*>(graph.node(*addedA));
+        const auto addedB = graph.add<LifetimeNode>();
+        ASSERT_TRUE(addedB);
+        auto& b = *static_cast<LifetimeNode*>(graph.node(*addedB));
         const auto aID = a.id();
         const auto bID = b.id();
         std::optional<ExecutionPlan> left{std::in_place, std::vector<Node*>{&a},
@@ -210,9 +239,10 @@ namespace {
         ASSERT_EQ(left->tasks().size(), 1U);
         EXPECT_EQ(left->tasks().front()->id(), bID);
         right.reset();
-        expectGraphError(graph.remove(bID), ErrorType::NodeInUse);
-        left.reset();
         ASSERT_TRUE(graph.remove(bID));
+        EXPECT_EQ(graph.collectRetiredNodes(), 0U);
+        left.reset();
+        EXPECT_EQ(graph.collectRetiredNodes(), 1U);
         EXPECT_EQ(trace.destructions, 2U);
     }
 
@@ -220,7 +250,9 @@ namespace {
         LifetimeTrace trace;
         const TraceScope tracking{trace};
         DAG graph;
-        const auto id = graph.add<LifetimeNode>().id();
+        const auto addedId = graph.add<LifetimeNode>();
+        ASSERT_TRUE(addedId);
+        const auto id = *addedId;
         auto plan = compiledPlan(graph);
         ASSERT_TRUE(plan.has_value());
         ASSERT_EQ(plan->tasks().size(), 1U);
@@ -231,9 +263,10 @@ namespace {
         worker.join();
         EXPECT_EQ(trace.processCalls, 1U);
         EXPECT_EQ(trace.destructions, 0U);
-        expectGraphError(graph.remove(id), ErrorType::NodeInUse);
-        plan.reset();
         ASSERT_TRUE(graph.remove(id));
+        EXPECT_EQ(graph.collectRetiredNodes(), 0U);
+        plan.reset();
+        EXPECT_EQ(graph.collectRetiredNodes(), 1U);
         EXPECT_EQ(trace.destructions, 1U);
         EXPECT_TRUE(trace.destroyedOnOwner);
     }
