@@ -98,6 +98,7 @@ if (MKA_BUILD_TESTS)
             test/test_channel_id.cpp
             test/test_audio_channels.cpp
             test/test_config.cpp
+            test/test_process_context.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests
