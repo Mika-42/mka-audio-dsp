@@ -8,10 +8,9 @@ module;
 #include <vector>
 export module mka.audio.dsp.execution_plan;
 import mka.audio.dsp.node;
+import mka.audio.dsp.process_context;
 
 export namespace mka::audio::dsp {
-    struct ProcessContext;
-
     class ExecutionPlan {
         public:
         ExecutionPlan(
