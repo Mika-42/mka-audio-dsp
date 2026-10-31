@@ -67,8 +67,21 @@ namespace mka::audio::dsp {
             return {};
         }
 
-        //TODO reject connexion on undeclared ports
-        [[nodiscard]] Result connect(const Channel &from, const Channel &to) {
+        /**
+         * @brief Connect an Out source to an In or Aux destination, on control.
+         * @return GraphError::InvalidDirection for every other direction or
+         * undefined port code, before checking node existence, cycles or input
+         * occupancy. For valid directions, existing graph errors are preserved.
+         * @note Rejection leaves the graph unchanged. This potentially allocating
+         * control operation is not called from the audio callback; the port
+         * helpers themselves are pure constexpr/noexcept comparisons.
+         */
+        [[nodiscard]] std::expected<void, GraphError>
+        connect(const Channel &from, const Channel &to) {
+            if (!isOutputPort(from.port) || !isInputPort(to.port)) {
+                return std::unexpected(GraphError::InvalidDirection);
+            }
+
             if (!nodeExists(from.nodeID) || !nodeExists(to.nodeID)) {
                 return std::unexpected(ErrorType::NodeNotFound);
             }
@@ -90,10 +103,6 @@ namespace mka::audio::dsp {
 
             if (occupied) {
                 return std::unexpected(ErrorType::ChannelAlreadyConnected);
-            }
-
-            if (from.port != PortType::Out || (to.port != PortType::In && to.port != PortType::Aux)) {
-                return std::unexpected(ErrorType::InvalidPort);
             }
 
             connexions_.emplace_back(from, to);

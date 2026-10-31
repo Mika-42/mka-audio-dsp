@@ -14,8 +14,17 @@ export namespace mka::audio::dsp {
         ChannelAlreadyConnected,
         InvalidPort,
         /// An integer cannot be represented as a ChannelIndex (0..65535).
-        InvalidChannelIndex
+        InvalidChannelIndex,
+        /// A connection is not Out -> In or Out -> Aux (undefined codes included).
+        InvalidDirection
     };
+
+    /**
+     * @brief Graph-operation error vocabulary, sharing the existing error codes.
+     * @details Alias, not a second enum: existing Result/ErrorType callers stay
+     * compatible with std::expected<void, GraphError> and InvalidDirection.
+     */
+    using GraphError = ErrorType;
 
     using Result = std::expected<void, ErrorType>;
 

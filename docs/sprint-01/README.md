@@ -7,8 +7,8 @@ suivante nécessitent l’accord explicite de l’utilisateur.
 
 | Fiche | Référence | Livrable | État de cette session |
 |---|---|---|---|
-| [#1](https://trello.com/c/7tiFgIQZ) | S01-01 | Contrats des types fondamentaux | Proposition implémentée, en revue ; non validée |
-| [#2](https://trello.com/c/1jCSnFDE) | S01-02 | PortType et helpers de direction | Non abordée |
+| [#1](https://trello.com/c/7tiFgIQZ) | S01-01 | Contrats des types fondamentaux | Validée par l’utilisateur |
+| [#2](https://trello.com/c/1jCSnFDE) | S01-02 | PortType et helpers de direction | Proposition implémentée, en attente de validation |
 | [#3](https://trello.com/c/W8uXxlK9) | S01-03 | Encodage/décodage ChannelID | Non abordée |
 | [#4](https://trello.com/c/w4927DxH) | S01-04 | InputChannel et OutputChannel | Non abordée |
 | [#5](https://trello.com/c/SUHqra3U) | S01-05 | Config et layouts des canaux traités | Non abordée |
@@ -16,6 +16,8 @@ suivante nécessitent l’accord explicite de l’utilisateur.
 | [#7](https://trello.com/c/IBsJgjsI) | S01-07 | Interface Node et noexcept | Non abordée |
 | [#8](https://trello.com/c/v91sUQZu) | S01-08 | Accès direct aux E/S backend | Non abordée |
 
-Voir [la revue de S01-01](S01-01.md) pour le périmètre, les tests et la limite
-d’intégration de l’allocateur historique de NodeID. Le tableau Trello et les
-checklists de l’export n’ont pas été modifiés.
+Voir [la revue de S01-01](S01-01.md) pour le périmètre accepté, les tests et la
+limite d’intégration de l’allocateur historique de NodeID, et
+[la revue de S01-02](S01-02.md) pour la fiche en cours. Le tableau Trello et les
+checklists de l’export n’ont pas été modifiés ; ces états reflètent notre suivi
+local et l’accord exprimé dans la conversation.
