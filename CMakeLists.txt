@@ -94,6 +94,7 @@ if (MKA_BUILD_TESTS)
     add_executable(mka-audio-dsp-tests
             test/test_types.cpp
             test/test_ports.cpp
+            test/test_channel_id.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests

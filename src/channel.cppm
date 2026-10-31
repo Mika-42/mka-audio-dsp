@@ -5,6 +5,7 @@ module;
 #include <cstdint>
 
 export module mka.audio.dsp.channel;
+export import mka.audio.dsp.types;
 
 export namespace mka::audio::dsp {
 
@@ -58,6 +59,54 @@ export namespace mka::audio::dsp {
      */
     [[nodiscard]] constexpr bool isValidPort(const PortType port) noexcept {
         return isInputPort(port) || isOutputPort(port);
+    }
+
+    /**
+     * @brief Pack a logical channel into a numeric 64-bit identity.
+     * @param node Node field, including all representable 32-bit values.
+     * @param port Logical port category; must be In, Out or Aux.
+     * @param index Logical channel number in [0, 65535], not a backend lane.
+     * @pre isValidPort(port). Validate untrusted/decoded ports on control first.
+     * @details Numeric format: bits 63..32 = node, 31..16 = port, 15..0 = index.
+     * Encoding node zero is allowed as a numeric representation; it neither
+     * allocates an identity nor makes zero a valid live-node identity.
+     * The value owns no memory, is never an address and proves no node/buffer
+     * lifetime. Its bit layout is independent of host endianness; writing raw
+     * object bytes is not a portable serialization without an agreed byte order.
+     * @note Pure constexpr/noexcept operation; no allocation, I/O or shared state.
+     */
+    [[nodiscard]] constexpr ChannelID encode(const NodeID node, const PortType port,
+                                            const ChannelIndex index) noexcept {
+        return (static_cast<ChannelID>(node) << 32U) |
+               (static_cast<ChannelID>(static_cast<std::uint16_t>(port)) << 16U) |
+               static_cast<ChannelID>(index);
+    }
+
+    /**
+     * @brief Extract bits 63..32 as a NodeID, without checking node existence.
+     * @note Pure constexpr/noexcept query for any ChannelID, including zero.
+     */
+    [[nodiscard]] constexpr NodeID decodeNode(const ChannelID id) noexcept {
+        return static_cast<NodeID>((id >> 32U) & ChannelID{0xFFFFFFFF});
+    }
+
+    /**
+     * @brief Extract bits 31..16 as a PortType, preserving undefined codes.
+     * @return The exact 16-bit field, which can be outside In/Out/Aux.
+     * @warning Check isValidPort() before using a decoded port or passing it to
+     * encode(). Decoding never normalizes an undefined code to an official port.
+     * @note Pure constexpr/noexcept query for any ChannelID; no allocation.
+     */
+    [[nodiscard]] constexpr PortType decodePort(const ChannelID id) noexcept {
+        return static_cast<PortType>((id >> 16U) & ChannelID{0xFFFF});
+    }
+
+    /**
+     * @brief Extract bits 15..0 as a logical ChannelIndex in [0, 65535].
+     * @note Pure constexpr/noexcept query; no backend lookup or memory ownership.
+     */
+    [[nodiscard]] constexpr ChannelIndex decodeChannel(const ChannelID id) noexcept {
+        return static_cast<ChannelIndex>(id & ChannelID{0xFFFF});
     }
 
     struct Channel {
