@@ -14,7 +14,7 @@ suivante nécessitent l’accord explicite de l’utilisateur.
 | [#5](https://trello.com/c/SUHqra3U) | S01-05 | Config et layouts des canaux traités | Validée par l’utilisateur |
 | [#6](https://trello.com/c/3a32gJwc) | S01-06 | ProcessContext et vues audio | Validée par l’utilisateur |
 | [#7](https://trello.com/c/IBsJgjsI) | S01-07 | Interface Node et noexcept | Validée par l’utilisateur |
-| [#8](https://trello.com/c/v91sUQZu) | S01-08 | Accès direct aux E/S backend | Proposition implémentée, en attente de validation |
+| [#8](https://trello.com/c/v91sUQZu) | S01-08 | Accès direct aux E/S backend | Validée par le passage au sprint 2 demandé par l’utilisateur |
 
 Voir [la revue de S01-01](S01-01.md) pour le périmètre accepté, les tests et la
 limite d’intégration de l’allocateur historique de NodeID, et
@@ -24,6 +24,8 @@ limite d’intégration de l’allocateur historique de NodeID, et
 [la revue de S01-05](S01-05.md) pour la fiche précédente et
 [la revue de S01-06](S01-06.md) pour la fiche précédente et
 [la revue de S01-07](S01-07.md) pour la fiche précédente et
-[la revue de S01-08](S01-08.md) pour la fiche en cours. Le tableau Trello et les
+[la revue de S01-08](S01-08.md) pour la dernière fiche de ce sprint.
+La fiche en cours figure dans [le suivi du sprint 02](../sprint-02/README.md).
+Le tableau Trello et les
 checklists de l’export n’ont pas été modifiés ; ces états reflètent notre suivi
 local et l’accord exprimé dans la conversation.

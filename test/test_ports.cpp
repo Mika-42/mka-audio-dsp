@@ -117,8 +117,12 @@ namespace {
 
     TEST_P(PortDirectionMatrix, AcceptsOnlyOutToInOrAuxWithoutPhantomEdges) {
         DAG graph;
-        const auto& source = graph.add<PortTestNode>();
-        const auto& destination = graph.add<PortTestNode>();
+        const auto addedSource = graph.add<PortTestNode>();
+        ASSERT_TRUE(addedSource);
+        const auto& source = *static_cast<PortTestNode*>(graph.node(*addedSource));
+        const auto addedDestination = graph.add<PortTestNode>();
+        ASSERT_TRUE(addedDestination);
+        const auto& destination = *static_cast<PortTestNode*>(graph.node(*addedDestination));
         const auto pair = GetParam();
         const auto result = graph.connect(source.channel(pair.source, index),
                                           destination.channel(pair.destination, index));
@@ -173,8 +177,12 @@ namespace {
                      PortPair{PortType::Out, invalid, false},
                      PortPair{invalid, invalid, false}}) {
                 DAG graph;
-                const auto& source = graph.add<PortTestNode>();
-                const auto& destination = graph.add<PortTestNode>();
+                const auto addedSource = graph.add<PortTestNode>();
+                ASSERT_TRUE(addedSource);
+                const auto& source = *static_cast<PortTestNode*>(graph.node(*addedSource));
+                const auto addedDestination = graph.add<PortTestNode>();
+                ASSERT_TRUE(addedDestination);
+                const auto& destination = *static_cast<PortTestNode*>(graph.node(*addedDestination));
                 const auto result = graph.connect(rawChannelID(source.id(), pair.source),
                                                   rawChannelID(destination.id(), pair.destination));
                 ASSERT_FALSE(result.has_value());
@@ -191,10 +199,18 @@ namespace {
 
     TEST(PortDirections, RejectionsPreserveAnExistingEdgeAndDoNotAddAnother) {
         DAG graph;
-        const auto& a = graph.add<PortTestNode>();
-        const auto& b = graph.add<PortTestNode>();
-        const auto& c = graph.add<PortTestNode>();
-        const auto& d = graph.add<PortTestNode>();
+        const auto addedA = graph.add<PortTestNode>();
+        ASSERT_TRUE(addedA);
+        const auto& a = *static_cast<PortTestNode*>(graph.node(*addedA));
+        const auto addedB = graph.add<PortTestNode>();
+        ASSERT_TRUE(addedB);
+        const auto& b = *static_cast<PortTestNode*>(graph.node(*addedB));
+        const auto addedC = graph.add<PortTestNode>();
+        ASSERT_TRUE(addedC);
+        const auto& c = *static_cast<PortTestNode*>(graph.node(*addedC));
+        const auto addedD = graph.add<PortTestNode>();
+        ASSERT_TRUE(addedD);
+        const auto& d = *static_cast<PortTestNode*>(graph.node(*addedD));
         const auto originalFrom = a.channel(PortType::Out, index);
         const auto originalTo = b.channel(PortType::In, index);
         ASSERT_TRUE(graph.connect(originalFrom, originalTo));
@@ -228,8 +244,12 @@ namespace {
 
     TEST(PortDirections, InvalidDirectionTakesPriorityOverOtherGraphErrors) {
         DAG graph;
-        const auto& a = graph.add<PortTestNode>();
-        const auto& b = graph.add<PortTestNode>();
+        const auto addedA = graph.add<PortTestNode>();
+        ASSERT_TRUE(addedA);
+        const auto& a = *static_cast<PortTestNode*>(graph.node(*addedA));
+        const auto addedB = graph.add<PortTestNode>();
+        ASSERT_TRUE(addedB);
+        const auto& b = *static_cast<PortTestNode*>(graph.node(*addedB));
         ASSERT_TRUE(graph.connect(a.channel(PortType::Out, index), b.channel(PortType::In, index)));
 
         // Occupancy would previously mask the invalid source direction.
@@ -260,9 +280,15 @@ namespace {
 
     TEST(PortDirections, ValidDirectionsPreserveExistingGraphErrorChecks) {
         DAG graph;
-        const auto& a = graph.add<PortTestNode>();
-        const auto& b = graph.add<PortTestNode>();
-        const auto& c = graph.add<PortTestNode>();
+        const auto addedA = graph.add<PortTestNode>();
+        ASSERT_TRUE(addedA);
+        const auto& a = *static_cast<PortTestNode*>(graph.node(*addedA));
+        const auto addedB = graph.add<PortTestNode>();
+        ASSERT_TRUE(addedB);
+        const auto& b = *static_cast<PortTestNode*>(graph.node(*addedB));
+        const auto addedC = graph.add<PortTestNode>();
+        ASSERT_TRUE(addedC);
+        const auto& c = *static_cast<PortTestNode*>(graph.node(*addedC));
         const auto aOut = a.channel(PortType::Out, index);
         const auto bIn = b.channel(PortType::In, index);
         const auto unknownOut = encode(maxNodeID, PortType::Out, index);
