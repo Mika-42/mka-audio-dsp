@@ -16,7 +16,9 @@ export namespace mka::audio::dsp {
         /// An integer cannot be represented as a ChannelIndex (0..65535).
         InvalidChannelIndex,
         /// A connection is not Out -> In or Out -> Aux (undefined codes included).
-        InvalidDirection
+        InvalidDirection,
+        /// A consumed audio channel has a null buffer for a positive-frame block.
+        NullBuffer
     };
 
     /**

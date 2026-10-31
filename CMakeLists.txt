@@ -95,6 +95,7 @@ if (MKA_BUILD_TESTS)
             test/test_types.cpp
             test/test_ports.cpp
             test/test_channel_id.cpp
+            test/test_audio_channels.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests
