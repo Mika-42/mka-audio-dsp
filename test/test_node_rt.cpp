@@ -290,6 +290,84 @@ namespace {
         EXPECT_TRUE(observedPostConstructionCleanup);
     }
 
+    TEST(DAGAllocationFailure, EveryConnectionAllocationPreservesTheGraphAndOldPlanOnFailure) {
+        const BackendConfig config{.maxFrames = 1, .inputChannels = 1, .outputChannels = 1};
+        std::size_t allocationPoints = 0;
+        {
+            DAG graph;
+            const auto source = graph.add<GainNode>();
+            const auto sink = graph.add<GainNode>();
+            ASSERT_TRUE(source);
+            ASSERT_TRUE(sink);
+            ASSERT_TRUE(graph.markAsOutput(*source));
+            ASSERT_TRUE(graph.markAsOutput(*sink));
+            auto oldPlan = graph.compile(config);
+            ASSERT_TRUE(oldPlan);
+            const auto from = graph.node(*source)->channel(PortType::Out, 0);
+            const auto to = graph.node(*sink)->channel(PortType::In, 0);
+            Result connected;
+            {
+                const AllocationWindow measured;
+                connected = graph.connect(from, to);
+            }
+            ASSERT_TRUE(connected);
+            allocationPoints = allocations;
+        }
+        ASSERT_GT(allocationPoints, 0U);
+        for (std::size_t failAt = 0; failAt < allocationPoints; ++failAt) {
+            SCOPED_TRACE(failAt);
+            DAG graph;
+            const auto source = graph.add<GainNode>();
+            const auto sink = graph.add<GainNode>();
+            ASSERT_TRUE(source);
+            ASSERT_TRUE(sink);
+            Node* const sourceAddress = graph.node(*source);
+            Node* const sinkAddress = graph.node(*sink);
+            const auto from = sourceAddress->channel(PortType::Out, 0);
+            const auto to = sinkAddress->channel(PortType::In, 0);
+            ASSERT_TRUE(graph.markAsOutput(*source));
+            ASSERT_TRUE(graph.markAsOutput(*sink));
+            auto oldPlan = graph.compile(config);
+            ASSERT_TRUE(oldPlan);
+            Result failed;
+            {
+                const FailureWindow fault{failAt};
+                failed = graph.connect(from, to);
+            }
+            ASSERT_FALSE(failed);
+            EXPECT_EQ(failed.error(), GraphError::AllocationFailed);
+            EXPECT_EQ(injectedFailures, 1U);
+            EXPECT_TRUE(graph.connections().empty());
+            EXPECT_EQ(graph.node(*source), sourceAddress);
+            EXPECT_EQ(graph.node(*sink), sinkAddress);
+            ASSERT_EQ(oldPlan->tasks().size(), 2U);
+            EXPECT_EQ(oldPlan->tasks()[0], sourceAddress);
+            EXPECT_EQ(oldPlan->tasks()[1], sinkAddress);
+            const float input = 3;
+            float output = 99;
+            const std::array inputs{&input};
+            const std::array outputs{&output};
+            ASSERT_TRUE(oldPlan->exec(BackendBlock{inputs, outputs, 1}));
+            EXPECT_EQ(output, 103);
+            auto unchanged = graph.compile(config);
+            ASSERT_TRUE(unchanged);
+            ASSERT_TRUE(unchanged->exec(BackendBlock{inputs, outputs, 1}));
+            EXPECT_EQ(output, 103);
+            EXPECT_EQ(static_cast<GainNode*>(sourceAddress)->backendChannels, 1U);
+            EXPECT_EQ(static_cast<GainNode*>(sinkAddress)->backendChannels, 1U);
+            ASSERT_TRUE(graph.connect(from, to));
+            ASSERT_EQ(graph.connections().size(), 1U);
+            EXPECT_EQ(graph.connections()[0], (Connection{from, to}));
+            // A successful desired-graph edit also leaves the old audio snapshot intact.
+            ASSERT_TRUE(oldPlan->exec(BackendBlock{inputs, outputs, 1}));
+            EXPECT_EQ(output, 103);
+            auto updated = graph.compile(config);
+            ASSERT_TRUE(updated);
+            ASSERT_TRUE(updated->exec(BackendBlock{inputs, outputs, 1}));
+            EXPECT_EQ(output, 106);
+        }
+    }
+
     TEST(DAGAllocationFailure, FailedRetirementPreservesNodeEdgesOutputRolesAndOldPlan) {
         DAG graph;
         const auto source = graph.add<GainNode>();

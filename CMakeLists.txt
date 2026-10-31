@@ -53,6 +53,7 @@ target_sources(mka-audio-dsp
         src/process_context.cppm
         src/node.cppm
         src/channel.cppm
+        src/connection.cppm
         src/dag.cppm
         src/execution_plan.cppm
 )
@@ -103,6 +104,7 @@ if (MKA_BUILD_TESTS)
             test/test_node_lifetime.cpp
             test/test_backend_io.cpp
             test/test_dag_storage.cpp
+            test/test_connection.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests
