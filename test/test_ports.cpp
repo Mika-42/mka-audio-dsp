@@ -47,8 +47,9 @@ namespace {
     class PortTestNode final : public Node {
     public:
         explicit PortTestNode(const NodeID id)
-            : Node(id, {.layoutInput = Layout::Stereo,
-                        .layoutOutput = Layout::Stereo}) {}
+            : Node(id, {.layoutInput = {0, 1},
+                        .layoutAuxiliary = {},
+                        .layoutOutput = {0, 1}}) {}
 
         void process(const ProcessContext&) noexcept override {}
     };

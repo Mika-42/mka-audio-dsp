@@ -18,7 +18,11 @@ export namespace mka::audio::dsp {
         /// A connection is not Out -> In or Out -> Aux (undefined codes included).
         InvalidDirection,
         /// A consumed audio channel has a null buffer for a positive-frame block.
-        NullBuffer
+        NullBuffer,
+        /// A logical channel index is repeated within a single port layout.
+        DuplicateChannelIndex,
+        /// A port layout exceeds the 65536 representable distinct channel indices.
+        LayoutCapacityExceeded
     };
 
     /**
