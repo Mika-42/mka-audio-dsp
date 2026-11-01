@@ -415,4 +415,68 @@ namespace {
         ASSERT_TRUE(replacement->exec(BackendBlock{inputs, outputs, 1}));
         EXPECT_EQ(output, 103); // Sink is now a topological source in this plan.
     }
+
+    TEST(OutputMarkerFailure, FailedMarkIsTransactionalAndRepeatedMarkAndUnmarkDoNotAllocate) {
+        ConstructionTrace trace;
+        DAG graph;
+        auto id = graph.add<AllocationNode>(trace);
+        ASSERT_TRUE(id);
+        auto old = graph.compile(BackendConfig{.maxFrames=1,.outputChannels=1});
+        ASSERT_TRUE(old);
+        Result result;
+        {
+            const FailureWindow fault{0};
+            result = graph.markAsOutput(*id);
+        }
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error(),GraphError::AllocationFailed);
+        EXPECT_EQ(injectedFailures,1U);
+        EXPECT_TRUE(graph.outputNodes().empty());
+        float output=99;
+        const std::array outputs{&output};
+        ASSERT_TRUE(old->exec(BackendBlock{.outputs=outputs,.frames=1}));
+        EXPECT_EQ(output,0);
+        ASSERT_TRUE(graph.markAsOutput(*id));
+        {
+            const FailureWindow fault{0};
+            result = graph.markAsOutput(*id);
+        }
+        EXPECT_TRUE(result);
+        EXPECT_EQ(injectedFailures,0U);
+        ASSERT_EQ(graph.outputNodes().size(),1U);
+        EXPECT_EQ(graph.outputNodes()[0],*id);
+        {
+            const FailureWindow fault{0};
+            result = graph.unmarkAsOutput(*id);
+        }
+        EXPECT_TRUE(result);
+        EXPECT_EQ(injectedFailures,0U);
+        EXPECT_TRUE(graph.outputNodes().empty());
+    }
+
+    TEST(OutputMarkerRealtime, UnmarkKeepsTheOldRoleWithNoHeapOperationsDuringCallbacks) {
+        DAG graph;
+        auto id = graph.add<GainNode>();
+        ASSERT_TRUE(id);
+        ASSERT_TRUE(graph.markAsOutput(*id));
+        auto old = graph.compile(BackendConfig{.maxFrames=1,.inputChannels=1,.outputChannels=1});
+        ASSERT_TRUE(old);
+        ASSERT_TRUE(graph.unmarkAsOutput(*id));
+        const float input=3;
+        float first=99, second=99;
+        const std::array inputs{&input};
+        const std::array firstOutputs{&first}, secondOutputs{&second};
+        bool accepted=true;
+        {
+            const AllocationWindow measured;
+            for (unsigned i=0; i<64; ++i)
+                accepted = old->exec(BackendBlock{inputs,i%2 ? firstOutputs : secondOutputs,1}) && accepted;
+        }
+        EXPECT_TRUE(accepted);
+        EXPECT_EQ(allocations,0U);
+        EXPECT_EQ(deallocations,0U);
+        EXPECT_EQ(first,103);
+        EXPECT_EQ(second,103);
+        EXPECT_TRUE(graph.outputNodes().empty());
+    }
 }

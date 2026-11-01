@@ -171,14 +171,41 @@ namespace mka::audio::dsp {
          * @brief Mark an existing Node for direct access to all backend outputs.
          * @details Control-side, idempotent and independent of source status,
          * logical layouts and outgoing edges. Existing plans retain their role
-         * snapshot; compile a new plan to apply this edit.
+         * snapshot; compile a new plan to apply this edit. IDs are stored once
+         * in increasing order. Allocation failure leaves the marker set intact.
          */
-        [[nodiscard]] std::expected<void, GraphError> markAsOutput(const NodeID id) {
+        [[nodiscard]] std::expected<void, GraphError> markAsOutput(const NodeID id) try {
             if (!nodeExists(id)) return std::unexpected(GraphError::NodeNotFound);
-            if (std::ranges::find(outputsNodes_, id) == outputsNodes_.end()) {
-                outputsNodes_.push_back(id);
-            }
+            const auto position = std::ranges::lower_bound(outputsNodes_, id);
+            if (position != outputsNodes_.end() && *position == id) return {};
+            outputsNodes_.insert(position, id);
             return {};
+        } catch (const std::bad_alloc&) {
+            return std::unexpected(GraphError::AllocationFailed);
+        } catch (const std::length_error&) {
+            return std::unexpected(GraphError::NodeCapacityExceeded);
+        }
+
+        /**
+         * @brief Idempotently remove an existing Node's desired output role.
+         * @return NodeNotFound for an absent Node; success even if already unmarked.
+         * @details Control only. No allocation, graph edge, channel reservation
+         * or change to the roles/buffers of any existing prepared plan.
+         */
+        [[nodiscard]] std::expected<void, GraphError> unmarkAsOutput(const NodeID id) noexcept {
+            if (!nodeExists(id)) return std::unexpected(GraphError::NodeNotFound);
+            std::erase(outputsNodes_, id);
+            return {};
+        }
+
+        /**
+         * @brief Read-only desired output identities in increasing NodeID order.
+         * @details Control-owned values, not hardware channels. Like connections(),
+         * any edit may invalidate this borrowed view. No concurrent edit/read;
+         * copy values for an independent snapshot. No Node/buffer ownership.
+         */
+        [[nodiscard]] std::span<const NodeID> outputNodes() const noexcept {
+            return outputsNodes_;
         }
 
         /**
