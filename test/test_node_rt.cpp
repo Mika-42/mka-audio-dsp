@@ -147,6 +147,7 @@ namespace {
             ++calls;
             backendChannels = context.backendOutputs.size();
             for (FrameCount i = 0; i < context.frames; ++i) {
+                if (partial && i%2) continue;
                 const auto sample = context.inputs[0].buffer[i];
                 context.outputs[0].buffer[i] = sample * 2.F;
                 context.backendOutputs[0].buffer[i] = sample + 100.F;
@@ -154,6 +155,7 @@ namespace {
         }
 
         unsigned calls = 0; // Numeric state only; no retained context or pointer.
+        bool partial=false;
         std::size_t backendChannels = 0;
     };
 
@@ -297,6 +299,28 @@ namespace {
         EXPECT_EQ(output,(std::array<float,3>{0,0,77}));
         EXPECT_EQ(plan->takeCallbackDiagnostics(),static_cast<std::uint32_t>(CallbackDiagnostic::FrameCapacityExceeded));
         EXPECT_EQ(plan->callbackDiagnostics(),0U);
+    }
+
+    TEST(LogicalOutputRealtime, PartialWritersLeaveZeroHolesWithNoHeapOrMutexOperations) {
+        DAG graph;
+        const auto id=graph.add<GainNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
+        auto plan=graph.compile(BackendConfig{.maxFrames=32,.inputChannels=1,.outputChannels=1}); ASSERT_TRUE(plan);
+        std::array<float,32> input{},output{};
+        for (std::size_t i=0;i<32;++i) input[i]=static_cast<float>(i+1);
+        const std::array<const float*,1> inputs{input.data()}; const std::array outputs{output.data()};
+        plan->exec(mka::audio::AudioProcessContext{inputs,outputs,32});
+        static_cast<GainNode*>(graph.node(*id))->partial=true;
+        {
+            const AllocationWindow window;
+            for (unsigned block=0;block<64;++block)
+                plan->exec(mka::audio::AudioProcessContext{inputs,outputs,block%3==0 ? 0U : (block%3==1 ? 1U : 32U)});
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        const auto* logical=plan->executionTasks()[0].context.outputs[0].buffer;
+        for (std::size_t i=0;i<32;++i) {
+            EXPECT_EQ(logical[i],i%2 ? 0.F : input[i]*2.F);
+            EXPECT_EQ(output[i],i%2 ? 0.F : input[i]+100.F);
+        }
     }
 
     struct ConstructionTrace {

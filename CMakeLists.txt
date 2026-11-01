@@ -130,6 +130,7 @@ if (MKA_BUILD_TESTS)
             test/test_silence_inputs.cpp
             test/test_internal_bindings.cpp
             test/test_realtime_execution.cpp
+            test/test_logical_output_clearing.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests
