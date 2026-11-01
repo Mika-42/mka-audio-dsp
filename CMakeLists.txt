@@ -117,6 +117,7 @@ if (MKA_BUILD_TESTS)
             test/test_undeclared_channels.cpp
             test/test_topological_order.cpp
             test/test_four_node_oracle.cpp
+            test/test_exhaustive_oracles.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests
