@@ -54,6 +54,8 @@ target_sources(mka-audio-dsp
         src/node.cppm
         src/channel.cppm
         src/connection.cppm
+        src/graph_snapshot.cppm
+        src/topology.cppm
         src/dag.cppm
         src/execution_plan.cppm
 )
@@ -113,6 +115,7 @@ if (MKA_BUILD_TESTS)
             test/test_dag_editing.cpp
             test/test_cycles.cpp
             test/test_undeclared_channels.cpp
+            test/test_topological_order.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests

@@ -5,6 +5,7 @@
 #include <limits>
 #include <new>
 #include <span>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -495,6 +496,49 @@ namespace {
             EXPECT_EQ(address->config().layoutInput,next.layoutInput);
             EXPECT_EQ(address->config().layoutAuxiliary,next.layoutAuxiliary);
             EXPECT_EQ(address->config().layoutOutput,next.layoutOutput);
+        }
+    }
+
+    TEST(TopologyAllocationFailure, EveryAllocationFailureLeavesTheDesiredGraphAndOldPlanIntact) {
+        std::size_t points=0;
+        {
+            ConstructionTrace trace;
+            DAG graph;
+            for (unsigned i=0;i<4;++i) ASSERT_TRUE(graph.add<AllocationNode>(trace));
+            ASSERT_TRUE(graph.connect(encode(1,PortType::In,0),encode(2,PortType::Out,0)));
+            ASSERT_TRUE(graph.markAsOutput(3));
+            std::expected<std::vector<NodeID>,GraphError> order;
+            {
+                const AllocationWindow measured;
+                order=topologicalOrder(graph);
+            }
+            ASSERT_TRUE(order); points=allocations;
+        }
+        ASSERT_GT(points,0U);
+        for (std::size_t i=0;i<points;++i) {
+            SCOPED_TRACE(i);
+            ConstructionTrace trace;
+            DAG graph;
+            for (unsigned n=0;n<4;++n) ASSERT_TRUE(graph.add<AllocationNode>(trace));
+            const Connection edge{encode(2,PortType::Out,0),encode(1,PortType::In,0)};
+            ASSERT_TRUE(graph.connect(edge.to,edge.from)); ASSERT_TRUE(graph.markAsOutput(3));
+            auto old=graph.compile(); ASSERT_TRUE(old);
+            const auto* const address=graph.node(1);
+            std::expected<std::vector<NodeID>,GraphError> failed;
+            {
+                const FailureWindow fault{i};
+                failed=topologicalOrder(graph);
+            }
+            ASSERT_FALSE(failed); EXPECT_EQ(failed.error(),GraphError::AllocationFailed);
+            EXPECT_EQ(injectedFailures,1U); EXPECT_EQ(graph.node(1),address);
+            ASSERT_EQ(graph.connections().size(),1U); EXPECT_EQ(graph.connections()[0],edge);
+            ASSERT_EQ(graph.outputNodes().size(),1U); EXPECT_EQ(graph.outputNodes()[0],3U);
+            const std::array<NodeID,4> expected{2,1,3,4};
+            ASSERT_EQ(old->tasks().size(),4U);
+            for (std::size_t n=0;n<4;++n) EXPECT_EQ(old->tasks()[n]->id(),expected[n]);
+            const auto retry=topologicalOrder(graph); ASSERT_TRUE(retry);
+            ASSERT_EQ(retry->size(),4U);
+            for (std::size_t n=0;n<4;++n) EXPECT_EQ((*retry)[n],expected[n]);
         }
     }
 

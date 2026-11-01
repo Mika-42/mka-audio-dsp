@@ -19,6 +19,7 @@ export import mka.audio.dsp.error;
 export import mka.audio.dsp.node;
 export import mka.audio.dsp.connection;
 export import mka.audio.dsp.execution_plan;
+export import mka.audio.dsp.topology;
 
 export namespace mka::audio::dsp::detail {
     /**
@@ -50,6 +51,12 @@ export namespace mka::audio::dsp::detail {
 
 // non-RT graph
 namespace mka::audio::dsp {
+    export class DAG;
+
+    /** Control-only total order; no graph mutation or audio processing. */
+    export [[nodiscard]] std::expected<std::vector<NodeID>, GraphError>
+    topologicalOrder(const DAG& graph);
+
     /**
      * @brief Final control-side owner of stable-address Node objects.
      * @details All edits, compilation, retirement collection and destruction
@@ -374,11 +381,11 @@ namespace mka::audio::dsp {
          * @brief Compile desired structure into stable, borrowed Node tasks on control.
          * @details No Node::process, backend access or audio buffer preparation.
          * Temporary structural plans support inspection of desired membership
-         * and layers. Resource allocation may throw on control. The owner must
-         * outlive the plan; retire all task/layer views with their plan. Use the
+         * and serial execution steps. Resource errors are returned on control.
+         * The owner must outlive the plan; retire task/layer views with it. Use the
          * BackendConfig overload to prepare an executable audio snapshot.
          */
-        [[nodiscard]] std::expected<ExecutionPlan, ErrorType> compile() const {
+        [[nodiscard]] std::expected<ExecutionPlan, ErrorType> compile() const try {
             std::vector<std::size_t> layerIndices;
 
             auto sortedNodes = topologicalSort(layerIndices);
@@ -391,6 +398,10 @@ namespace mka::audio::dsp {
                 std::move(*sortedNodes),
                 std::move(layerIndices)
             };
+        } catch (const std::bad_alloc&) {
+            return std::unexpected(GraphError::AllocationFailed);
+        } catch (const std::length_error&) {
+            return std::unexpected(GraphError::PreparationCapacityExceeded);
         }
 
         /**
@@ -409,6 +420,18 @@ namespace mka::audio::dsp {
         }
 
     private:
+        friend std::expected<std::vector<NodeID>, GraphError> topologicalOrder(const DAG& graph);
+
+        /** Owned control snapshot; no Node addresses escape through its values. */
+        [[nodiscard]] detail::GraphSnapshot structuralSnapshot() const {
+            detail::GraphSnapshot snapshot;
+            snapshot.nodes.reserve(nodes_.size());
+            for (const auto& node : nodes_) snapshot.nodes.push_back(node->id());
+            snapshot.connections = connections_;
+            snapshot.outputs = outputsNodes_;
+            return snapshot;
+        }
+
         /**
          * @brief Full-ChannelID occupancy, derived from desired edges on control.
          * @details In/Aux and indices are independent, including outside Config.
@@ -466,111 +489,34 @@ namespace mka::audio::dsp {
         }
 
         /**
-         * @brief Trie les nœuds par couches topologiques.
-         *
-         * @param[out] layerIndices Limites des couches dans le vecteur retourné.
-         *             Modifié uniquement en cas de succès.
-         *
-         * @return Les pointeurs vers les nœuds triés, ou une erreur.
-         *
-         * @note Un graphe vide produit un vecteur vide et les indices {0}.
-         * @note Alloue de la mémoire : à appeler hors du thread audio.
-         * @pre Le DAG ne doit pas être modifié pendant le tri.
+         * @brief Map the total min-heap order to borrowed stable task pointers.
+         * @param[out] layerIndices Unit serial-step boundaries, modified only
+         * on success. These are not breadth-first dependency levels: a newly
+         * available low ID may precede an old frontier member.
+         * @note Empty graph gives no tasks and indices {0}. Allocations occur
+         * on control and are caught by compile(). No parallel scheduling here.
+         * @pre Serialize edits; the Node owner must outlive the resulting plan.
          */
-        [[nodiscard]]
-        std::expected<std::vector<Node *>, ErrorType> topologicalSort(
-            std::vector<std::size_t> &layerIndices
-        ) const {
-            const auto count = nodes_.size();
-
-            // Associer chaque ID à sa position dans nodes_.
-            std::unordered_map<std::uint64_t, std::size_t> indices;
-            indices.reserve(count);
-
-            for (std::size_t i = 0; i < count; ++i) {
-                indices.emplace(nodes_[i]->id(), i);
-            }
-
-            // Construire les dépendances dans le sens du signal : Out → In/Aux.
-            std::vector<std::vector<std::size_t> > successors(count);
-
-            for (const auto &connexion: connections_) {
-                const auto source = indices.find(decodeNode(connexion.from));
-                const auto destination = indices.find(decodeNode(connexion.to));
-
-                if (source == indices.end() || destination == indices.end()) {
-                    return std::unexpected(ErrorType::NodeNotFound);
-                }
-
-                successors[source->second].push_back(destination->second);
-            }
-
-            // Dédupliquer les dépendances et compter les prédécesseurs.
-            std::vector<std::size_t> remaining(count, 0);
-
-            for (auto &list: successors) {
-                std::ranges::sort(list);
-
-                const auto duplicates = std::ranges::unique(list);
-                list.erase(duplicates.begin(), duplicates.end());
-
-                for (const auto destination: list) {
-                    ++remaining[destination];
-                }
-            }
-
-            std::vector<std::size_t> ready;
-            std::vector<std::size_t> next;
-
-            ready.reserve(count);
-            next.reserve(count);
-
-            // Première couche : les nœuds sans prédécesseur.
-            for (std::size_t i = 0; i < count; ++i) {
-                if (remaining[i] == 0) {
-                    ready.push_back(i);
-                }
-            }
-
-            std::vector<Node *> result;
-            result.reserve(count);
-
-            std::vector<std::size_t> offsets{0};
-            offsets.reserve(count + 1);
-
-            while (!ready.empty()) {
-                // Garantir un ordre reproductible dans chaque couche.
-                std::ranges::sort(
-                    ready,
-                    [this](const std::size_t left, const std::size_t right) {
-                        return nodes_[left]->id() < nodes_[right]->id();
-                    }
-                );
-
-                next.clear();
-
-                for (const auto index: ready) {
-                    result.push_back(nodes_[index].get());
-
-                    for (const auto successor: successors[index]) {
-                        --remaining[successor];
-
-                        if (remaining[successor] == 0) {
-                            next.push_back(successor);
-                        }
-                    }
-                }
-
-                // Marquer la fin de la couche qui vient d'être ajoutée.
+        [[nodiscard]] std::expected<std::vector<Node*>, ErrorType>
+        topologicalSort(std::vector<std::size_t>& layerIndices) const {
+            const auto order = topologicalOrder(*this);
+            if (!order) return std::unexpected(order.error());
+            std::unordered_map<NodeID, Node*> addresses;
+            addresses.reserve(nodes_.size());
+            for (const auto& node : nodes_) addresses.emplace(node->id(), node.get());
+            std::vector<Node*> result;
+            result.reserve(order->size());
+            std::vector<std::size_t> offsets;
+            if (order->size() >= offsets.max_size())
+                return std::unexpected(GraphError::PreparationCapacityExceeded);
+            offsets.reserve(order->size() + 1);
+            offsets.push_back(0);
+            for (const auto id : *order) {
+                const auto found = addresses.find(id);
+                if (found == addresses.end()) return std::unexpected(GraphError::NodeNotFound);
+                result.push_back(found->second);
                 offsets.push_back(result.size());
-
-                ready.swap(next);
             }
-
-            if (result.size() != count) {
-                return std::unexpected(ErrorType::CycleDetected);
-            }
-
             layerIndices = std::move(offsets);
             return result;
         }
@@ -584,4 +530,13 @@ namespace mka::audio::dsp {
         detail::NodeIDSequence identities_; ///< Committed IDs never become available again.
         std::size_t maxOwnedNodes_ = maxNodeID; ///< Live + retired quota; immutable after construction.
     };
+
+    [[nodiscard]] std::expected<std::vector<NodeID>, GraphError>
+    topologicalOrder(const DAG& graph) try {
+        return detail::topologicalOrder(graph.structuralSnapshot());
+    } catch (const std::bad_alloc&) {
+        return std::unexpected(GraphError::AllocationFailed);
+    } catch (const std::length_error&) {
+        return std::unexpected(GraphError::PreparationCapacityExceeded);
+    }
 }
