@@ -583,6 +583,100 @@ namespace {
         }
     }
 
+    TEST(StructuralCompileAllocation, EveryAllocationPreservesThePreparedTargetAndReleasesCandidateBorrows) {
+        const BackendConfig backend{.maxFrames=1,.inputChannels=1,.outputChannels=1};
+        std::size_t points=0;
+        {
+            DAG graph;
+            const auto first=graph.add<GainNode>(); ASSERT_TRUE(first);
+            ASSERT_TRUE(graph.markAsOutput(*first));
+            auto old=graph.compile(backend); ASSERT_TRUE(old);
+            ExecutionPlan target=std::move(*old);
+            const auto second=graph.add<GainNode>(); ASSERT_TRUE(second);
+            ASSERT_TRUE(graph.connect(encode(*second,PortType::In,0),encode(*first,PortType::Out,0)));
+            ASSERT_TRUE(graph.markAsOutput(*second));
+            Result compiled;
+            {
+                const AllocationWindow measured;
+                compiled=graph.compile(target,CompileConfig{});
+            }
+            ASSERT_TRUE(compiled); points=allocations;
+        }
+        ASSERT_GT(points,0U);
+        for (std::size_t i=0;i<points;++i) {
+            SCOPED_TRACE(i);
+            DAG graph;
+            const auto first=graph.add<GainNode>(); ASSERT_TRUE(first);
+            Node* const firstAddress=graph.node(*first);
+            ASSERT_TRUE(graph.markAsOutput(*first));
+            auto old=graph.compile(backend); ASSERT_TRUE(old);
+            ExecutionPlan target=std::move(*old);
+            ExecutionPlan active=target;
+            const auto* const taskStorage=target.tasks().data();
+            const auto* const metadataStorage=target.executionTasks().data();
+            const auto* const sourceStorage=target.sourceTasks().data();
+            const auto* const outputStorage=target.outputTasks().data();
+            const auto second=graph.add<GainNode>(); ASSERT_TRUE(second);
+            Node* const secondAddress=graph.node(*second);
+            const Connection edge{encode(*first,PortType::Out,0),encode(*second,PortType::In,0)};
+            ASSERT_TRUE(graph.connect(edge.to,edge.from));
+            ASSERT_TRUE(graph.markAsOutput(*second));
+            Result failed;
+            {
+                const FailureWindow fault{i};
+                failed=graph.compile(target,CompileConfig{});
+            }
+            ASSERT_FALSE(failed);
+            EXPECT_EQ(failed.error(),(Error{ErrorCode::MemoryBudgetExceeded}));
+            EXPECT_EQ(injectedFailures,1U);
+            EXPECT_TRUE(target.isBackendPrepared());
+            EXPECT_EQ(target.tasks().data(),taskStorage);
+            EXPECT_EQ(target.executionTasks().data(),metadataStorage);
+            EXPECT_EQ(target.sourceTasks().data(),sourceStorage);
+            EXPECT_EQ(target.outputTasks().data(),outputStorage);
+            ASSERT_EQ(target.tasks().size(),1U);
+            EXPECT_EQ(target.tasks()[0],firstAddress);
+            ASSERT_EQ(target.executionTasks().size(),1U);
+            EXPECT_EQ(target.executionTasks()[0].id,*first);
+            EXPECT_EQ(target.executionTasks()[0].index,0U);
+            EXPECT_TRUE(target.executionTasks()[0].isSource);
+            EXPECT_TRUE(target.executionTasks()[0].isOutput);
+            EXPECT_EQ(target.taskIndexOf(*first),0U);
+            EXPECT_FALSE(target.taskIndexOf(*second));
+            ASSERT_EQ(target.sourceTasks().size(),1U); EXPECT_EQ(target.sourceTasks()[0],0U);
+            ASSERT_EQ(target.outputTasks().size(),1U); EXPECT_EQ(target.outputTasks()[0],0U);
+            EXPECT_EQ(graph.node(*first),firstAddress);
+            EXPECT_EQ(graph.node(*second),secondAddress);
+            ASSERT_EQ(graph.connections().size(),1U); EXPECT_EQ(graph.connections()[0],edge);
+            ASSERT_EQ(graph.outputNodes().size(),2U);
+            EXPECT_EQ(static_cast<GainNode*>(firstAddress)->calls,0U);
+            EXPECT_EQ(static_cast<GainNode*>(secondAddress)->calls,0U);
+            // Any partially acquired borrow of the new Node must have unwound.
+            ASSERT_TRUE(graph.setConfig(*second,secondAddress->config()));
+            const auto blocked=graph.setConfig(*first,firstAddress->config());
+            ASSERT_FALSE(blocked); EXPECT_EQ(blocked.error().code,ErrorCode::NodeInUse);
+            const float input=3;
+            float output=99;
+            const std::array inputs{&input}; const std::array outputs{&output};
+            ASSERT_TRUE(target.exec(BackendBlock{inputs,outputs,1}));
+            EXPECT_EQ(output,103);
+            ASSERT_TRUE(active.exec(BackendBlock{inputs,outputs,1}));
+            EXPECT_EQ(output,103);
+            ASSERT_TRUE(graph.compile(target,CompileConfig{}));
+            EXPECT_FALSE(target.isBackendPrepared());
+            ASSERT_EQ(target.tasks().size(),2U);
+            EXPECT_EQ(target.taskIndexOf(*second),1U);
+            EXPECT_FALSE(target.executionTasks()[1].isSource);
+            EXPECT_TRUE(target.executionTasks()[1].isOutput);
+            EXPECT_FALSE(target.exec(BackendBlock{inputs,outputs,1}));
+            // Replacing target never mutates the independent active generation.
+            ASSERT_EQ(active.tasks().size(),1U);
+            EXPECT_TRUE(active.isBackendPrepared());
+            ASSERT_TRUE(active.exec(BackendBlock{inputs,outputs,1}));
+            EXPECT_EQ(output,103);
+        }
+    }
+
     TEST(OutputMarkerRealtime, UnmarkKeepsTheOldRoleWithNoHeapOperationsDuringCallbacks) {
         DAG graph;
         auto id = graph.add<GainNode>();
