@@ -264,21 +264,26 @@ namespace mka::audio::dsp {
             return connections_;
         }
 
-        [[nodiscard]] Result disconnect(const std::uint64_t inNodeId, const std::uint64_t outNodeId) {
-            const auto edgeIt = std::ranges::find_if(
-                connections_,
-                [inNodeId, outNodeId](const Connection &edge) {
-                    return decodeNode(edge.from) == inNodeId &&
-                           decodeNode(edge.to) == outNodeId;
-                }
-            );
-
-            if (edgeIt == connections_.end()) {
-                return std::unexpected(ErrorType::ConnexionNotFound);
-            }
-
+        /**
+         * @brief Remove exactly source Out -> destination In/Aux, on control.
+         * @return true if erased, false if already absent; InvalidDirection for
+         * malformed/forbidden port pairs, NodeNotFound for missing endpoints.
+         * @details Idempotent for valid live endpoints. Both complete ChannelIDs
+         * identify the edge; other channels/ports of the same Nodes are untouched.
+         * No Config lookup, allocation, Node mutation or prepared-plan change.
+         * @pre Serialize desired-graph edits externally. Any old connections()
+         * view may be invalidated; plans own their prepared binding snapshot.
+         */
+        [[nodiscard]] std::expected<bool, GraphError>
+        disconnect(const ChannelID destination, const ChannelID source) {
+            if (!isOutputPort(decodePort(source)) || !isInputPort(decodePort(destination)))
+                return std::unexpected(GraphError::InvalidDirection);
+            if (!nodeExists(decodeNode(source)) || !nodeExists(decodeNode(destination)))
+                return std::unexpected(GraphError::NodeNotFound);
+            const auto edgeIt = std::ranges::find(connections_, Connection{source, destination});
+            if (edgeIt == connections_.end()) return false;
             connections_.erase(edgeIt);
-            return {};
+            return true;
         }
 
         /**

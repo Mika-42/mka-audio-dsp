@@ -98,7 +98,9 @@ namespace {
             EXPECT_EQ(graph.node(a.id()), nullptr);
             EXPECT_EQ(graph.node(b.id()), &b);
             expectGraphError(graph.connect(to, from), ErrorType::NodeNotFound);
-            expectGraphError(graph.disconnect(a.id(), b.id()), ErrorType::ConnexionNotFound);
+            const auto disconnected = graph.disconnect(to, from);
+            ASSERT_FALSE(disconnected.has_value());
+            EXPECT_EQ(disconnected.error(), ErrorType::NodeNotFound);
             auto replacement = graph.compile();
             ASSERT_TRUE(replacement);
             ASSERT_EQ(replacement->tasks().size(), 1U);
