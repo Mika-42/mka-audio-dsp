@@ -77,6 +77,40 @@ export namespace mka::audio::dsp {
     }
 
     /**
+     * @brief Verify the non-aliasing proof before binding any writable storage.
+     * @details Includes logical outputs of marked backend writers: those are
+     * ordinary productions, even with successors. Delay outputs are separate
+     * productions from their source, so their inclusive lifetimes cannot alias.
+     * Control only. Reject a malformed assignment rather than publish a plan B.
+     */
+    [[nodiscard]] std::expected<void, CompileError> validateSlotAssignment(
+        const std::span<const SignalLifetime> lifetimes, const SlotAssignment& slots) try {
+        if (slots.slotOf.size() != lifetimes.size())
+            return std::unexpected(CompileError{ErrorCode::InvalidParameter});
+        std::vector<SignalID> ordered;
+        ordered.reserve(lifetimes.size());
+        for (SignalID s = 0; s < lifetimes.size(); ++s) {
+            if (lifetimes[s].producedAt > lifetimes[s].lastUse || slots.slotOf[s] >= slots.peakSlots)
+                return std::unexpected(CompileError{ErrorCode::InvalidParameter});
+            ordered.push_back(s);
+        }
+        std::ranges::sort(ordered, [&](SignalID a, SignalID b) {
+            if (slots.slotOf[a] != slots.slotOf[b]) return slots.slotOf[a] < slots.slotOf[b];
+            return lifetimes[a].producedAt < lifetimes[b].producedAt;
+        });
+        for (std::size_t i = 1; i < ordered.size(); ++i) {
+            const auto a = ordered[i-1], b = ordered[i];
+            if (slots.slotOf[a] == slots.slotOf[b] && lifetimes[a].lastUse >= lifetimes[b].producedAt)
+                return std::unexpected(CompileError{ErrorCode::InvalidParameter});
+        }
+        return {};
+    } catch (const std::bad_alloc&) {
+        return std::unexpected(CompileError{ErrorCode::PrepareFailed});
+    } catch (const std::length_error&) {
+        return std::unexpected(CompileError{ErrorCode::CapacityExceeded});
+    }
+
+    /**
      * @brief Assign slots before producers and free only AFTER their last reader.
      * @details Inclusive intervals prohibit implicit in-place processing. Unique
      * allocates one slot per production for reference renders. Free lists and
@@ -124,6 +158,8 @@ export namespace mka::audio::dsp {
                 --liveSlots;
             }
         }
+        if (const auto valid = validateSlotAssignment(lifetimes, result); !valid)
+            return std::unexpected(valid.error());
         return result;
     } catch (const std::bad_alloc&) {
         return std::unexpected(CompileError{ErrorCode::PrepareFailed});

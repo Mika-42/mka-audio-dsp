@@ -105,6 +105,7 @@ if (MKA_BUILD_TESTS)
             test/test_types.cpp
             test/test_buffer_pool.cpp
             test/test_signal_liveness.cpp
+            test/test_fanout_liveness.cpp
             test/test_ports.cpp
             test/test_channel_id.cpp
             test/test_audio_channels.cpp
