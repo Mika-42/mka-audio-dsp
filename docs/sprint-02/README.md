@@ -10,16 +10,18 @@ séquentiellement, avec une PR distincte vers main pour chacune, sans fusion.
 | 1 | [#9](https://trello.com/c/tfBlFRbF) | S02-01 | Stocker des Node avec adresses stables dans DAG | Validée par l’utilisateur |
 | 2 | [#10](https://trello.com/c/Ds9AYM8Q) | S02-02 | Définir Connection et stocker les arêtes | Validée par l’utilisateur |
 | 3 | [#11](https://trello.com/c/QLYlqIUR) | S02-03 | Implémenter connect : sens des ports et existence des nodes | Validée par l’utilisateur |
-| 4 | [#12](https://trello.com/c/YtF0Vv5A) | S02-04 | Interdire la double occupation d’un canal entrant | Implémentée, en attente de validation |
-| 5 | [#13](https://trello.com/c/YyfwJ1r3) | S02-05 | Implémenter disconnect précis et idempotence documentée | Implémentée, en attente de validation |
-| 6 | [#14](https://trello.com/c/0ZpwaMB7) | S02-06 | Supprimer un nœud et nettoyer ses arêtes | Implémentée, en attente de validation |
+| 4 | [#12](https://trello.com/c/YtF0Vv5A) | S02-04 | Interdire la double occupation d’un canal entrant | Implémentée, PR #23 fusionnée |
+| 5 | [#13](https://trello.com/c/YyfwJ1r3) | S02-05 | Implémenter disconnect précis et idempotence documentée | Implémentée, PR #24 fusionnée |
+| 6 | [#14](https://trello.com/c/0ZpwaMB7) | S02-06 | Supprimer un nœud et nettoyer ses arêtes | Implémentée, PR #25 fusionnée |
 | 7 | [#15](https://trello.com/c/8MYAy6PM) | S02-07 | Gérer markAsOutput et la collection outputsNodes | Implémentée, en attente de validation |
-| 8 | [#16](https://trello.com/c/fgNXIV95) | S02-08 | Tester un petit DAG éditable de bout en bout | Non abordée |
+| 8 | [#16](https://trello.com/c/fgNXIV95) | S02-08 | Tester un petit DAG éditable de bout en bout | Implémentée, en attente de validation |
 
 Voir [S02-01](S02-01.md) pour le contrat livré, la migration d’API et les tests.
 Les valeurs d’arêtes figurent dans [S02-02](S02-02.md). La fiche en cours est
-[S02-07](S02-07.md), consacrée aux marqueurs de sortie.
+[S02-08](S02-08.md), consacrée à l’intégration des éditions sur un petit graphe.
 Le stockage de retrait nécessaire à S02-01 ne vaut pas validation de S02-06 et
 de ses scénarios de publication à venir. Le tableau Trello et son export ne
-sont pas modifiés. Le [sprint 01](../sprint-01/README.md) est validé par le
+sont pas modifiés. Les PR 4 à 8 visent main et dépendent séquentiellement des
+précédentes ; leur ordre de fusion manuelle est 4 → 5 → 6 → 7 → 8.
+Le [sprint 01](../sprint-01/README.md) est validé par le
 passage au sprint 2 demandé dans la conversation.
