@@ -15,6 +15,7 @@
 
 import mka.audio.dsp.node;
 import mka.audio.dsp.dag;
+import mka.audio.dsp.buffer_pool;
 #include "offline_pipeline.hpp"
 
 namespace {
@@ -138,6 +139,48 @@ void operator delete[](void* memory, std::align_val_t, const std::nothrow_t&) no
 
 namespace {
     using namespace mka::audio::dsp;
+
+    TEST(BufferPoolFailure, AllocationFailurePreservesPreviouslyPreparedSlots) {
+        BufferPool pool;
+        ASSERT_TRUE(pool.prepare(1, 128));
+        auto* old = pool.buffer(0);
+        old[0] = 19.F;
+        Result result;
+        {
+            const FailureWindow window(0);
+            result = pool.prepare(7, 4096);
+        }
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().code, ErrorCode::PrepareFailed);
+        EXPECT_EQ(injectedFailures, 1U);
+        EXPECT_EQ(pool.buffer(0), old);
+        EXPECT_EQ(old[0], 19.F);
+    }
+
+    TEST(BufferPoolFailure, SilenceAllocationFailureAlsoPreservesBothOldAllocations) {
+        BufferPool pool;
+        ASSERT_TRUE(pool.prepare(1, 128));
+        auto* old = pool.buffer(0);
+        const auto* zero = pool.silence();
+        Result result;
+        {
+            const FailureWindow window(1); // Slot storage succeeds; silence fails.
+            result = pool.prepare(7, 4096);
+        }
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().code, ErrorCode::PrepareFailed);
+        EXPECT_EQ(injectedFailures, 1U);
+        EXPECT_EQ(pool.buffer(0), old);
+        EXPECT_EQ(pool.silence(), zero);
+        {
+            const AllocationWindow window;
+            for (unsigned callback = 0; callback < 64; ++callback)
+                for (FrameCount f = 0; f < 128; ++f) pool.buffer(0)[f] = pool.silence()[f];
+        }
+        EXPECT_EQ(allocations, 0U);
+        EXPECT_EQ(deallocations, 0U);
+        EXPECT_EQ(mutexAttempts, 0U);
+    }
 
     class GainNode final : public Node {
     public:
