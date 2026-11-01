@@ -1,7 +1,11 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
+#include <span>
+
 #include <gtest/gtest.h>
+
 import mka.audio.dsp.dag;
 #include "offline_pipeline.hpp"
 
