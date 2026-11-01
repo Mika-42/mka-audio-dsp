@@ -4,6 +4,7 @@
 module;
 #include <cstdint>
 #include <memory>
+#include <utility>
 export module mka.audio.dsp.node;
 export import mka.audio.dsp.config;
 export import mka.audio.dsp.channel;
@@ -15,6 +16,7 @@ export namespace mka::audio::dsp::detail {
     struct NodeBorrowState {};
     using NodeBorrowToken = std::shared_ptr<const NodeBorrowState>;
     struct NodeBorrowAccess;
+    struct NodeConfigAccess;
 }
 
 export namespace mka::audio::dsp {
@@ -38,8 +40,9 @@ export namespace mka::audio::dsp {
          * @pre id != invalidNodeID and validateConfig(cfg) succeeds. Identity is
          * assigned on control by DAG; this constructor does not validate it.
          * @note Copying vectors can allocate/throw; construction is not noexcept.
-         * Keep this snapshot stable while a plan uses it. No runtime editing API
-         * is provided; backend access is not determined by these layouts.
+         * Keep this snapshot stable while a plan uses it. DAG may replace it on
+         * control only after all plan borrows end; backend access is not
+         * determined by these layouts.
          */
         explicit Node(const NodeID id, const Config &cfg) : id_(id), config_(cfg) {}
 
@@ -48,7 +51,12 @@ export namespace mka::audio::dsp {
         Node(Node&&) = delete;
         Node& operator=(Node&&) = delete;
 
-        /// Borrow this node's stable, read-only layout snapshot; no allocation.
+        /**
+         * @brief Borrow the current read-only layout snapshot, without allocation.
+         * @details The Config object's address is stable. Its vector views may
+         * be invalidated by a successful DAG::setConfig on an unborrowed Node;
+         * no configuration contents change while any plan borrows the Node.
+         */
         [[nodiscard]] const Config& config() const noexcept {
             return config_;
         }
@@ -90,6 +98,7 @@ export namespace mka::audio::dsp {
 
     private:
         friend struct detail::NodeBorrowAccess;
+        friend struct detail::NodeConfigAccess;
         NodeID id_{};
         Config config_{};
         detail::NodeBorrowToken borrowState_ = std::make_shared<detail::NodeBorrowState>();
@@ -104,6 +113,20 @@ export namespace mka::audio::dsp::detail {
         }
         static bool inUse(const Node& node) noexcept {
             return node.borrowState_.use_count() > 1;
+        }
+    };
+
+    /**
+     * @brief Internal control-side installation of an independently owned Config.
+     * @pre The replacement is valid, no plan borrows node, and all external uses
+     * of its old layout views have ceased. DAG::setConfig enforces the plan guard
+     * and prepares the candidate before this non-allocating move.
+     * @details No identity/address, DSP state, graph edge or output role changes.
+     * Old vector storage is released on control. Not a public Node editing API.
+     */
+    struct NodeConfigAccess {
+        static void replaceConfig(Node& node, Config replacement) noexcept {
+            node.config_ = std::move(replacement);
         }
     };
 }

@@ -454,6 +454,50 @@ namespace {
         EXPECT_TRUE(graph.outputNodes().empty());
     }
 
+    TEST(ConfigAllocationFailure, EveryConfigCopyFailureKeepsOwnedLayoutsEdgesAndIdentity) {
+        const Config next{.layoutInput={2,6},.layoutAuxiliary={2,6},.layoutOutput={2,6}};
+        std::size_t points=0;
+        {
+            ConstructionTrace trace;
+            DAG graph;
+            auto id=graph.add<AllocationNode>(trace); ASSERT_TRUE(id);
+            Result changed;
+            {
+                const AllocationWindow measured;
+                changed=graph.setConfig(*id,next);
+            }
+            ASSERT_TRUE(changed); points=allocations;
+        }
+        ASSERT_GT(points,0U);
+        for (std::size_t i=0;i<points;++i) {
+            SCOPED_TRACE(i);
+            ConstructionTrace trace;
+            DAG graph;
+            auto a=graph.add<AllocationNode>(trace), b=graph.add<AllocationNode>(trace);
+            ASSERT_TRUE(a); ASSERT_TRUE(b);
+            Node* const address=graph.node(*a);
+            const Connection edge{encode(*a,PortType::Out,0),encode(*b,PortType::In,0)};
+            ASSERT_TRUE(graph.connect(edge.to,edge.from)); ASSERT_TRUE(graph.markAsOutput(*a));
+            const Config before=address->config();
+            Result failed;
+            {
+                const FailureWindow fault{i};
+                failed=graph.setConfig(*a,next);
+            }
+            ASSERT_FALSE(failed); EXPECT_EQ(failed.error(),GraphError::AllocationFailed);
+            EXPECT_EQ(injectedFailures,1U); EXPECT_EQ(graph.node(*a),address);
+            EXPECT_EQ(address->config().layoutInput,before.layoutInput);
+            EXPECT_EQ(address->config().layoutAuxiliary,before.layoutAuxiliary);
+            EXPECT_EQ(address->config().layoutOutput,before.layoutOutput);
+            ASSERT_EQ(graph.connections().size(),1U); EXPECT_EQ(graph.connections()[0],edge);
+            ASSERT_EQ(graph.outputNodes().size(),1U); EXPECT_EQ(graph.outputNodes()[0],*a);
+            ASSERT_TRUE(graph.setConfig(*a,next));
+            EXPECT_EQ(address->config().layoutInput,next.layoutInput);
+            EXPECT_EQ(address->config().layoutAuxiliary,next.layoutAuxiliary);
+            EXPECT_EQ(address->config().layoutOutput,next.layoutOutput);
+        }
+    }
+
     TEST(OutputMarkerRealtime, UnmarkKeepsTheOldRoleWithNoHeapOperationsDuringCallbacks) {
         DAG graph;
         auto id = graph.add<GainNode>();

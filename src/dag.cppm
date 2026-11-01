@@ -111,6 +111,37 @@ namespace mka::audio::dsp {
         }
 
         /**
+         * @brief Transactionally replace an unborrowed Node's processed layouts.
+         * @return NodeNotFound for an absent identity, NodeInUse while any plan
+         * borrows the Node, intrinsic Config validation errors, AllocationFailed
+         * for candidate-copy failure or LayoutCapacityExceeded for a size error.
+         * @details Control only, externally serialized with graph edits and all
+         * configuration readers. Validate and copy before installing by noexcept
+         * move. Failure preserves the old Config, edges, roles and existing plans.
+         * Logical connections never depend on membership in these layouts, so a
+         * successful replacement preserves every Connection and the Node's ID,
+         * address and DSP state. No constructor/process or backend call occurs.
+         * @pre External views of old layout contents must no longer be used on
+         * success. Retire all prepared/structural plans after callback quiescence
+         * before retrying NodeInUse; no active-plan configuration is mutated.
+         * The caller separately prepares the derived DSP for its new layouts.
+         */
+        [[nodiscard]] Result setConfig(const NodeID id, const Config& config) try {
+            auto* const target = node(id);
+            if (target == nullptr) return std::unexpected(GraphError::NodeNotFound);
+            if (detail::NodeBorrowAccess::inUse(*target))
+                return std::unexpected(GraphError::NodeInUse);
+            if (const auto valid = validateConfig(config); !valid) return valid;
+            Config candidate = config;
+            detail::NodeConfigAccess::replaceConfig(*target, std::move(candidate));
+            return {};
+        } catch (const std::bad_alloc&) {
+            return std::unexpected(GraphError::AllocationFailed);
+        } catch (const std::length_error&) {
+            return std::unexpected(GraphError::LayoutCapacityExceeded);
+        }
+
+        /**
          * @brief Remove from the desired graph, deferring destruction if borrowed.
          * @details Secure retirement ownership before changing graph membership,
          * edges or output markers. An old plan can still process the same Node.

@@ -112,6 +112,7 @@ if (MKA_BUILD_TESTS)
             test/test_output_markers.cpp
             test/test_dag_editing.cpp
             test/test_cycles.cpp
+            test/test_undeclared_channels.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests
