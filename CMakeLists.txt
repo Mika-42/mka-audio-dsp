@@ -118,6 +118,7 @@ if (MKA_BUILD_TESTS)
             test/test_topological_order.cpp
             test/test_four_node_oracle.cpp
             test/test_exhaustive_oracles.cpp
+            test/test_dag_mutations.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests
