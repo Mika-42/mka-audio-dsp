@@ -97,7 +97,12 @@ export namespace mka::audio::dsp {
                 samples_.resize(slots * static_cast<std::size_t>(frames), 0.F);
             }
             const float* inputBuffer(const std::size_t slot) const noexcept {
+                assert(slot != 0);
                 return maxFrames_ == 0 ? nullptr : samples_.data() + slot * maxFrames_;
+            }
+            /// Shared read-only mono silence; never an output or recyclable slot.
+            const float* silenceBuffer() const noexcept {
+                return maxFrames_ == 0 ? nullptr : samples_.data();
             }
             float* outputBuffer(const std::size_t slot) noexcept {
                 assert(slot != 0); // The silence slot never has a writable view.
@@ -135,9 +140,11 @@ export namespace mka::audio::dsp {
             void rebindInternal() noexcept {
                 for (auto& task : tasks) {
                     for (std::size_t i = 0; i < task.inputs.size(); ++i)
-                        task.inputs[i].buffer = pool.inputBuffer(task.inputSlots[i]);
+                        task.inputs[i].buffer = task.inputSlots[i] == 0 ? pool.silenceBuffer() :
+                            pool.inputBuffer(task.inputSlots[i]);
                     for (std::size_t i = 0; i < task.auxiliary.size(); ++i)
-                        task.auxiliary[i].buffer = pool.inputBuffer(task.auxiliarySlots[i]);
+                        task.auxiliary[i].buffer = task.auxiliarySlots[i] == 0 ? pool.silenceBuffer() :
+                            pool.inputBuffer(task.auxiliarySlots[i]);
                     for (std::size_t i = 0; i < task.outputs.size(); ++i)
                         task.outputs[i].buffer = pool.outputBuffer(task.outputSlots[i]);
                 }

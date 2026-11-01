@@ -127,6 +127,7 @@ if (MKA_BUILD_TESTS)
             test/test_structural_compile.cpp
             test/test_execution_tasks.cpp
             test/test_prepared_plan.cpp
+            test/test_silence_inputs.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests
