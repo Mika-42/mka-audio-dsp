@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -72,6 +73,32 @@ namespace four_node_oracle {
             for (std::size_t i = 0; i < nodeCount; ++i)
                 if (reach[i][i]) return false;
             return true;
+        }
+
+        /**
+         * @brief Independent order oracle: try the 24 sorted permutations.
+         * @details The first permutation placing every producer strictly before
+         * its consumer is lexicographically minimal. This neither computes
+         * indegrees nor uses the production Kahn/DFS implementation. Returned
+         * values belong to the test on control; an invalid/cyclic model gives
+         * no order. Parallel channel edges impose the same precedence again.
+         */
+        [[nodiscard]] std::vector<NodeId> lexicographicOrder() const {
+            auto permutation = nodes;
+            std::sort(permutation.begin(), permutation.end());
+            do {
+                bool valid = true;
+                for (const auto& edge : edges) {
+                    const auto source = std::find(permutation.begin(), permutation.end(), nodeOf(edge.from));
+                    const auto destination = std::find(permutation.begin(), permutation.end(), nodeOf(edge.to));
+                    if (source == permutation.end() || destination == permutation.end() || source >= destination) {
+                        valid = false;
+                        break;
+                    }
+                }
+                if (valid) return {permutation.begin(), permutation.end()};
+            } while (std::next_permutation(permutation.begin(), permutation.end()));
+            return {};
         }
 
         /** Predict without calling DAG, its decoder, or any production helper. */
