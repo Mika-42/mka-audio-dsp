@@ -48,6 +48,7 @@ target_sources(mka-audio-dsp
         src
         FILES
         src/error.cppm
+        src/identifiers.cppm
         src/types.cppm
         src/config.cppm
         src/process_context.cppm
@@ -119,6 +120,7 @@ if (MKA_BUILD_TESTS)
             test/test_four_node_oracle.cpp
             test/test_exhaustive_oracles.cpp
             test/test_dag_mutations.cpp
+            test/test_errors.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests

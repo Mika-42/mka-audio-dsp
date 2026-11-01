@@ -122,7 +122,7 @@ namespace {
 
     void expectError(const Result& result, const ErrorType error) {
         ASSERT_FALSE(result.has_value());
-        EXPECT_EQ(result.error(), error);
+        EXPECT_EQ(result.error().code, error.code);
     }
 
     TEST(BackendRoles, MarkingRejectsMissingNodesAndIsIdempotent) {

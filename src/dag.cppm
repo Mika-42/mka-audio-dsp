@@ -36,7 +36,7 @@ export namespace mka::audio::dsp::detail {
 
         [[nodiscard]] std::expected<NodeID, GraphError> candidate() const noexcept {
             if (next_ == invalidNodeID || next_ > maxNodeID)
-                return std::unexpected(GraphError::NodeIDExhausted);
+                return std::unexpected(Error{ErrorCode::CapacityExceeded});
             return static_cast<NodeID>(next_);
         }
 
@@ -94,24 +94,24 @@ namespace mka::audio::dsp {
             if (nodes_.size() >= maxOwnedNodes_ ||
                 retiredNodes_.size() >= maxOwnedNodes_ - nodes_.size() ||
                 nodes_.size() == nodes_.max_size())
-                return std::unexpected(GraphError::NodeCapacityExceeded);
+                return std::unexpected(Error{ErrorCode::CapacityExceeded, *id});
 
             std::unique_ptr<Node> created;
             try {
                 created = std::make_unique<T>(static_cast<NodeID>(*id), std::forward<Args>(args)...);
             } catch (const std::bad_alloc&) {
-                return std::unexpected(GraphError::AllocationFailed);
+                return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded, *id});
             } catch (...) {
-                return std::unexpected(GraphError::NodeConstructionFailed);
+                return std::unexpected(Error{ErrorCode::PrepareFailed, *id});
             }
-            if (!created) return std::unexpected(GraphError::AllocationFailed);
-            if (created->id() != *id) return std::unexpected(GraphError::InvalidNodeIdentity);
+            if (!created) return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded, *id});
+            if (created->id() != *id) return std::unexpected(Error{ErrorCode::InvalidParameter, *id});
             try {
                 nodes_.push_back(std::move(created));
             } catch (const std::bad_alloc&) {
-                return std::unexpected(GraphError::AllocationFailed);
+                return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded, *id});
             } catch (const std::length_error&) {
-                return std::unexpected(GraphError::NodeCapacityExceeded);
+                return std::unexpected(Error{ErrorCode::CapacityExceeded, *id});
             }
             identities_.commit();
             return *id;
@@ -135,17 +135,21 @@ namespace mka::audio::dsp {
          */
         [[nodiscard]] Result setConfig(const NodeID id, const Config& config) try {
             auto* const target = node(id);
-            if (target == nullptr) return std::unexpected(GraphError::NodeNotFound);
+            if (target == nullptr) return std::unexpected(Error{ErrorCode::NodeNotFound, id});
             if (detail::NodeBorrowAccess::inUse(*target))
-                return std::unexpected(GraphError::NodeInUse);
-            if (const auto valid = validateConfig(config); !valid) return valid;
+                return std::unexpected(Error{ErrorCode::NodeInUse, id});
+            if (const auto valid = validateConfig(config); !valid) {
+                auto error = valid.error();
+                error.node = id;
+                return std::unexpected(error);
+            }
             Config candidate = config;
             detail::NodeConfigAccess::replaceConfig(*target, std::move(candidate));
             return {};
         } catch (const std::bad_alloc&) {
-            return std::unexpected(GraphError::AllocationFailed);
+            return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded, id});
         } catch (const std::length_error&) {
-            return std::unexpected(GraphError::LayoutCapacityExceeded);
+            return std::unexpected(Error{ErrorCode::CapacityExceeded, id});
         }
 
         /**
@@ -163,20 +167,20 @@ namespace mka::audio::dsp {
             const auto nodeIt = std::ranges::find(nodes_, nodeId, &Node::id);
 
             if (nodeIt == nodes_.end()) {
-                return std::unexpected(ErrorType::NodeNotFound);
+                return std::unexpected(Error{ErrorCode::NodeNotFound, nodeId});
             }
 
             if (detail::NodeBorrowAccess::inUse(**nodeIt)) {
                 if (retiredNodes_.size() == retiredNodes_.max_size())
-                    return std::unexpected(GraphError::NodeCapacityExceeded);
+                    return std::unexpected(Error{ErrorCode::CapacityExceeded, nodeId});
                 try {
                     // unique_ptr moves are noexcept; vector allocation failure
                     // preserves the original owner before any graph edit.
                     retiredNodes_.push_back(std::move(*nodeIt));
                 } catch (const std::bad_alloc&) {
-                    return std::unexpected(GraphError::AllocationFailed);
+                    return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded, nodeId});
                 } catch (const std::length_error&) {
-                    return std::unexpected(GraphError::NodeCapacityExceeded);
+                    return std::unexpected(Error{ErrorCode::CapacityExceeded, nodeId});
                 }
             }
 
@@ -213,15 +217,15 @@ namespace mka::audio::dsp {
          * in increasing order. Allocation failure leaves the marker set intact.
          */
         [[nodiscard]] std::expected<void, GraphError> markAsOutput(const NodeID id) try {
-            if (!nodeExists(id)) return std::unexpected(GraphError::NodeNotFound);
+            if (!nodeExists(id)) return std::unexpected(Error{ErrorCode::NodeNotFound, id});
             const auto position = std::ranges::lower_bound(outputsNodes_, id);
             if (position != outputsNodes_.end() && *position == id) return {};
             outputsNodes_.insert(position, id);
             return {};
         } catch (const std::bad_alloc&) {
-            return std::unexpected(GraphError::AllocationFailed);
+            return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded, id});
         } catch (const std::length_error&) {
-            return std::unexpected(GraphError::NodeCapacityExceeded);
+            return std::unexpected(Error{ErrorCode::CapacityExceeded, id});
         }
 
         /**
@@ -231,7 +235,7 @@ namespace mka::audio::dsp {
          * or change to the roles/buffers of any existing prepared plan.
          */
         [[nodiscard]] std::expected<void, GraphError> unmarkAsOutput(const NodeID id) noexcept {
-            if (!nodeExists(id)) return std::unexpected(GraphError::NodeNotFound);
+            if (!nodeExists(id)) return std::unexpected(Error{ErrorCode::NodeNotFound, id});
             std::erase(outputsNodes_, id);
             return {};
         }
@@ -260,43 +264,48 @@ namespace mka::audio::dsp {
          * @note Control only, externally serialized with graph edits. Rejection
          * leaves desired edges and prepared plans intact. Success edits only
          * the desired graph, not Node DSP state or an existing plan snapshot.
+         * Errors identify the faulty endpoint, or the destination for duplicate,
+         * occupancy and cycle failures. Unknown context fields remain zero.
          */
         [[nodiscard]] std::expected<void, GraphError>
         connect(const ChannelID destination, const ChannelID source) try {
             const auto sourcePort = decodePort(source);
             const auto destinationPort = decodePort(destination);
             if (!isValidPort(sourcePort) || !isValidPort(destinationPort)) {
-                return std::unexpected(GraphError::InvalidPort);
+                const auto channel = !isValidPort(sourcePort) ? source : destination;
+                return std::unexpected(Error{ErrorCode::InvalidPort, decodeNode(channel), channel});
             }
             if (!isOutputPort(sourcePort) || !isInputPort(destinationPort)) {
-                return std::unexpected(GraphError::InvalidDirection);
+                const auto channel = !isOutputPort(sourcePort) ? source : destination;
+                return std::unexpected(Error{ErrorCode::InvalidDirection, decodeNode(channel), channel});
             }
 
             const auto sourceNode = decodeNode(source);
             const auto destinationNode = decodeNode(destination);
-            if (!nodeExists(sourceNode) || !nodeExists(destinationNode)) {
-                return std::unexpected(ErrorType::NodeNotFound);
-            }
+            if (!nodeExists(sourceNode))
+                return std::unexpected(Error{ErrorCode::NodeNotFound, sourceNode, source});
+            if (!nodeExists(destinationNode))
+                return std::unexpected(Error{ErrorCode::NodeNotFound, destinationNode, destination});
 
             if (std::ranges::find(connections_, Connection{source, destination}) != connections_.end()) {
-                return std::unexpected(GraphError::ConnectionExists);
+                return std::unexpected(Error{ErrorCode::ConnectionExists, destinationNode, destination});
             }
 
             if (inputOccupied(destination)) {
-                return std::unexpected(GraphError::InputOccupied);
+                return std::unexpected(Error{ErrorCode::InputOccupied, destinationNode, destination});
             }
 
             // A path destination -> source would close a cycle; includes self-loops.
             if (pathExists(destinationNode, sourceNode)) {
-                return std::unexpected(GraphError::CycleDetected);
+                return std::unexpected(Error{ErrorCode::CycleDetected, destinationNode, destination});
             }
 
             connections_.emplace_back(source, destination);
             return {};
         } catch (const std::bad_alloc&) {
-            return std::unexpected(GraphError::AllocationFailed);
+            return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded, decodeNode(destination), destination});
         } catch (const std::length_error&) {
-            return std::unexpected(GraphError::ConnectionCapacityExceeded);
+            return std::unexpected(Error{ErrorCode::CapacityExceeded, decodeNode(destination), destination});
         }
 
         /**
@@ -308,15 +317,21 @@ namespace mka::audio::dsp {
         [[nodiscard]] std::expected<void, GraphError>
         connect(const Channel& destination, const Channel& source) {
             if (!isValidPort(source.port) || !isValidPort(destination.port))
-                return std::unexpected(GraphError::InvalidPort);
+                return std::unexpected(legacyChannelError(ErrorCode::InvalidPort,
+                    !isValidPort(source.port) ? source : destination));
             if (!isOutputPort(source.port) || !isInputPort(destination.port))
-                return std::unexpected(GraphError::InvalidDirection);
-            if (!nodeExists(source.nodeID) || !nodeExists(destination.nodeID))
-                return std::unexpected(GraphError::NodeNotFound);
+                return std::unexpected(legacyChannelError(ErrorCode::InvalidDirection,
+                    !isOutputPort(source.port) ? source : destination));
+            if (!nodeExists(source.nodeID))
+                return std::unexpected(legacyChannelError(ErrorCode::NodeNotFound, source));
+            if (!nodeExists(destination.nodeID))
+                return std::unexpected(legacyChannelError(ErrorCode::NodeNotFound, destination));
             const auto sourceIndex = toChannelIndex(source.channel);
-            if (!sourceIndex) return std::unexpected(sourceIndex.error());
+            if (!sourceIndex) return std::unexpected(Error{ErrorCode::InvalidParameter,
+                static_cast<NodeID>(source.nodeID)});
             const auto destinationIndex = toChannelIndex(destination.channel);
-            if (!destinationIndex) return std::unexpected(destinationIndex.error());
+            if (!destinationIndex) return std::unexpected(Error{ErrorCode::InvalidParameter,
+                static_cast<NodeID>(destination.nodeID)});
             // Existence was checked on the full-width values before narrowing.
             return connect(encode(static_cast<NodeID>(destination.nodeID), destination.port, *destinationIndex),
                            encode(static_cast<NodeID>(source.nodeID), source.port, *sourceIndex));
@@ -345,10 +360,14 @@ namespace mka::audio::dsp {
          */
         [[nodiscard]] std::expected<bool, GraphError>
         disconnect(const ChannelID destination, const ChannelID source) {
-            if (!isOutputPort(decodePort(source)) || !isInputPort(decodePort(destination)))
-                return std::unexpected(GraphError::InvalidDirection);
-            if (!nodeExists(decodeNode(source)) || !nodeExists(decodeNode(destination)))
-                return std::unexpected(GraphError::NodeNotFound);
+            if (!isOutputPort(decodePort(source)) || !isInputPort(decodePort(destination))) {
+                const auto channel = !isOutputPort(decodePort(source)) ? source : destination;
+                return std::unexpected(Error{ErrorCode::InvalidDirection, decodeNode(channel), channel});
+            }
+            if (!nodeExists(decodeNode(source)))
+                return std::unexpected(Error{ErrorCode::NodeNotFound, decodeNode(source), source});
+            if (!nodeExists(decodeNode(destination)))
+                return std::unexpected(Error{ErrorCode::NodeNotFound, decodeNode(destination), destination});
             const auto edgeIt = std::ranges::find(connections_, Connection{source, destination});
             if (edgeIt == connections_.end()) return false;
             connections_.erase(edgeIt);
@@ -399,9 +418,9 @@ namespace mka::audio::dsp {
                 std::move(layerIndices)
             };
         } catch (const std::bad_alloc&) {
-            return std::unexpected(GraphError::AllocationFailed);
+            return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded});
         } catch (const std::length_error&) {
-            return std::unexpected(GraphError::PreparationCapacityExceeded);
+            return std::unexpected(Error{ErrorCode::CapacityExceeded});
         }
 
         /**
@@ -410,17 +429,37 @@ namespace mka::audio::dsp {
          * baseline does not recycle slots or implement PDC/publication.
          */
         [[nodiscard]] std::expected<ExecutionPlan, ErrorType>
-        compile(const BackendConfig& config) const {
+        compile(const BackendConfig& config) const try {
             auto plan = compile();
             if (!plan) return std::unexpected(plan.error());
             if (const auto result = plan->prepareBackend(config, connections_, outputsNodes_); !result) {
                 return std::unexpected(result.error());
             }
             return plan;
+        } catch (const std::bad_alloc&) {
+            return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded});
+        } catch (const std::length_error&) {
+            return std::unexpected(Error{ErrorCode::CapacityExceeded});
         }
 
     private:
         friend std::expected<std::vector<NodeID>, GraphError> topologicalOrder(const DAG& graph);
+
+        /**
+         * @brief Preserve representable diagnostic fields without narrowing aliases.
+         * @details This packs an error context, never a graph/hardware identity.
+         * A wide NodeID leaves both optional fields zero; a wide index leaves
+         * only the checked NodeID. Invalid port codes retain their exact bits.
+         */
+        [[nodiscard]] static Error legacyChannelError(const ErrorCode code, const Channel& channel) noexcept {
+            if (channel.nodeID > maxNodeID) return Error{code};
+            const auto node = static_cast<NodeID>(channel.nodeID);
+            if (channel.channel > maxChannelIndex) return Error{code, node};
+            const auto identity = (static_cast<ChannelID>(node) << 32U) |
+                (static_cast<ChannelID>(static_cast<std::uint16_t>(channel.port)) << 16U) |
+                static_cast<ChannelID>(channel.channel);
+            return Error{code, node, identity};
+        }
 
         /** Owned control snapshot; no Node addresses escape through its values. */
         [[nodiscard]] detail::GraphSnapshot structuralSnapshot() const {
@@ -508,12 +547,12 @@ namespace mka::audio::dsp {
             result.reserve(order->size());
             std::vector<std::size_t> offsets;
             if (order->size() >= offsets.max_size())
-                return std::unexpected(GraphError::PreparationCapacityExceeded);
+                return std::unexpected(Error{ErrorCode::CapacityExceeded});
             offsets.reserve(order->size() + 1);
             offsets.push_back(0);
             for (const auto id : *order) {
                 const auto found = addresses.find(id);
-                if (found == addresses.end()) return std::unexpected(GraphError::NodeNotFound);
+                if (found == addresses.end()) return std::unexpected(Error{ErrorCode::NodeNotFound, id});
                 result.push_back(found->second);
                 offsets.push_back(result.size());
             }
@@ -535,8 +574,8 @@ namespace mka::audio::dsp {
     topologicalOrder(const DAG& graph) try {
         return detail::topologicalOrder(graph.structuralSnapshot());
     } catch (const std::bad_alloc&) {
-        return std::unexpected(GraphError::AllocationFailed);
+        return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded});
     } catch (const std::length_error&) {
-        return std::unexpected(GraphError::PreparationCapacityExceeded);
+        return std::unexpected(Error{ErrorCode::CapacityExceeded});
     }
 }

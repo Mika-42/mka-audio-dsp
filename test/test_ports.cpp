@@ -56,7 +56,7 @@ namespace {
 
     void expectError(const std::expected<void, GraphError>& result, const GraphError error) {
         ASSERT_FALSE(result.has_value());
-        EXPECT_EQ(result.error(), error);
+        EXPECT_EQ(result.error().code, error.code);
     }
 
     void expectDisconnect(const std::expected<bool, GraphError>& result, const bool removed) {

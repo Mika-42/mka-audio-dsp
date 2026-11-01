@@ -13,5 +13,5 @@ L’export Trello reste inchangé.
 | S03-04 | [#20](https://trello.com/c/JrlrYKta) | DAG à quatre Node avec oracle | Implémentée, en attente de validation |
 | S03-05 | [#21](https://trello.com/c/iyYTjhRA) | Oracles exhaustifs | Implémentée, en attente de validation |
 | S03-06 | [#22](https://trello.com/c/8hOnl8cU) | Mutations reproductibles | Implémentée, en attente de validation |
-| S03-07 | [#23](https://trello.com/c/S3WPtdpW) | Erreurs structurées | Non abordée |
+| S03-07 | [#23](https://trello.com/c/S3WPtdpW) | Erreurs structurées | Implémentée, en attente de validation |
 | S03-08 | [#24](https://trello.com/c/q9ai1mTI) | Compilation structurelle | Non abordée |

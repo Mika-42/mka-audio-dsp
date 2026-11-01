@@ -5,7 +5,9 @@ module;
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <new>
 #include <span>
+#include <stdexcept>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -46,6 +48,8 @@ export namespace mka::audio::dsp {
      * must outlive every plan and borrowed task/layer view. Audio execution is
      * single-threaded and non-reentrant; copied plans own separate buffers but
      * still share Node DSP state and must not process it concurrently.
+     * Standard C++ construction/copy may throw resource exceptions on control;
+     * expected-returning preparation/compilation boundaries translate them to Error.
      */
     class ExecutionPlan {
         struct AudioTask {
@@ -143,17 +147,17 @@ export namespace mka::audio::dsp {
         /**
          * @brief Prepare owned descriptors/storage on control, without editing Nodes.
          * @details Logical edges and roles are snapshotted. Capacity/semantic
-         * errors return expected; allocation errors may propagate on control.
+         * and resource errors return expected, without publishing partial state.
          * Failure leaves existing prepared state unchanged. No slot recycling.
          */
         [[nodiscard]] Result prepareBackend(const BackendConfig& config,
             const std::span<const Connection> connections,
-            const std::span<const NodeID> outputNodes) {
+            const std::span<const NodeID> outputNodes) try {
             auto state = std::make_unique<AudioState>();
             state->config = config;
             if (config.inputChannels > state->backendInputs.max_size() ||
                 config.outputChannels > state->backendOutputs.max_size()) {
-                return std::unexpected(ErrorType::PreparationCapacityExceeded);
+                return std::unexpected(Error{ErrorCode::CapacityExceeded});
             }
             std::unordered_map<NodeID, std::size_t> positions;
             positions.reserve(plan_.size());
@@ -161,33 +165,48 @@ export namespace mka::audio::dsp {
             const auto stride = static_cast<std::size_t>(config.maxFrames);
             const auto maxSlots = stride == 0 ? state->samples.max_size() : state->samples.max_size() / stride;
             std::size_t slots = 1; // Silence, even for a graph without outputs.
-            if (maxSlots < slots) return std::unexpected(ErrorType::PreparationCapacityExceeded);
+            if (maxSlots < slots) return std::unexpected(Error{ErrorCode::CapacityExceeded});
             for (std::size_t i = 0; i < plan_.size(); ++i) {
                 if (!positions.emplace(plan_[i]->id(), i).second)
-                    return std::unexpected(ErrorType::InvalidExecutionOrder);
+                    return std::unexpected(Error{ErrorCode::InvalidParameter, plan_[i]->id()});
                 const auto& cfg = plan_[i]->config();
-                if (const auto result = validateConfig(cfg); !result) return result;
+                if (const auto result = validateConfig(cfg); !result) {
+                    auto error = result.error();
+                    error.node = plan_[i]->id();
+                    return std::unexpected(error);
+                }
                 if (cfg.layoutOutput.size() > maxSlots - slots)
-                    return std::unexpected(ErrorType::PreparationCapacityExceeded);
+                    return std::unexpected(Error{ErrorCode::CapacityExceeded, plan_[i]->id()});
                 slots += cfg.layoutOutput.size();
             }
             for (const auto id : outputNodes) {
                 const auto found = positions.find(id);
-                if (found == positions.end()) return std::unexpected(ErrorType::NodeNotFound);
+                if (found == positions.end()) return std::unexpected(Error{ErrorCode::NodeNotFound, id});
                 state->tasks[found->second].isOutput = true;
             }
             std::unordered_map<ChannelID, ChannelID> incoming;
             incoming.reserve(connections.size());
             for (const auto& connection : connections) {
-                if (!isOutputPort(decodePort(connection.from)) || !isInputPort(decodePort(connection.to)))
-                    return std::unexpected(ErrorType::InvalidDirection);
+                const auto sourcePort = decodePort(connection.from);
+                const auto destinationPort = decodePort(connection.to);
+                if (!isValidPort(sourcePort) || !isValidPort(destinationPort)) {
+                    const auto channel = !isValidPort(sourcePort) ? connection.from : connection.to;
+                    return std::unexpected(Error{ErrorCode::InvalidPort, decodeNode(channel), channel});
+                }
+                if (!isOutputPort(sourcePort) || !isInputPort(destinationPort)) {
+                    const auto channel = !isOutputPort(sourcePort) ? connection.from : connection.to;
+                    return std::unexpected(Error{ErrorCode::InvalidDirection, decodeNode(channel), channel});
+                }
                 const auto from = positions.find(decodeNode(connection.from));
                 const auto to = positions.find(decodeNode(connection.to));
-                if (from == positions.end() || to == positions.end())
-                    return std::unexpected(ErrorType::NodeNotFound);
-                if (from->second >= to->second) return std::unexpected(ErrorType::InvalidExecutionOrder);
+                if (from == positions.end())
+                    return std::unexpected(Error{ErrorCode::NodeNotFound, decodeNode(connection.from), connection.from});
+                if (to == positions.end())
+                    return std::unexpected(Error{ErrorCode::NodeNotFound, decodeNode(connection.to), connection.to});
+                if (from->second >= to->second)
+                    return std::unexpected(Error{ErrorCode::InvalidParameter, decodeNode(connection.to), connection.to});
                 if (!incoming.emplace(connection.to, connection.from).second)
-                    return std::unexpected(ErrorType::ChannelAlreadyConnected);
+                    return std::unexpected(Error{ErrorCode::InputOccupied, decodeNode(connection.to), connection.to});
                 state->tasks[to->second].isSource = false;
             }
             std::unordered_map<ChannelID, std::size_t> outputSlots;
@@ -223,13 +242,22 @@ export namespace mka::audio::dsp {
             state->backendInputs.resize(config.inputChannels);
             state->backendOutputs.resize(config.outputChannels);
             state->rebindInternal();
-            for (const auto& task : state->tasks) {
+            for (std::size_t i = 0; i < state->tasks.size(); ++i) {
+                const auto& task = state->tasks[i];
                 const PreparedContextBindings bindings{.inputs = task.inputs, .auxiliary = task.auxiliary,
                     .outputs = task.outputs, .maxFrames = config.maxFrames, .isSource = task.isSource};
-                if (const auto result = validateContextBindings(bindings); !result) return result;
+                if (const auto result = validateContextBindings(bindings); !result) {
+                    auto error = result.error();
+                    if (error.node == invalidNodeID) error.node = plan_[i]->id();
+                    return std::unexpected(error);
+                }
             }
             audio_.swap(state);
             return {};
+        } catch (const std::bad_alloc&) {
+            return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded});
+        } catch (const std::length_error&) {
+            return std::unexpected(Error{ErrorCode::CapacityExceeded});
         }
 
         /**

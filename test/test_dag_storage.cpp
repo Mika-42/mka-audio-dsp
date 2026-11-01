@@ -85,7 +85,7 @@ namespace {
 
     void expectAddError(const std::expected<NodeID, GraphError>& result, const GraphError error) {
         ASSERT_FALSE(result);
-        EXPECT_EQ(result.error(), error);
+        EXPECT_EQ(result.error().code, error.code);
     }
 
     TEST(DAGStorage, MixedTypesForwardArgumentsAndExposeBorrowedMutableAndConstLookups) {

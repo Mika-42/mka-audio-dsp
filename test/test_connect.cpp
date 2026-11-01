@@ -53,7 +53,7 @@ namespace {
 
     void expectError(const Result& result, const GraphError error) {
         ASSERT_FALSE(result);
-        EXPECT_EQ(result.error(), error);
+        EXPECT_EQ(result.error().code, error.code);
     }
 
     void expectEdges(const DAG& graph, const std::span<const Connection> expected) {
@@ -109,7 +109,7 @@ namespace {
         const std::array inputs{&input};
         const std::array outputs{&output};
         for (const auto& edge : cases) {
-            SCOPED_TRACE(static_cast<int>(edge.error));
+            SCOPED_TRACE(static_cast<int>(edge.error.code));
             expectError(graph.connect(edge.destination, edge.source), edge.error);
             expectEdges(graph, before);
             EXPECT_EQ(graph.node(*a), addresses[0]);

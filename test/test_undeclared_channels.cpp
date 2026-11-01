@@ -40,7 +40,7 @@ namespace {
 
     void expectError(const Result& result, GraphError error) {
         ASSERT_FALSE(result);
-        EXPECT_EQ(result.error(), error);
+        EXPECT_EQ(result.error().code, error.code);
     }
 
     void expectEdges(const DAG& graph, std::span<const Connection> expected) {
@@ -194,7 +194,7 @@ namespace {
             Candidate{encode(*c, PortType::In, 0), malformed, GraphError::InvalidPort}};
         const std::array expected{existing};
         for (const auto& edge : rejected) {
-            SCOPED_TRACE(static_cast<int>(edge.error));
+            SCOPED_TRACE(static_cast<int>(edge.error.code));
             expectError(graph.connect(edge.to, edge.from), edge.error);
             ASSERT_NO_FATAL_FAILURE(expectEdges(graph, expected));
             ASSERT_NO_FATAL_FAILURE(expectConfig(*graph.node(*a), sparseConfig()));
