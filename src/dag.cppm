@@ -116,10 +116,12 @@ namespace mka::audio::dsp {
          * edges or output markers. An old plan can still process the same Node.
          * Allocation failure leaves the desired graph and existing plans intact.
          * Destruction and collection occur only on control, never in a callback.
+         * All Ready/Pending/Active/Retired plan owners retain the same borrow
+         * protection; one callback ACK cannot retire another generation's borrow.
          * @pre Stop external raw-pointer uses before immediate destruction when
          * no plan borrows the Node, or before collecting its deferred retirement.
          */
-        [[nodiscard]] Result remove(const std::uint64_t nodeId) {
+        [[nodiscard]] std::expected<void, GraphError> remove(const NodeID nodeId) {
             const auto nodeIt = std::ranges::find(nodes_, nodeId, &Node::id);
 
             if (nodeIt == nodes_.end()) {
@@ -145,7 +147,7 @@ namespace mka::audio::dsp {
             std::erase_if(connections_, [nodeId](const Connection &conn) {
                 return decodeNode(conn.from) == nodeId || decodeNode(conn.to) == nodeId;
             });
-            std::erase(outputsNodes_, static_cast<NodeID>(nodeId));
+            std::erase(outputsNodes_, nodeId);
 
             return {};
         }
@@ -156,6 +158,8 @@ namespace mka::audio::dsp {
          * @pre Release external raw-pointer uses and retire plans only after
          * their callbacks quiesce. Untracked external references cannot extend
          * ownership. The DAG must still outlive every remaining plan.
+         * Control must retain the active plan until a replacement is installed
+         * and its old callback is acknowledged; this is not a publication protocol.
          */
         [[nodiscard]] std::size_t collectRetiredNodes() noexcept {
             return std::erase_if(retiredNodes_, [](const auto& retired) noexcept {
