@@ -131,6 +131,7 @@ if (MKA_BUILD_TESTS)
             test/test_internal_bindings.cpp
             test/test_realtime_execution.cpp
             test/test_logical_output_clearing.cpp
+            test/test_offline_pipeline.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests
