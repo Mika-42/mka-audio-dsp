@@ -105,6 +105,7 @@ if (MKA_BUILD_TESTS)
             test/test_backend_io.cpp
             test/test_dag_storage.cpp
             test/test_connection.cpp
+            test/test_connect.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests

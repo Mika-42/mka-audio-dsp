@@ -178,45 +178,58 @@ namespace mka::audio::dsp {
         }
 
         /**
-         * @brief Connect numeric logical channel identities from Node::channel.
-         * @details Store Connection{from, to} by value after the existing graph
-         * checks. Preserve the historical source,destination argument order;
-         * S02-03 harmonizes that convention separately. Channel indices need
-         * not appear in Config and never designate physical backend lanes.
-         * @return Existing semantic errors, AllocationFailed or
-         * ConnectionCapacityExceeded; rejection leaves the graph unchanged.
-         * @note Control only. No changes to existing prepared plans.
+         * @brief Connect a logical destination In/Aux to a producer Out, on control.
+         * @param destination Complete consuming ChannelID (first argument).
+         * @param source Complete producing ChannelID (second argument).
+         * @details Decode all fields without normalization. Validate ports,
+         * direction, Node existence, exact duplicate, input occupancy, then
+         * acyclicity in that order. Store Connection{source,destination} only
+         * after every check succeeds. Indices need not appear in Config.
+         * Fan-out is allowed; this operation never selects backend lanes.
+         * @return InvalidPort, InvalidDirection, NodeNotFound, ConnectionExists,
+         * InputOccupied, CycleDetected, AllocationFailed or ConnectionCapacityExceeded.
+         * @note Control only, externally serialized with graph edits. Rejection
+         * leaves desired edges and prepared plans intact. Success edits only
+         * the desired graph, not Node DSP state or an existing plan snapshot.
          */
         [[nodiscard]] std::expected<void, GraphError>
-        connect(const ChannelID from, const ChannelID to) try {
-            if (!isOutputPort(decodePort(from)) || !isInputPort(decodePort(to))) {
+        connect(const ChannelID destination, const ChannelID source) try {
+            const auto sourcePort = decodePort(source);
+            const auto destinationPort = decodePort(destination);
+            if (!isValidPort(sourcePort) || !isValidPort(destinationPort)) {
+                return std::unexpected(GraphError::InvalidPort);
+            }
+            if (!isOutputPort(sourcePort) || !isInputPort(destinationPort)) {
                 return std::unexpected(GraphError::InvalidDirection);
             }
 
-            if (!nodeExists(decodeNode(from)) || !nodeExists(decodeNode(to))) {
+            const auto sourceNode = decodeNode(source);
+            const auto destinationNode = decodeNode(destination);
+            if (!nodeExists(sourceNode) || !nodeExists(destinationNode)) {
                 return std::unexpected(ErrorType::NodeNotFound);
             }
 
-            if (std::ranges::find(connections_, Connection{from, to}) != connections_.end()) {
-                return std::unexpected(ErrorType::ConnexionAlreadyExists);
-            }
-
-            if (pathExists(decodeNode(to), decodeNode(from))) {
-                return std::unexpected(ErrorType::CycleDetected);
+            if (std::ranges::find(connections_, Connection{source, destination}) != connections_.end()) {
+                return std::unexpected(GraphError::ConnectionExists);
             }
 
             const bool occupied = std::ranges::any_of(
                 connections_,
-                [&to](const Connection &connexion) {
-                    return connexion.to == to;
+                [destination](const Connection &connection) {
+                    return connection.to == destination;
                 }
             );
 
             if (occupied) {
-                return std::unexpected(ErrorType::ChannelAlreadyConnected);
+                return std::unexpected(GraphError::InputOccupied);
             }
 
-            connections_.emplace_back(from, to);
+            // A path destination -> source would close a cycle; includes self-loops.
+            if (pathExists(destinationNode, sourceNode)) {
+                return std::unexpected(GraphError::CycleDetected);
+            }
+
+            connections_.emplace_back(source, destination);
             return {};
         } catch (const std::bad_alloc&) {
             return std::unexpected(GraphError::AllocationFailed);
@@ -226,23 +239,25 @@ namespace mka::audio::dsp {
 
         /**
          * @brief Checked adapter for legacy wide Channel fields, on control.
-         * @details Reject invalid directions first, then absent/wide NodeIDs,
-         * then indices outside [0,65535], before encoding or inserting anything.
-         * Both overloads keep the same source,destination argument convention.
+         * @details Uses the same destination,source convention and port/error
+         * precedence. Check full-width NodeIDs and indices outside [0,65535]
+         * before encoding; no wide value may alias an existing identity.
          */
         [[nodiscard]] std::expected<void, GraphError>
-        connect(const Channel& from, const Channel& to) {
-            if (!isOutputPort(from.port) || !isInputPort(to.port))
+        connect(const Channel& destination, const Channel& source) {
+            if (!isValidPort(source.port) || !isValidPort(destination.port))
+                return std::unexpected(GraphError::InvalidPort);
+            if (!isOutputPort(source.port) || !isInputPort(destination.port))
                 return std::unexpected(GraphError::InvalidDirection);
-            if (!nodeExists(from.nodeID) || !nodeExists(to.nodeID))
+            if (!nodeExists(source.nodeID) || !nodeExists(destination.nodeID))
                 return std::unexpected(GraphError::NodeNotFound);
-            const auto fromIndex = toChannelIndex(from.channel);
-            if (!fromIndex) return std::unexpected(fromIndex.error());
-            const auto toIndex = toChannelIndex(to.channel);
-            if (!toIndex) return std::unexpected(toIndex.error());
+            const auto sourceIndex = toChannelIndex(source.channel);
+            if (!sourceIndex) return std::unexpected(sourceIndex.error());
+            const auto destinationIndex = toChannelIndex(destination.channel);
+            if (!destinationIndex) return std::unexpected(destinationIndex.error());
             // Existence was checked on the full-width values before narrowing.
-            return connect(encode(static_cast<NodeID>(from.nodeID), from.port, *fromIndex),
-                           encode(static_cast<NodeID>(to.nodeID), to.port, *toIndex));
+            return connect(encode(static_cast<NodeID>(destination.nodeID), destination.port, *destinationIndex),
+                           encode(static_cast<NodeID>(source.nodeID), source.port, *sourceIndex));
         }
 
         /**

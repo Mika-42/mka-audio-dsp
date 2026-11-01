@@ -220,8 +220,8 @@ namespace {
         const auto& destination = *static_cast<EmptyLayoutNode*>(graph.node(*addedDestination));
         ASSERT_TRUE(validateConfig(source.config()));
         ASSERT_TRUE(validateConfig(destination.config()));
-        ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 65535),
-                                  destination.channel(PortType::In, 65535)));
+        ASSERT_TRUE(graph.connect(destination.channel(PortType::In, 65535),
+                                  source.channel(PortType::Out, 65535)));
         ASSERT_TRUE(graph.disconnect(source.id(), destination.id()));
         expectError(graph.disconnect(source.id(), destination.id()), ErrorType::ConnexionNotFound);
     }
@@ -236,10 +236,10 @@ namespace {
         const auto& destination = *static_cast<SparseLayoutNode*>(graph.node(*addedDestination));
         ASSERT_TRUE(validateConfig(source.config()));
         ASSERT_TRUE(validateConfig(destination.config()));
-        ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 65535),
-                                  destination.channel(PortType::In, 65535)));
-        ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 65535),
-                                  destination.channel(PortType::Aux, 65535)));
+        ASSERT_TRUE(graph.connect(destination.channel(PortType::In, 65535),
+                                  source.channel(PortType::Out, 65535)));
+        ASSERT_TRUE(graph.connect(destination.channel(PortType::Aux, 65535),
+                                  source.channel(PortType::Out, 65535)));
         ASSERT_TRUE(graph.disconnect(source.id(), destination.id()));
         ASSERT_TRUE(graph.disconnect(source.id(), destination.id()));
         expectError(graph.disconnect(source.id(), destination.id()), ErrorType::ConnexionNotFound);

@@ -124,15 +124,15 @@ namespace {
         ASSERT_TRUE(addedDestination);
         const auto& destination = *static_cast<PortTestNode*>(graph.node(*addedDestination));
         const auto pair = GetParam();
-        const auto result = graph.connect(source.channel(pair.source, index),
-                                          destination.channel(pair.destination, index));
+        const auto result = graph.connect(destination.channel(pair.destination, index),
+                                          source.channel(pair.source, index));
 
         if (pair.allowed) {
             ASSERT_TRUE(result.has_value());
-            const auto duplicate = graph.connect(source.channel(pair.source, index),
-                                                  destination.channel(pair.destination, index));
+            const auto duplicate = graph.connect(destination.channel(pair.destination, index),
+                                                  source.channel(pair.source, index));
             ASSERT_FALSE(duplicate.has_value());
-            EXPECT_EQ(duplicate.error(), GraphError::ConnexionAlreadyExists);
+            EXPECT_EQ(duplicate.error(), GraphError::ConnectionExists);
         } else {
             ASSERT_FALSE(result.has_value());
             EXPECT_EQ(result.error(), GraphError::InvalidDirection);
@@ -140,8 +140,8 @@ namespace {
             ASSERT_FALSE(absent.has_value());
             EXPECT_EQ(absent.error(), GraphError::ConnexionNotFound);
             // Rejection must not leave any edge, reverse path or occupied input.
-            ASSERT_TRUE(graph.connect(source.channel(PortType::Out, index),
-                                      destination.channel(PortType::In, index)));
+            ASSERT_TRUE(graph.connect(destination.channel(PortType::In, index),
+                                      source.channel(PortType::Out, index)));
         }
 
         ASSERT_TRUE(graph.disconnect(source.id(), destination.id()));
@@ -183,15 +183,15 @@ namespace {
                 const auto addedDestination = graph.add<PortTestNode>();
                 ASSERT_TRUE(addedDestination);
                 const auto& destination = *static_cast<PortTestNode*>(graph.node(*addedDestination));
-                const auto result = graph.connect(rawChannelID(source.id(), pair.source),
-                                                  rawChannelID(destination.id(), pair.destination));
+                const auto result = graph.connect(rawChannelID(destination.id(), pair.destination),
+                                                  rawChannelID(source.id(), pair.source));
                 ASSERT_FALSE(result.has_value());
-                EXPECT_EQ(result.error(), GraphError::InvalidDirection);
+                EXPECT_EQ(result.error(), GraphError::InvalidPort);
                 const auto absent = graph.disconnect(source.id(), destination.id());
                 ASSERT_FALSE(absent.has_value());
                 EXPECT_EQ(absent.error(), GraphError::ConnexionNotFound);
-                ASSERT_TRUE(graph.connect(source.channel(PortType::Out, index),
-                                          destination.channel(PortType::In, index)));
+                ASSERT_TRUE(graph.connect(destination.channel(PortType::In, index),
+                                          source.channel(PortType::Out, index)));
                 ASSERT_TRUE(graph.disconnect(source.id(), destination.id()));
             }
         }
@@ -213,7 +213,7 @@ namespace {
         const auto& d = *static_cast<PortTestNode*>(graph.node(*addedD));
         const auto originalFrom = a.channel(PortType::Out, index);
         const auto originalTo = b.channel(PortType::In, index);
-        ASSERT_TRUE(graph.connect(originalFrom, originalTo));
+        ASSERT_TRUE(graph.connect(originalTo, originalFrom));
 
         constexpr std::array ports{PortType::In, PortType::Out, PortType::Aux,
                                   static_cast<PortType>(3), static_cast<PortType>(65535)};
@@ -224,12 +224,14 @@ namespace {
                 }
                 SCOPED_TRACE(static_cast<std::uint16_t>(from));
                 SCOPED_TRACE(static_cast<std::uint16_t>(to));
-                const auto rejected = graph.connect(rawChannelID(c.id(), from), rawChannelID(d.id(), to));
+                const auto rejected = graph.connect(rawChannelID(d.id(), to), rawChannelID(c.id(), from));
                 ASSERT_FALSE(rejected.has_value());
-                EXPECT_EQ(rejected.error(), GraphError::InvalidDirection);
-                const auto existing = graph.connect(originalFrom, originalTo);
+                EXPECT_EQ(rejected.error(),
+                          !isValidPort(from) || !isValidPort(to)
+                              ? GraphError::InvalidPort : GraphError::InvalidDirection);
+                const auto existing = graph.connect(originalTo, originalFrom);
                 ASSERT_FALSE(existing.has_value());
-                EXPECT_EQ(existing.error(), GraphError::ConnexionAlreadyExists);
+                EXPECT_EQ(existing.error(), GraphError::ConnectionExists);
                 const auto absent = graph.disconnect(c.id(), d.id());
                 ASSERT_FALSE(absent.has_value());
                 EXPECT_EQ(absent.error(), GraphError::ConnexionNotFound);
@@ -238,11 +240,11 @@ namespace {
 
         ASSERT_TRUE(graph.disconnect(a.id(), b.id()));
         expectError(graph.disconnect(a.id(), b.id()), GraphError::ConnexionNotFound);
-        ASSERT_TRUE(graph.connect(c.channel(PortType::Out, index), d.channel(PortType::Aux, index)));
+        ASSERT_TRUE(graph.connect(d.channel(PortType::Aux, index), c.channel(PortType::Out, index)));
         ASSERT_TRUE(graph.disconnect(c.id(), d.id()));
     }
 
-    TEST(PortDirections, InvalidDirectionTakesPriorityOverOtherGraphErrors) {
+    TEST(PortDirections, PortAndDirectionErrorsTakePriorityOverOtherGraphErrors) {
         DAG graph;
         const auto addedA = graph.add<PortTestNode>();
         ASSERT_TRUE(addedA);
@@ -250,11 +252,11 @@ namespace {
         const auto addedB = graph.add<PortTestNode>();
         ASSERT_TRUE(addedB);
         const auto& b = *static_cast<PortTestNode*>(graph.node(*addedB));
-        ASSERT_TRUE(graph.connect(a.channel(PortType::Out, index), b.channel(PortType::In, index)));
+        ASSERT_TRUE(graph.connect(b.channel(PortType::In, index), a.channel(PortType::Out, index)));
 
-        // Occupancy would previously mask the invalid source direction.
-        const auto occupied = graph.connect(a.channel(PortType::In, index),
-                                            b.channel(PortType::In, index));
+        // Direction is checked before destination occupancy.
+        const auto occupied = graph.connect(b.channel(PortType::In, index),
+                                            a.channel(PortType::In, index));
         ASSERT_FALSE(occupied.has_value());
         EXPECT_EQ(occupied.error(), GraphError::InvalidDirection);
         // Self-loop detection must not mask an invalid destination direction.
@@ -262,15 +264,15 @@ namespace {
                                         a.channel(PortType::Out, index));
         ASSERT_FALSE(self.has_value());
         EXPECT_EQ(self.error(), GraphError::InvalidDirection);
-        const auto cyclic = graph.connect(b.channel(PortType::In, index),
-                                          a.channel(PortType::In, index));
+        const auto cyclic = graph.connect(a.channel(PortType::In, index),
+                                          b.channel(PortType::In, index));
         ASSERT_FALSE(cyclic.has_value());
         EXPECT_EQ(cyclic.error(), GraphError::InvalidDirection);
         const auto missing = graph.connect(
-            Channel{.nodeID = maxNodeID, .channel = index, .port = static_cast<PortType>(3)},
-            Channel{.nodeID = invalidNodeID, .channel = index, .port = PortType::Out});
+            Channel{.nodeID = invalidNodeID, .channel = index, .port = PortType::Out},
+            Channel{.nodeID = maxNodeID, .channel = index, .port = static_cast<PortType>(3)});
         ASSERT_FALSE(missing.has_value());
-        EXPECT_EQ(missing.error(), GraphError::InvalidDirection);
+        EXPECT_EQ(missing.error(), GraphError::InvalidPort);
 
         ASSERT_TRUE(graph.disconnect(a.id(), b.id()));
         const auto absent = graph.disconnect(b.id(), a.id());
@@ -278,7 +280,7 @@ namespace {
         EXPECT_EQ(absent.error(), GraphError::ConnexionNotFound);
     }
 
-    TEST(PortDirections, ValidDirectionsPreserveExistingGraphErrorChecks) {
+    TEST(PortDirections, ValidDirectionsReturnDistinctStructuralErrors) {
         DAG graph;
         const auto addedA = graph.add<PortTestNode>();
         ASSERT_TRUE(addedA);
@@ -293,17 +295,17 @@ namespace {
         const auto bIn = b.channel(PortType::In, index);
         const auto unknownOut = encode(maxNodeID, PortType::Out, index);
         const auto unknownIn = encode(maxNodeID, PortType::In, index);
-        expectError(graph.connect(unknownOut, bIn), GraphError::NodeNotFound);
-        expectError(graph.connect(aOut, unknownIn), GraphError::NodeNotFound);
-        expectError(graph.connect(aOut, a.channel(PortType::In, index)), GraphError::CycleDetected);
-        ASSERT_TRUE(graph.connect(aOut, bIn));
-        expectError(graph.connect(aOut, bIn), GraphError::ConnexionAlreadyExists);
-        expectError(graph.connect(c.channel(PortType::Out, index), bIn),
-                    GraphError::ChannelAlreadyConnected);
-        expectError(graph.connect(b.channel(PortType::Out, index), a.channel(PortType::In, index)),
+        expectError(graph.connect(bIn, unknownOut), GraphError::NodeNotFound);
+        expectError(graph.connect(unknownIn, aOut), GraphError::NodeNotFound);
+        expectError(graph.connect(a.channel(PortType::In, index), aOut), GraphError::CycleDetected);
+        ASSERT_TRUE(graph.connect(bIn, aOut));
+        expectError(graph.connect(bIn, aOut), GraphError::ConnectionExists);
+        expectError(graph.connect(bIn, c.channel(PortType::Out, index)),
+                    GraphError::InputOccupied);
+        expectError(graph.connect(a.channel(PortType::In, index), b.channel(PortType::Out, index)),
                     GraphError::CycleDetected);
         // Aux and In are distinct destinations even at the same channel index.
-        ASSERT_TRUE(graph.connect(aOut, b.channel(PortType::Aux, index)));
+        ASSERT_TRUE(graph.connect(b.channel(PortType::Aux, index), aOut));
         ASSERT_TRUE(graph.disconnect(a.id(), b.id()));
         ASSERT_TRUE(graph.disconnect(a.id(), b.id()));
         expectError(graph.disconnect(a.id(), b.id()), GraphError::ConnexionNotFound);

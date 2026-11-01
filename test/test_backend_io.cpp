@@ -234,7 +234,7 @@ namespace {
         auto& source = *static_cast<Processor*>(graph.node(*addedSource));
         source.gain = 2;
         sink.gain = 3;
-        ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 0), sink.channel(PortType::In, 0)));
+        ASSERT_TRUE(graph.connect(sink.channel(PortType::In, 0), source.channel(PortType::Out, 0)));
         ASSERT_TRUE(graph.markAsOutput(sink.id()));
         auto plan = graph.compile(BackendConfig{.maxFrames = 3, .inputChannels = 1, .outputChannels = 2});
         ASSERT_TRUE(plan);
@@ -264,7 +264,7 @@ namespace {
         source.gain = 2;
         source.backendBias = 100;
         sink.gain = 3;
-        ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 0), sink.channel(PortType::In, 0)));
+        ASSERT_TRUE(graph.connect(sink.channel(PortType::In, 0), source.channel(PortType::Out, 0)));
         ASSERT_TRUE(graph.markAsOutput(source.id()));
         ASSERT_TRUE(graph.markAsOutput(sink.id()));
         auto plan = graph.compile(BackendConfig{.maxFrames = 2, .inputChannels = 1, .outputChannels = 1});
@@ -451,7 +451,7 @@ namespace {
         source.mode = Mode::NoWrite;
         sink.mode = Mode::Constant;
         sink.value = 7;
-        ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 65535), sink.channel(PortType::Aux, 65535)));
+        ASSERT_TRUE(graph.connect(sink.channel(PortType::Aux, 65535), source.channel(PortType::Out, 65535)));
         ASSERT_TRUE(graph.markAsOutput(sink.id()));
         auto plan = graph.compile(BackendConfig{.maxFrames = 1, .inputChannels = 2, .outputChannels = 1});
         ASSERT_TRUE(plan);
@@ -473,7 +473,7 @@ namespace {
         const auto addedSink = graph.add<Processor>();
         ASSERT_TRUE(addedSink);
         auto& sink = *static_cast<Processor*>(graph.node(*addedSink));
-        ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 65535), sink.channel(PortType::In, 0)));
+        ASSERT_TRUE(graph.connect(sink.channel(PortType::In, 0), source.channel(PortType::Out, 65535)));
         ASSERT_TRUE(graph.markAsOutput(sink.id()));
         auto plan = graph.compile(BackendConfig{.maxFrames = 1, .inputChannels = 1, .outputChannels = 1});
         ASSERT_TRUE(plan);
@@ -498,7 +498,7 @@ namespace {
         auto& sink = *static_cast<Processor*>(graph.node(*addedSink));
         source.mode = Mode::Constant;
         source.value = 3;
-        ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 0), sink.channel(PortType::In, 0)));
+        ASSERT_TRUE(graph.connect(sink.channel(PortType::In, 0), source.channel(PortType::Out, 0)));
         ASSERT_TRUE(graph.markAsOutput(sink.id()));
         auto plan = graph.compile(BackendConfig{.maxFrames = 1, .outputChannels = 1});
         ASSERT_TRUE(plan);
@@ -521,7 +521,7 @@ namespace {
         auto& sink = *static_cast<SparseProcessor*>(graph.node(*addedSink));
         source.gain = 2;
         sink.gain = 5;
-        ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 42), sink.channel(PortType::In, 65535)));
+        ASSERT_TRUE(graph.connect(sink.channel(PortType::In, 65535), source.channel(PortType::Out, 42)));
         ASSERT_TRUE(graph.markAsOutput(sink.id()));
         auto plan = graph.compile(BackendConfig{.maxFrames = 1, .inputChannels = 1, .outputChannels = 1});
         ASSERT_TRUE(plan);
@@ -548,7 +548,7 @@ namespace {
         source.value = 5;
         sink.mode = Mode::Auxiliary;
         sink.gain = 3;
-        ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 42), sink.channel(PortType::Aux, 2)));
+        ASSERT_TRUE(graph.connect(sink.channel(PortType::Aux, 2), source.channel(PortType::Out, 42)));
         ASSERT_TRUE(graph.markAsOutput(sink.id()));
         auto plan = graph.compile(BackendConfig{.maxFrames = 1, .inputChannels = 2, .outputChannels = 1});
         ASSERT_TRUE(plan);
@@ -578,8 +578,8 @@ namespace {
         first.gain = 2;
         second.gain = 3;
         second.outputLane = 1;
-        ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 0), first.channel(PortType::In, 0)));
-        ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 0), second.channel(PortType::In, 0)));
+        ASSERT_TRUE(graph.connect(first.channel(PortType::In, 0), source.channel(PortType::Out, 0)));
+        ASSERT_TRUE(graph.connect(second.channel(PortType::In, 0), source.channel(PortType::Out, 0)));
         ASSERT_TRUE(graph.markAsOutput(first.id()));
         ASSERT_TRUE(graph.markAsOutput(second.id()));
         auto plan = graph.compile(BackendConfig{.maxFrames = 1, .outputChannels = 2});
@@ -602,7 +602,7 @@ namespace {
         source.mode = Mode::Constant;
         source.value = 4;
         sink.gain = 3;
-        ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 0), sink.channel(PortType::In, 0)));
+        ASSERT_TRUE(graph.connect(sink.channel(PortType::In, 0), source.channel(PortType::Out, 0)));
         ASSERT_TRUE(graph.markAsOutput(sink.id()));
         auto initial = graph.compile(BackendConfig{.maxFrames = 1, .outputChannels = 1});
         ASSERT_TRUE(initial);
@@ -698,8 +698,8 @@ namespace {
         const auto addedB = graph.add<Processor>();
         ASSERT_TRUE(addedB);
         auto& b = *static_cast<Processor*>(graph.node(*addedB));
-        const auto rejected = graph.connect(Channel{a.id(), 65536, PortType::Out},
-                                            Channel{b.id(), 0, PortType::In});
+        const auto rejected = graph.connect(Channel{b.id(), 0, PortType::In},
+                                            Channel{a.id(), 65536, PortType::Out});
         ASSERT_FALSE(rejected);
         EXPECT_EQ(rejected.error(), ErrorType::InvalidChannelIndex);
         EXPECT_TRUE(graph.connections().empty());
