@@ -124,6 +124,7 @@ if (MKA_BUILD_TESTS)
             test/test_dag_mutations.cpp
             test/test_errors.cpp
             test/test_structural_compile.cpp
+            test/test_execution_tasks.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests

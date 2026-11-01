@@ -385,10 +385,10 @@ namespace {
         EXPECT_FALSE(plan->exec(BackendBlock{nullInputs, outputs, 1}));
         EXPECT_FALSE(plan->exec(BackendBlock{inputs, nullOutputs, 1}));
         EXPECT_TRUE(plan->exec(BackendBlock{nullInputs, nullOutputs, 0}));
-        EXPECT_EQ(node.calls, 0U);
+        EXPECT_EQ(node.calls, 1U);
         EXPECT_EQ(output, (std::array<float, 3>{41, 43, 47}));
         ASSERT_TRUE(plan->exec(BackendBlock{inputs, outputs, 2}));
-        EXPECT_EQ(node.calls, 1U);
+        EXPECT_EQ(node.calls, 2U);
         EXPECT_EQ(output, (std::array<float, 3>{3, 5, 47}));
     }
 
@@ -404,7 +404,7 @@ namespace {
         EXPECT_EQ(node.calls, 0U);
     }
 
-    TEST(BackendPreparation, ZeroMaximumFramesCanPrepareANoopPlan) {
+    TEST(BackendPreparation, ZeroMaximumFramesCallsTasksWithoutAccessingSamples) {
         DAG graph;
         const auto addedNode = graph.add<Processor>();
         ASSERT_TRUE(addedNode);
@@ -416,7 +416,7 @@ namespace {
         const std::array<float*, 1> outputs{nullptr};
         EXPECT_TRUE(plan->exec(BackendBlock{inputs, outputs, 0}));
         EXPECT_FALSE(plan->exec(BackendBlock{inputs, outputs, 1}));
-        EXPECT_EQ(node.calls, 0U);
+        EXPECT_EQ(node.calls, 1U);
     }
 
     TEST(BackendRoles, MarkersAreSnapshottedWithoutChangingExistingPlans) {

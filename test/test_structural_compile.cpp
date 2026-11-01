@@ -30,8 +30,8 @@ namespace {
 
     static_assert(std::same_as<decltype(std::declval<const DAG&>().compile(
         std::declval<ExecutionPlan&>(), std::declval<const CompileConfig&>())), Result>);
-    static_assert(std::same_as<decltype(std::declval<const ExecutionPlan&>().executionTasks()),
-        std::span<const ExecutionTask>>);
+    static_assert(std::same_as<decltype(std::declval<const ExecutionPlan&>().taskInfos()),
+        std::span<const TaskInfo>>);
     static_assert(std::same_as<decltype(std::declval<const ExecutionPlan&>().sourceTasks()),
         std::span<const std::size_t>>);
     static_assert(std::same_as<decltype(std::declval<const ExecutionPlan&>().outputTasks()),
@@ -44,42 +44,42 @@ namespace {
 
     std::vector<NodeID> taskIDs(const ExecutionPlan& plan) {
         std::vector<NodeID> ids;
-        for (const auto& task : plan.executionTasks()) ids.push_back(task.id);
+        for (const auto& task : plan.taskInfos()) ids.push_back(task.id);
         return ids;
     }
 
     /** Retain values and storage addresses to detect any failed partial commit. */
     struct PlanImage {
-        std::vector<ExecutionTask> tasks;
+        std::vector<TaskInfo> tasks;
         std::vector<std::size_t> sources, outputs;
         Node* const* pointerStorage;
-        const ExecutionTask* taskStorage;
+        const TaskInfo* taskStorage;
         const std::size_t* sourceStorage;
         const std::size_t* outputStorage;
         bool prepared;
         std::size_t layers;
 
         explicit PlanImage(const ExecutionPlan& plan)
-            : tasks(plan.executionTasks().begin(), plan.executionTasks().end()),
+            : tasks(plan.taskInfos().begin(), plan.taskInfos().end()),
               sources(plan.sourceTasks().begin(), plan.sourceTasks().end()),
               outputs(plan.outputTasks().begin(), plan.outputTasks().end()),
-              pointerStorage(plan.tasks().data()), taskStorage(plan.executionTasks().data()),
+              pointerStorage(plan.tasks().data()), taskStorage(plan.taskInfos().data()),
               sourceStorage(plan.sourceTasks().data()), outputStorage(plan.outputTasks().data()),
               prepared(plan.isBackendPrepared()), layers(plan.layerCount()) {}
 
         void expectUnchanged(const ExecutionPlan& plan) const {
             EXPECT_EQ(plan.tasks().data(), pointerStorage);
-            EXPECT_EQ(plan.executionTasks().data(), taskStorage);
+            EXPECT_EQ(plan.taskInfos().data(), taskStorage);
             EXPECT_EQ(plan.sourceTasks().data(), sourceStorage);
             EXPECT_EQ(plan.outputTasks().data(), outputStorage);
             EXPECT_EQ(plan.isBackendPrepared(), prepared);
             EXPECT_EQ(plan.layerCount(), layers);
             ASSERT_EQ(plan.tasks().size(), tasks.size());
-            ASSERT_EQ(plan.executionTasks().size(), tasks.size());
+            ASSERT_EQ(plan.taskInfos().size(), tasks.size());
             EXPECT_EQ((std::vector<std::size_t>{plan.sourceTasks().begin(), plan.sourceTasks().end()}), sources);
             EXPECT_EQ((std::vector<std::size_t>{plan.outputTasks().begin(), plan.outputTasks().end()}), outputs);
             for (std::size_t i = 0; i < tasks.size(); ++i) {
-                const auto& actual = plan.executionTasks()[i];
+                const auto& actual = plan.taskInfos()[i];
                 EXPECT_EQ(actual.node, tasks[i].node);
                 EXPECT_EQ(actual.id, tasks[i].id);
                 EXPECT_EQ(actual.index, tasks[i].index);
@@ -92,10 +92,10 @@ namespace {
     };
 
     void expectIndexed(const ExecutionPlan& plan) {
-        ASSERT_EQ(plan.executionTasks().size(), plan.tasks().size());
+        ASSERT_EQ(plan.taskInfos().size(), plan.tasks().size());
         std::vector<std::size_t> sources, outputs;
-        for (std::size_t i = 0; i < plan.executionTasks().size(); ++i) {
-            const auto& task = plan.executionTasks()[i];
+        for (std::size_t i = 0; i < plan.taskInfos().size(); ++i) {
+            const auto& task = plan.taskInfos()[i];
             EXPECT_EQ(task.node, plan.tasks()[i]);
             EXPECT_EQ(task.id, task.node->id());
             EXPECT_EQ(task.index, i);
@@ -116,7 +116,7 @@ namespace {
         DAG graph;
         ExecutionPlan target;
         EXPECT_TRUE(target.tasks().empty());
-        EXPECT_TRUE(target.executionTasks().empty());
+        EXPECT_TRUE(target.taskInfos().empty());
         EXPECT_TRUE(target.sourceTasks().empty());
         EXPECT_TRUE(target.outputTasks().empty());
         EXPECT_FALSE(target.isBackendPrepared());
@@ -126,7 +126,7 @@ namespace {
         ASSERT_NO_FATAL_FAILURE(expectIndexed(target));
         auto legacy = graph.compile();
         ASSERT_TRUE(legacy);
-        EXPECT_TRUE(legacy->executionTasks().empty());
+        EXPECT_TRUE(legacy->taskInfos().empty());
         EXPECT_FALSE(legacy->isBackendPrepared());
     }
 
@@ -167,7 +167,7 @@ namespace {
                   (std::vector<std::size_t>{0, 2}));
         EXPECT_EQ((std::vector<std::size_t>{target.outputTasks().begin(), target.outputTasks().end()}),
                   (std::vector<std::size_t>{0, 1}));
-        for (const auto& task : target.executionTasks())
+        for (const auto& task : target.taskInfos())
             EXPECT_EQ(static_cast<StructuralNode*>(task.node)->calls, 0U);
         EXPECT_FALSE(target.isBackendPrepared());
     }
@@ -196,7 +196,7 @@ namespace {
         EXPECT_EQ(target.sourceTasks()[0], 0U);
         ASSERT_EQ(target.outputTasks().size(), 1U);
         EXPECT_EQ(target.outputTasks()[0], 3U);
-        for (const auto& task : target.executionTasks())
+        for (const auto& task : target.taskInfos())
             EXPECT_EQ(static_cast<StructuralNode*>(task.node)->calls, 0U);
     }
 
@@ -360,7 +360,7 @@ namespace {
                                                        .memoryBudgetBytes = *bytes}));
         EXPECT_FALSE(target.isBackendPrepared());
         ASSERT_NO_FATAL_FAILURE(expectIndexed(target));
-        for (const auto& task : target.executionTasks())
+        for (const auto& task : target.taskInfos())
             EXPECT_EQ(static_cast<StructuralNode*>(task.node)->calls, 0U);
     }
 
@@ -396,11 +396,11 @@ namespace {
         const std::array edges{Connection{encode(1, PortType::Out, 0), encode(2, PortType::Aux, 65535)}};
         const std::array<NodeID, 1> outputs{1};
         const auto expectRoles = [](const ExecutionPlan& plan) {
-            ASSERT_EQ(plan.executionTasks().size(), 2U);
-            EXPECT_TRUE(plan.executionTasks()[0].isSource);
-            EXPECT_TRUE(plan.executionTasks()[0].isOutput);
-            EXPECT_FALSE(plan.executionTasks()[1].isSource);
-            EXPECT_FALSE(plan.executionTasks()[1].isOutput);
+            ASSERT_EQ(plan.taskInfos().size(), 2U);
+            EXPECT_TRUE(plan.taskInfos()[0].isSource);
+            EXPECT_TRUE(plan.taskInfos()[0].isOutput);
+            EXPECT_FALSE(plan.taskInfos()[1].isSource);
+            EXPECT_FALSE(plan.taskInfos()[1].isOutput);
         };
         ExecutionPlan legacy{{&one, &two}, {0, 1, 2}};
         EXPECT_EQ(legacy.sourceTasks().size(), 2U);
@@ -416,7 +416,7 @@ namespace {
         ASSERT_NO_FATAL_FAILURE(expectIndexed(copy));
         ASSERT_NO_FATAL_FAILURE(expectRoles(copy));
         EXPECT_EQ(taskIDs(copy), taskIDs(legacy));
-        EXPECT_NE(copy.executionTasks().data(), legacy.executionTasks().data());
+        EXPECT_NE(copy.taskInfos().data(), legacy.taskInfos().data());
         EXPECT_TRUE(copy.isBackendPrepared());
         const PlanImage before{copy};
         const std::array<NodeID, 1> missingOutput{9};
@@ -433,7 +433,7 @@ namespace {
         ASSERT_NO_FATAL_FAILURE(expectIndexed(moved));
         ASSERT_NO_FATAL_FAILURE(expectRoles(moved));
         EXPECT_TRUE(copy.tasks().empty());
-        EXPECT_TRUE(copy.executionTasks().empty());
+        EXPECT_TRUE(copy.taskInfos().empty());
         EXPECT_TRUE(copy.sourceTasks().empty());
         EXPECT_TRUE(copy.outputTasks().empty());
         EXPECT_FALSE(copy.taskIndexOf(1));
@@ -441,7 +441,7 @@ namespace {
         ASSERT_NO_FATAL_FAILURE(expectIndexed(assigned));
         ASSERT_NO_FATAL_FAILURE(expectRoles(assigned));
         EXPECT_EQ(taskIDs(assigned), (std::vector<NodeID>{1, 2}));
-        EXPECT_TRUE(moved.executionTasks().empty());
+        EXPECT_TRUE(moved.taskInfos().empty());
         EXPECT_FALSE(moved.taskIndexOf(2));
         EXPECT_TRUE(assigned.isBackendPrepared());
         EXPECT_EQ(one.calls + two.calls, 0U);
