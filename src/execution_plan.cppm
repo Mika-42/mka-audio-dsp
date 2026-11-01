@@ -116,12 +116,6 @@ export namespace mka::audio::dsp {
                 assert(slot != 0); // The silence slot never has a writable view.
                 return maxFrames_ == 0 ? nullptr : samples_.data() + slot * maxFrames_;
             }
-            void clearProduced(const FrameCount frames) noexcept {
-                if (frames == 0) return;
-                const auto stride = static_cast<std::size_t>(maxFrames_);
-                for (std::size_t offset = stride; offset < samples_.size(); offset += stride)
-                    std::fill_n(samples_.data() + offset, frames, 0.F);
-            }
         private:
             std::vector<float> samples_;
             FrameCount maxFrames_ = 0;
@@ -570,7 +564,6 @@ export namespace mka::audio::dsp {
                 state.backendOutputs[i] = {0, outputAt(i)};
                 if (frames != 0) std::fill_n(outputAt(i), frames, 0.F);
             }
-            state.pool.clearProduced(frames);
             const auto physicalInputs = std::span<const InputChannel>{state.backendInputs}.first(inputCount);
             const auto physicalOutputs = std::span<const OutputChannel>{state.backendOutputs}.first(outputCount);
             for (std::size_t i = 0; i < executionTasks_.size(); ++i) {
@@ -578,6 +571,12 @@ export namespace mka::audio::dsp {
                 if (state.tasks[i].isSource) operation.context.inputs = physicalInputs;
                 if (state.tasks[i].isOutput) operation.context.backendOutputs = physicalOutputs;
                 operation.context.frames = frames;
+                // Clear only this operation's assigned logical destinations,
+                // immediately before it runs. Inputs, live fan-out, silence and
+                // physical outputs are never touched by this per-Node clearing.
+                if (frames != 0)
+                    for (const auto& output : operation.context.outputs)
+                        std::fill_n(output.buffer,frames,0.F);
                 operation.node->process(operation.context);
             }
             // No callback-only view or pointer survives this synchronous execution.
