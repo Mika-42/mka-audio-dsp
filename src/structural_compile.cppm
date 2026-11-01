@@ -17,7 +17,8 @@ export import mka.audio.dsp.topology;
 export namespace mka::audio::dsp::detail {
     /**
      * @brief Checked requested bytes for a compiled structural plan, on control.
-     * @details Counts N Node pointers, N borrow tokens, N ExecutionTask records,
+     * @details Counts N Node pointers, N borrow tokens, N TaskInfo records,
+     * N ExecutionTask contexts,
      * N identity/index pairs, two role-index arrays with requested capacity N,
      * and N+1 serial layer offsets. Excludes vector objects, allocator overhead,
      * temporary compilation storage and separately prepared PCM/descriptors.
@@ -27,7 +28,7 @@ export namespace mka::audio::dsp::detail {
     [[nodiscard]] std::expected<std::size_t, CompileError>
     structuralStorageBytes(const std::size_t count) noexcept {
         constexpr auto perNode = sizeof(Node*) + sizeof(NodeBorrowToken) +
-            sizeof(ExecutionTask) + sizeof(std::pair<NodeID, std::size_t>) +
+            sizeof(TaskInfo) + sizeof(ExecutionTask) + sizeof(std::pair<NodeID, std::size_t>) +
             3 * sizeof(std::size_t);
         constexpr auto maximum = std::numeric_limits<std::size_t>::max();
         if (count > (maximum - sizeof(std::size_t)) / perNode)
@@ -64,7 +65,7 @@ export namespace mka::audio::dsp::detail {
         if (count > std::vector<Node*>{}.max_size() ||
             count >= std::vector<std::size_t>{}.max_size() ||
             count > std::vector<NodeBorrowToken>{}.max_size() ||
-            count > std::vector<ExecutionTask>{}.max_size() ||
+            count > std::vector<TaskInfo>{}.max_size() ||
             count > std::vector<std::pair<NodeID, std::size_t>>{}.max_size())
             return std::unexpected(Error{ErrorCode::CapacityExceeded});
 
@@ -132,11 +133,11 @@ export namespace mka::audio::dsp::detail {
         }
         const auto order = topologicalOrder(graph);
         if (!order) return std::unexpected(order.error());
-        std::vector<ExecutionTask> tasks;
+        std::vector<TaskInfo> tasks;
         tasks.reserve(count);
         for (const auto id : *order) {
             const auto position = positions.find(id)->second;
-            tasks.push_back(ExecutionTask{selected[position], id, tasks.size(),
+            tasks.push_back(TaskInfo{selected[position], id, tasks.size(),
                 sources[position], outputs[position]});
         }
         ExecutionPlan candidate(std::move(tasks));

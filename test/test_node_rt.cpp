@@ -201,6 +201,7 @@ namespace {
         {
             const AllocationWindow window;
             rejectedOverflow = !plan->exec(BackendBlock{inputs, firstOutputs, 33});
+            accepted = plan->exec(BackendBlock{inputs, firstOutputs, 0}) && accepted;
             for (unsigned callback = 0; callback < 64; ++callback) {
                 const auto outputs = callback % 2 == 0 ? std::span<float* const>{firstOutputs} :
                                                         std::span<float* const>{secondOutputs};
@@ -209,8 +210,8 @@ namespace {
         }
         EXPECT_TRUE(rejectedOverflow);
         EXPECT_TRUE(accepted);
-        EXPECT_EQ(source.calls, 64U);
-        EXPECT_EQ(sink.calls, 64U);
+        EXPECT_EQ(source.calls, 65U);
+        EXPECT_EQ(sink.calls, 65U);
         EXPECT_EQ(allocations, 0U);
         EXPECT_EQ(deallocations, 0U);
         for (std::size_t i = 0; i < input.size(); ++i) {
@@ -613,7 +614,7 @@ namespace {
             ExecutionPlan target=std::move(*old);
             ExecutionPlan active=target;
             const auto* const taskStorage=target.tasks().data();
-            const auto* const metadataStorage=target.executionTasks().data();
+            const auto* const metadataStorage=target.taskInfos().data();
             const auto* const sourceStorage=target.sourceTasks().data();
             const auto* const outputStorage=target.outputTasks().data();
             const auto second=graph.add<GainNode>(); ASSERT_TRUE(second);
@@ -631,16 +632,16 @@ namespace {
             EXPECT_EQ(injectedFailures,1U);
             EXPECT_TRUE(target.isBackendPrepared());
             EXPECT_EQ(target.tasks().data(),taskStorage);
-            EXPECT_EQ(target.executionTasks().data(),metadataStorage);
+            EXPECT_EQ(target.taskInfos().data(),metadataStorage);
             EXPECT_EQ(target.sourceTasks().data(),sourceStorage);
             EXPECT_EQ(target.outputTasks().data(),outputStorage);
             ASSERT_EQ(target.tasks().size(),1U);
             EXPECT_EQ(target.tasks()[0],firstAddress);
-            ASSERT_EQ(target.executionTasks().size(),1U);
-            EXPECT_EQ(target.executionTasks()[0].id,*first);
-            EXPECT_EQ(target.executionTasks()[0].index,0U);
-            EXPECT_TRUE(target.executionTasks()[0].isSource);
-            EXPECT_TRUE(target.executionTasks()[0].isOutput);
+            ASSERT_EQ(target.taskInfos().size(),1U);
+            EXPECT_EQ(target.taskInfos()[0].id,*first);
+            EXPECT_EQ(target.taskInfos()[0].index,0U);
+            EXPECT_TRUE(target.taskInfos()[0].isSource);
+            EXPECT_TRUE(target.taskInfos()[0].isOutput);
             EXPECT_EQ(target.taskIndexOf(*first),0U);
             EXPECT_FALSE(target.taskIndexOf(*second));
             ASSERT_EQ(target.sourceTasks().size(),1U); EXPECT_EQ(target.sourceTasks()[0],0U);
@@ -666,8 +667,8 @@ namespace {
             EXPECT_FALSE(target.isBackendPrepared());
             ASSERT_EQ(target.tasks().size(),2U);
             EXPECT_EQ(target.taskIndexOf(*second),1U);
-            EXPECT_FALSE(target.executionTasks()[1].isSource);
-            EXPECT_TRUE(target.executionTasks()[1].isOutput);
+            EXPECT_FALSE(target.taskInfos()[1].isSource);
+            EXPECT_TRUE(target.taskInfos()[1].isOutput);
             EXPECT_FALSE(target.exec(BackendBlock{inputs,outputs,1}));
             // Replacing target never mutates the independent active generation.
             ASSERT_EQ(active.tasks().size(),1U);
