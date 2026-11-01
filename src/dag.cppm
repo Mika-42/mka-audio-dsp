@@ -213,14 +213,7 @@ namespace mka::audio::dsp {
                 return std::unexpected(GraphError::ConnectionExists);
             }
 
-            const bool occupied = std::ranges::any_of(
-                connections_,
-                [destination](const Connection &connection) {
-                    return connection.to == destination;
-                }
-            );
-
-            if (occupied) {
+            if (inputOccupied(destination)) {
                 return std::unexpected(GraphError::InputOccupied);
             }
 
@@ -341,6 +334,19 @@ namespace mka::audio::dsp {
         }
 
     private:
+        /**
+         * @brief Full-ChannelID occupancy, derived from desired edges on control.
+         * @details In/Aux and indices are independent, including outside Config.
+         * No separate index can become stale after disconnect/remove. Scan only;
+         * no allocation, ownership, callback access or implicit fan-in/mixing.
+         */
+        [[nodiscard]] bool inputOccupied(const ChannelID destination) const noexcept {
+            return std::ranges::any_of(connections_, [destination](const Connection& edge) {
+                return edge.to == destination;
+            });
+
+        }
+
         [[nodiscard]] bool nodeExists(const std::uint64_t id) const {
             const auto nodeIt = std::ranges::find(nodes_, id, &Node::id);
             return nodeIt != nodes_.end();
