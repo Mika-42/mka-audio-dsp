@@ -91,7 +91,7 @@ namespace {
             Connection{encode(*source, PortType::Out, 7), encode(*sink, PortType::In, 42)},
             Connection{encode(*source, PortType::Out, 8), encode(*sink, PortType::In, 43)},
             Connection{encode(*source, PortType::Out, 65535), encode(*sink, PortType::Aux, 42)}};
-        for (const auto& edge : expected) ASSERT_TRUE(graph.connect(edge.from, edge.to));
+        for (const auto& edge : expected) ASSERT_TRUE(graph.connect(edge.to, edge.from));
         const DAG& readOnly = graph;
         ASSERT_EQ(readOnly.connections().size(), expected.size());
         for (std::size_t i = 0; i < expected.size(); ++i) {
@@ -113,12 +113,12 @@ namespace {
         ASSERT_TRUE(source);
         ASSERT_TRUE(sink);
         const Connection edge{encode(*source, PortType::Out, 0), encode(*sink, PortType::In, 0)};
-        ASSERT_TRUE(graph.connect(edge.from, edge.to));
-        expectError(graph.connect(edge.from, edge.to), GraphError::ConnexionAlreadyExists);
+        ASSERT_TRUE(graph.connect(edge.to, edge.from));
+        expectError(graph.connect(edge.to, edge.from), GraphError::ConnectionExists);
         ASSERT_EQ(graph.connections().size(), 1U);
         EXPECT_EQ(graph.connections()[0], edge);
         const Connection other{edge.from, encode(*sink, PortType::In, 1)};
-        ASSERT_TRUE(graph.connect(other.from, other.to));
+        ASSERT_TRUE(graph.connect(other.to, other.from));
         ASSERT_EQ(graph.connections().size(), 2U);
         EXPECT_EQ(graph.connections()[0], edge);
         EXPECT_EQ(graph.connections()[1], other);
@@ -138,9 +138,9 @@ namespace {
         const auto out = encode(*source, PortType::Out, 65535);
         const auto in = encode(*first, PortType::In, 65535);
         const auto aux = encode(*second, PortType::Aux, 65535);
-        ASSERT_TRUE(graph.connect(out, in));
-        ASSERT_TRUE(graph.connect(out, aux));
-        expectError(graph.connect(encode(*second, PortType::Out, 1), in), GraphError::ChannelAlreadyConnected);
+        ASSERT_TRUE(graph.connect(in, out));
+        ASSERT_TRUE(graph.connect(aux, out));
+        expectError(graph.connect(in, encode(*second, PortType::Out, 1)), GraphError::InputOccupied);
         ASSERT_EQ(graph.connections().size(), 2U);
         EXPECT_EQ(graph.connections()[0], (Connection{out, in}));
         EXPECT_EQ(graph.connections()[1], (Connection{out, aux}));
@@ -155,9 +155,9 @@ namespace {
         ASSERT_TRUE(graph.markAsOutput(*source));
         ASSERT_TRUE(graph.markAsOutput(*sink));
         EXPECT_TRUE(graph.connections().empty());
-        expectError(graph.connect(encode(invalidNodeID, PortType::Out, 0),
-                                  encode(*sink, PortType::In, 0)), GraphError::NodeNotFound);
-        expectError(graph.connect(encode(*source, PortType::Out, 0), ChannelID{0}), GraphError::NodeNotFound);
+        expectError(graph.connect(encode(*sink, PortType::In, 0),
+                                  encode(invalidNodeID, PortType::Out, 0)), GraphError::NodeNotFound);
+        expectError(graph.connect(ChannelID{0}, encode(*source, PortType::Out, 0)), GraphError::NodeNotFound);
         EXPECT_TRUE(graph.connections().empty());
     }
 
@@ -170,7 +170,7 @@ namespace {
         Node* const sourceAddress = graph.node(*source);
         Node* const sinkAddress = graph.node(*sink);
         const Connection edge{encode(*source, PortType::Out, 11), encode(*sink, PortType::Aux, 19)};
-        ASSERT_TRUE(graph.connect(edge.from, edge.to));
+        ASSERT_TRUE(graph.connect(edge.to, edge.from));
         NodeID unrelated = invalidNodeID;
         for (unsigned i = 0; i < 128; ++i) {
             const auto added = graph.add<ConnectionNode>();
@@ -199,7 +199,7 @@ namespace {
         for (std::size_t i = 0; i < expected.size(); ++i) {
             expected[i] = {encode(*source, PortType::Out, 65535),
                            encode(*sink, PortType::In, static_cast<ChannelIndex>(i))};
-            ASSERT_TRUE(graph.connect(expected[i].from, expected[i].to));
+            ASSERT_TRUE(graph.connect(expected[i].to, expected[i].from));
             if (i == 0) detached = graph.connections()[0]; // Copy, never a stored view.
         }
         ASSERT_EQ(graph.connections().size(), expected.size());
@@ -219,19 +219,19 @@ namespace {
         const auto sink = graph.add<ConnectionNode>();
         ASSERT_TRUE(source);
         ASSERT_TRUE(sink);
-        expectError(graph.connect(Channel{*source, 65536, PortType::Out},
-                                  Channel{*sink, 0, PortType::In}), GraphError::InvalidChannelIndex);
-        expectError(graph.connect(Channel{*source, 0, PortType::Out},
-                                  Channel{*sink, 65536, PortType::Aux}), GraphError::InvalidChannelIndex);
+        expectError(graph.connect(Channel{*sink, 0, PortType::In},
+                                  Channel{*source, 65536, PortType::Out}), GraphError::InvalidChannelIndex);
+        expectError(graph.connect(Channel{*sink, 65536, PortType::Aux},
+                                  Channel{*source, 0, PortType::Out}), GraphError::InvalidChannelIndex);
         const auto wideSource = (std::uint64_t{1} << 32U) + *source;
         const auto wideSink = (std::uint64_t{1} << 32U) + *sink;
-        expectError(graph.connect(Channel{wideSource, 0, PortType::Out},
-                                  Channel{*sink, 0, PortType::In}), GraphError::NodeNotFound);
-        expectError(graph.connect(Channel{*source, 0, PortType::Out},
-                                  Channel{wideSink, 0, PortType::In}), GraphError::NodeNotFound);
+        expectError(graph.connect(Channel{*sink, 0, PortType::In},
+                                  Channel{wideSource, 0, PortType::Out}), GraphError::NodeNotFound);
+        expectError(graph.connect(Channel{wideSink, 0, PortType::In},
+                                  Channel{*source, 0, PortType::Out}), GraphError::NodeNotFound);
         EXPECT_TRUE(graph.connections().empty());
-        ASSERT_TRUE(graph.connect(Channel{*source, 65535, PortType::Out},
-                                  Channel{*sink, 65535, PortType::In}));
+        ASSERT_TRUE(graph.connect(Channel{*sink, 65535, PortType::In},
+                                  Channel{*source, 65535, PortType::Out}));
         ASSERT_EQ(graph.connections().size(), 1U);
         EXPECT_EQ(graph.connections()[0], (Connection{encode(*source, PortType::Out, 65535),
                                                      encode(*sink, PortType::In, 65535)}));
@@ -245,7 +245,7 @@ namespace {
             const auto sink = graph.add<ConnectionNode>();
             ASSERT_TRUE(source);
             ASSERT_TRUE(sink);
-            ASSERT_TRUE(graph.connect(encode(*source, PortType::Out, 17), encode(*sink, PortType::Aux, 23)));
+            ASSERT_TRUE(graph.connect(encode(*sink, PortType::Aux, 23), encode(*source, PortType::Out, 17)));
             ASSERT_EQ(graph.connections().size(), 1U);
             detached = graph.connections()[0];
         }
@@ -263,7 +263,7 @@ namespace {
         auto original = graph.compile(config);
         ASSERT_TRUE(original);
         const Connection edge{encode(*source, PortType::Out, 42), encode(*sink, PortType::In, 7)};
-        ASSERT_TRUE(graph.connect(edge.from, edge.to));
+        ASSERT_TRUE(graph.connect(edge.to, edge.from));
         auto replacement = graph.compile(config);
         ASSERT_TRUE(replacement);
         const float sample = 9;

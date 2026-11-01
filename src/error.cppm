@@ -9,13 +9,15 @@ export namespace mka::audio::dsp {
     enum class ErrorType {
         CycleDetected,
         NodeNotFound,
-        ConnexionAlreadyExists,
+        ConnectionExists,
+        ConnexionAlreadyExists = ConnectionExists, ///< Compatibility spelling, same code.
         ConnexionNotFound,
-        ChannelAlreadyConnected,
+        InputOccupied,
+        ChannelAlreadyConnected = InputOccupied, ///< Compatibility spelling, same code.
         InvalidPort,
         /// An integer cannot be represented as a ChannelIndex (0..65535).
         InvalidChannelIndex,
-        /// A connection is not Out -> In or Out -> Aux (undefined codes included).
+        /// Valid port codes used in a direction other than Out -> In/Aux.
         InvalidDirection,
         /// A consumed audio channel has a null buffer for a positive-frame block.
         NullBuffer,

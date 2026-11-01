@@ -90,14 +90,14 @@ namespace {
             const auto& b = *static_cast<LifetimeNode*>(graph.node(*addedB));
             const auto from = a.channel(PortType::Out, 0);
             const auto to = b.channel(PortType::In, 0);
-            ASSERT_TRUE(graph.connect(from, to));
+            ASSERT_TRUE(graph.connect(to, from));
             auto plan = compiledPlan(graph);
             ASSERT_TRUE(plan.has_value());
 
             ASSERT_TRUE(graph.remove(a.id()));
             EXPECT_EQ(graph.node(a.id()), nullptr);
             EXPECT_EQ(graph.node(b.id()), &b);
-            expectGraphError(graph.connect(from, to), ErrorType::NodeNotFound);
+            expectGraphError(graph.connect(to, from), ErrorType::NodeNotFound);
             expectGraphError(graph.disconnect(a.id(), b.id()), ErrorType::ConnexionNotFound);
             auto replacement = graph.compile();
             ASSERT_TRUE(replacement);

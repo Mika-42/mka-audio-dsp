@@ -185,7 +185,7 @@ namespace {
         const auto addedSink = graph.add<GainNode>();
         ASSERT_TRUE(addedSink);
         auto& sink = *static_cast<GainNode*>(graph.node(*addedSink));
-        ASSERT_TRUE(graph.connect(source.channel(PortType::Out, 0), sink.channel(PortType::In, 0)));
+        ASSERT_TRUE(graph.connect(sink.channel(PortType::In, 0), source.channel(PortType::Out, 0)));
         ASSERT_TRUE(graph.markAsOutput(source.id()));
         ASSERT_TRUE(graph.markAsOutput(sink.id()));
         auto plan = graph.compile(BackendConfig{.maxFrames = 32, .inputChannels = 1, .outputChannels = 1});
@@ -308,7 +308,7 @@ namespace {
             Result connected;
             {
                 const AllocationWindow measured;
-                connected = graph.connect(from, to);
+                connected = graph.connect(to, from);
             }
             ASSERT_TRUE(connected);
             allocationPoints = allocations;
@@ -332,7 +332,7 @@ namespace {
             Result failed;
             {
                 const FailureWindow fault{failAt};
-                failed = graph.connect(from, to);
+                failed = graph.connect(to, from);
             }
             ASSERT_FALSE(failed);
             EXPECT_EQ(failed.error(), GraphError::AllocationFailed);
@@ -355,7 +355,7 @@ namespace {
             EXPECT_EQ(output, 103);
             EXPECT_EQ(static_cast<GainNode*>(sourceAddress)->backendChannels, 1U);
             EXPECT_EQ(static_cast<GainNode*>(sinkAddress)->backendChannels, 1U);
-            ASSERT_TRUE(graph.connect(from, to));
+            ASSERT_TRUE(graph.connect(to, from));
             ASSERT_EQ(graph.connections().size(), 1U);
             EXPECT_EQ(graph.connections()[0], (Connection{from, to}));
             // A successful desired-graph edit also leaves the old audio snapshot intact.
@@ -377,7 +377,7 @@ namespace {
         Node* const address = graph.node(*source);
         const auto from = address->channel(PortType::Out, 0);
         const auto to = graph.node(*sink)->channel(PortType::In, 0);
-        ASSERT_TRUE(graph.connect(from, to));
+        ASSERT_TRUE(graph.connect(to, from));
         ASSERT_TRUE(graph.markAsOutput(*source));
         ASSERT_TRUE(graph.markAsOutput(*sink));
         const BackendConfig config{.maxFrames = 1, .inputChannels = 1, .outputChannels = 1};
@@ -392,9 +392,9 @@ namespace {
         EXPECT_EQ(failed.error(), GraphError::AllocationFailed);
         EXPECT_EQ(injectedFailures, 1U);
         EXPECT_EQ(graph.node(*source), address);
-        const auto duplicate = graph.connect(from, to);
+        const auto duplicate = graph.connect(to, from);
         ASSERT_FALSE(duplicate);
-        EXPECT_EQ(duplicate.error(), GraphError::ConnexionAlreadyExists);
+        EXPECT_EQ(duplicate.error(), GraphError::ConnectionExists);
         auto unchanged = graph.compile(config);
         ASSERT_TRUE(unchanged);
         const float input = 3;
