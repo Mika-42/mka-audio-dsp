@@ -109,6 +109,7 @@ if (MKA_BUILD_TESTS)
             test/test_input_occupancy.cpp
             test/test_disconnect.cpp
             test/test_remove.cpp
+            test/test_output_markers.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests
