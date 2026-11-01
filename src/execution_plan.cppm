@@ -1,5 +1,6 @@
 module;
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -20,6 +21,13 @@ export import mka.audio.dsp.compile_config;
 export import mka.audio.process_context;
 
 export namespace mka::audio::dsp {
+    /// Sticky, numeric callback diagnostics; formatting/handling belongs to control.
+    enum class CallbackDiagnostic : std::uint32_t {
+        None=0, PlanNotPrepared=1U, FrameCapacityExceeded=2U,
+        ChannelCapacityExceeded=4U, NullBuffer=8U, BufferCapacityExceeded=16U,
+        InvalidContext=32U
+    };
+    static_assert(std::atomic<std::uint32_t>::is_always_lock_free);
     /**
      * @brief One immutable structural task, in the plan's topological order.
      * @details The pointer borrows a stable Node owned by the graph. Source
@@ -195,7 +203,8 @@ export namespace mka::audio::dsp {
             : plan_(other.plan_), layerIndices_(other.layerIndices_), borrows_(other.borrows_),
               taskInfos_(other.taskInfos_), executionTasks_(other.executionTasks_), taskIndices_(other.taskIndices_),
               sourceTasks_(other.sourceTasks_), outputTasks_(other.outputTasks_),
-              audio_(other.audio_ ? std::make_unique<AudioState>(*other.audio_) : nullptr) {
+              audio_(other.audio_ ? std::make_unique<AudioState>(*other.audio_) : nullptr),
+              diagnostics_(other.diagnostics_.load(std::memory_order_relaxed)) {
             // Future preparation refreshes roles without allocating at commit.
             sourceTasks_.reserve(plan_.size());
             outputTasks_.reserve(plan_.size());
@@ -217,7 +226,8 @@ export namespace mka::audio::dsp {
             : plan_(std::move(other.plan_)), layerIndices_(std::move(other.layerIndices_)),
               borrows_(std::move(other.borrows_)), taskInfos_(std::move(other.taskInfos_)),
               executionTasks_(std::move(other.executionTasks_)), taskIndices_(std::move(other.taskIndices_)), sourceTasks_(std::move(other.sourceTasks_)),
-              outputTasks_(std::move(other.outputTasks_)), audio_(std::move(other.audio_)) {
+              outputTasks_(std::move(other.outputTasks_)), audio_(std::move(other.audio_)),
+              diagnostics_(other.diagnostics_.exchange(0,std::memory_order_relaxed)) {
             other.plan_.clear();
             other.layerIndices_.clear();
             other.borrows_.clear();
@@ -277,11 +287,19 @@ export namespace mka::audio::dsp {
          * Publication/lifecycle synchronization belongs to the callback owner.
          */
         void exec(const mka::audio::AudioProcessContext& io) noexcept {
-            if ((!io.inputs.empty() && io.frames > io.inputCapacityFrames) ||
-                (!io.outputs.empty() && io.frames > io.outputCapacityFrames)) return;
             (void)execute(io.inputs.size(), io.outputs.size(), io.frames,
                 [&](const std::size_t i) noexcept { return io.inputs[i]; },
-                [&](const std::size_t i) noexcept { return io.outputs[i]; });
+                [&](const std::size_t i) noexcept { return io.outputs[i]; },
+                io.inputCapacityFrames,io.outputCapacityFrames);
+        }
+
+        /** Atomic numeric snapshot; no synchronization of plan lifetime or samples. */
+        [[nodiscard]] std::uint32_t callbackDiagnostics() const noexcept {
+            return diagnostics_.load(std::memory_order_relaxed);
+        }
+        /** Drain sticky bits, including safely from control during audio execution. */
+        [[nodiscard]] std::uint32_t takeCallbackDiagnostics() noexcept {
+            return diagnostics_.exchange(0,std::memory_order_relaxed);
         }
 
         /**
@@ -427,6 +445,7 @@ export namespace mka::audio::dsp {
             audio_.swap(state);
             refreshPreparedRoles();
             bindTaskContexts();
+            diagnostics_.store(0,std::memory_order_relaxed);
             return {};
         } catch (const std::bad_alloc&) {
             return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded});
@@ -439,14 +458,17 @@ export namespace mka::audio::dsp {
          * @details Zero every physical output once before Nodes run. All marked
          * writers see the same physical views, in stable producer-first order;
          * the last effective sample write wins, with no implicit mixing.
-         * Frame/count/null rejection touches no samples; the caller may silence
-         * rejected external buffers using its independently known safe capacity.
+         * Frame/count/null rejection silences the known writable external range
+         * and records a lock-free diagnostic, without processing any Node.
+         * This legacy adapter bounds rejected output writes to prepared maxFrames;
+         * use AudioProcessContext for explicit external sample capacities.
          * Backend descriptor pointers are cleared before returning.
          */
         [[nodiscard]] bool exec(const BackendBlock& block) noexcept {
             return execute(block.inputs.size(), block.outputs.size(), block.frames,
                 [&](const std::size_t i) noexcept { return block.inputs[i]; },
-                [&](const std::size_t i) noexcept { return block.outputs[i]; });
+                [&](const std::size_t i) noexcept { return block.outputs[i]; },
+                block.frames,legacyWritableFrames(block.frames));
         }
 
         /**
@@ -455,10 +477,14 @@ export namespace mka::audio::dsp {
          * Backend ChannelIDs are ignored; the plan sets physical descriptor IDs to zero.
          */
         [[nodiscard]] bool exec(const ProcessContext& callback) noexcept {
-            if (!callback.auxiliary.empty() || !callback.outputs.empty()) return false;
+            if (!callback.auxiliary.empty() || !callback.outputs.empty())
+                return rejectCallback(CallbackDiagnostic::InvalidContext,callback.backendOutputs.size(),
+                    callback.frames,[&](const std::size_t i) noexcept { return callback.backendOutputs[i].buffer; },
+                    legacyWritableFrames(callback.frames));
             return execute(callback.inputs.size(), callback.backendOutputs.size(), callback.frames,
                 [&](const std::size_t i) noexcept { return callback.inputs[i].buffer; },
-                [&](const std::size_t i) noexcept { return callback.backendOutputs[i].buffer; });
+                [&](const std::size_t i) noexcept { return callback.backendOutputs[i].buffer; },
+                callback.frames,legacyWritableFrames(callback.frames));
         }
 
     private:
@@ -503,15 +529,40 @@ export namespace mka::audio::dsp {
             }
         }
 
+        FrameCount legacyWritableFrames(const FrameCount frames) const noexcept {
+            return audio_ ? std::min(frames,audio_->config.maxFrames) : 0;
+        }
+
+        template<typename OutputAt>
+        bool rejectCallback(const CallbackDiagnostic diagnostic, const std::size_t outputCount,
+            const FrameCount frames, OutputAt outputAt, const FrameCount outputCapacity) noexcept {
+            diagnostics_.fetch_or(static_cast<std::uint32_t>(diagnostic),std::memory_order_relaxed);
+            const auto writable=std::min(frames,outputCapacity);
+            if (writable != 0)
+                for (std::size_t i=0;i<outputCount;++i)
+                    if (auto* const output=outputAt(i)) std::fill_n(output,writable,0.F);
+            return false;
+        }
+
         template<typename InputAt, typename OutputAt>
         bool execute(const std::size_t inputCount, const std::size_t outputCount,
-                     const FrameCount frames, InputAt inputAt, OutputAt outputAt) noexcept {
-            if (!audio_ || frames > audio_->config.maxFrames ||
-                inputCount > audio_->config.inputChannels || outputCount > audio_->config.outputChannels)
-                return false;
+                     const FrameCount frames, InputAt inputAt, OutputAt outputAt,
+                     const FrameCount inputCapacity, const FrameCount outputCapacity) noexcept {
+            if (!audio_)
+                return rejectCallback(CallbackDiagnostic::PlanNotPrepared,outputCount,frames,outputAt,outputCapacity);
+            if (frames > audio_->config.maxFrames)
+                return rejectCallback(CallbackDiagnostic::FrameCapacityExceeded,outputCount,frames,outputAt,outputCapacity);
+            if (inputCount > audio_->config.inputChannels || outputCount > audio_->config.outputChannels)
+                return rejectCallback(CallbackDiagnostic::ChannelCapacityExceeded,outputCount,frames,outputAt,outputCapacity);
+            if ((inputCount != 0 && frames > inputCapacity) || (outputCount != 0 && frames > outputCapacity))
+                return rejectCallback(CallbackDiagnostic::BufferCapacityExceeded,outputCount,frames,outputAt,outputCapacity);
             if (frames != 0) {
-                for (std::size_t i = 0; i < inputCount; ++i) if (inputAt(i) == nullptr) return false;
-                for (std::size_t i = 0; i < outputCount; ++i) if (outputAt(i) == nullptr) return false;
+                for (std::size_t i = 0; i < inputCount; ++i)
+                    if (inputAt(i) == nullptr)
+                        return rejectCallback(CallbackDiagnostic::NullBuffer,outputCount,frames,outputAt,outputCapacity);
+                for (std::size_t i = 0; i < outputCount; ++i)
+                    if (outputAt(i) == nullptr)
+                        return rejectCallback(CallbackDiagnostic::NullBuffer,outputCount,frames,outputAt,outputCapacity);
             }
             auto& state = *audio_;
             for (std::size_t i = 0; i < inputCount; ++i) state.backendInputs[i] = {0, inputAt(i)};
@@ -549,6 +600,9 @@ export namespace mka::audio::dsp {
             sourceTasks_.swap(other.sourceTasks_);
             outputTasks_.swap(other.outputTasks_);
             audio_.swap(other.audio_);
+            const auto diagnostic=diagnostics_.load(std::memory_order_relaxed);
+            diagnostics_.store(other.diagnostics_.load(std::memory_order_relaxed),std::memory_order_relaxed);
+            other.diagnostics_.store(diagnostic,std::memory_order_relaxed);
         }
         std::vector<Node*> plan_;
         std::vector<std::size_t> layerIndices_;
@@ -559,5 +613,6 @@ export namespace mka::audio::dsp {
         std::vector<std::size_t> sourceTasks_;
         std::vector<std::size_t> outputTasks_;
         std::unique_ptr<AudioState> audio_;
+        std::atomic<std::uint32_t> diagnostics_{0};
     };
 }

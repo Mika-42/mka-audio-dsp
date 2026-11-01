@@ -10,6 +10,6 @@ adresses. Les traitements ne dépendent d’aucun matériel local.
 | S04-02 | [#26](https://trello.com/c/ocEX7Ql8) | Plan préparé et API canonique | Implémentée |
 | S04-03 | [#27](https://trello.com/c/buBsHwrm) | Silence des entrées non reliées | Implémentée |
 | S04-04 | [#28](https://trello.com/c/dS3srXNE) | Bindings internes compilés | Implémentée |
-| S04-05 | [#29](https://trello.com/c/yT1S6tgO) | Exécution RT et fail-safe | À traiter |
+| S04-05 | [#29](https://trello.com/c/yT1S6tgO) | Exécution RT et fail-safe | Implémentée |
 | S04-06 | [#30](https://trello.com/c/HEUTjaWG) | Nettoyage des sorties logiques | À traiter |
 | S04-07 | [#31](https://trello.com/c/kwuA0Sx4) | Source → Gain → Output sans matériel | À traiter |

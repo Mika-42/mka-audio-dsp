@@ -363,7 +363,7 @@ namespace {
         EXPECT_EQ(firstOutput, previous);
     }
 
-    TEST(BackendGuards, RejectedBlocksTouchNoSamplesAndTheNextValidCallbackRecovers) {
+    TEST(BackendGuards, RejectedBlocksSilenceTheirKnownCapacityAndTheNextValidCallbackRecovers) {
         DAG graph;
         const auto addedNode = graph.add<EmptyProcessor>();
         ASSERT_TRUE(addedNode);
@@ -386,7 +386,7 @@ namespace {
         EXPECT_FALSE(plan->exec(BackendBlock{inputs, nullOutputs, 1}));
         EXPECT_TRUE(plan->exec(BackendBlock{nullInputs, nullOutputs, 0}));
         EXPECT_EQ(node.calls, 1U);
-        EXPECT_EQ(output, (std::array<float, 3>{41, 43, 47}));
+        EXPECT_EQ(output, (std::array<float, 3>{0, 0, 47}));
         ASSERT_TRUE(plan->exec(BackendBlock{inputs, outputs, 2}));
         EXPECT_EQ(node.calls, 2U);
         EXPECT_EQ(output, (std::array<float, 3>{3, 5, 47}));

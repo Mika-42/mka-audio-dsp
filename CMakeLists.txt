@@ -129,6 +129,7 @@ if (MKA_BUILD_TESTS)
             test/test_prepared_plan.cpp
             test/test_silence_inputs.cpp
             test/test_internal_bindings.cpp
+            test/test_realtime_execution.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests
@@ -155,6 +156,14 @@ if (MKA_BUILD_TESTS)
     add_executable(mka-node-rt-tests test/test_node_rt.cpp)
     target_link_libraries(mka-node-rt-tests PRIVATE mka-audio-dsp GTest::gtest_main)
     target_compile_features(mka-node-rt-tests PRIVATE cxx_std_26)
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # Observe direct pthread mutex calls only inside measured RT windows.
+        target_compile_definitions(mka-node-rt-tests PRIVATE MKA_WRAP_PTHREAD_MUTEX=1)
+        target_link_options(mka-node-rt-tests PRIVATE
+                "-Wl,--wrap=pthread_mutex_lock"
+                "-Wl,--wrap=pthread_mutex_trylock"
+                "-Wl,--wrap=pthread_mutex_timedlock")
+    endif ()
     gtest_discover_tests(mka-node-rt-tests TEST_PREFIX "dsp.rt.")
 
 endif ()
