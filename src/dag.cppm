@@ -20,6 +20,7 @@ export import mka.audio.dsp.node;
 export import mka.audio.dsp.connection;
 export import mka.audio.dsp.execution_plan;
 export import mka.audio.dsp.topology;
+export import mka.audio.dsp.structural_compile;
 
 export namespace mka::audio::dsp::detail {
     /**
@@ -399,24 +400,40 @@ namespace mka::audio::dsp {
         /**
          * @brief Compile desired structure into stable, borrowed Node tasks on control.
          * @details No Node::process, backend access or audio buffer preparation.
-         * Temporary structural plans support inspection of desired membership
-         * and serial execution steps. Resource errors are returned on control.
+         * Validates the full desired graph and snapshots immutable roles and
+         * global lexicographic task order. Resource errors return on control.
          * The owner must outlive the plan; retire task/layer views with it. Use the
          * BackendConfig overload to prepare an executable audio snapshot.
          */
-        [[nodiscard]] std::expected<ExecutionPlan, ErrorType> compile() const try {
-            std::vector<std::size_t> layerIndices;
+        [[nodiscard]] std::expected<ExecutionPlan, ErrorType> compile() const {
+            ExecutionPlan target;
+            if (const auto result = compile(target, CompileConfig{}); !result)
+                return std::unexpected(result.error());
+            return target;
+        }
 
-            auto sortedNodes = topologicalSort(layerIndices);
-
-            if (!sortedNodes) {
-                return std::unexpected(sortedNodes.error());
-            }
-
-            return ExecutionPlan {
-                std::move(*sortedNodes),
-                std::move(layerIndices)
-            };
+        /**
+         * @brief Compile a structural generation, replacing target only on success.
+         * @details Control only. Checks desired structure, intrinsic Configs,
+         * roles and metadata capacities, then installs a complete candidate by
+         * noexcept move. Failure preserves target's tasks, roles, prepared audio
+         * and Node borrows. Success produces a structural, unprepared plan; use
+         * prepareBackend separately before audio execution. Never calls process.
+         * @pre target is inactive and quiescent, all graph access is externally
+         * serialized, and this DAG outlives the resulting plan and its views.
+         */
+        [[nodiscard]] Result compile(ExecutionPlan& target, const CompileConfig& config) const try {
+            if (nodes_.size() > config.maxNodes || connections_.size() > config.maxConnections)
+                return std::unexpected(Error{ErrorCode::CapacityExceeded});
+            const auto bytes = detail::structuralStorageBytes(nodes_.size());
+            if (!bytes) return std::unexpected(bytes.error());
+            if (*bytes > config.memoryBudgetBytes)
+                return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded});
+            auto snapshot = structuralSnapshot();
+            std::vector<Node*> owners;
+            owners.reserve(nodes_.size());
+            for (const auto& node : nodes_) owners.push_back(node.get());
+            return detail::compileSnapshot(owners, snapshot, target, config);
         } catch (const std::bad_alloc&) {
             return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded});
         } catch (const std::length_error&) {
@@ -525,39 +542,6 @@ namespace mka::audio::dsp {
             }
 
             return false;
-        }
-
-        /**
-         * @brief Map the total min-heap order to borrowed stable task pointers.
-         * @param[out] layerIndices Unit serial-step boundaries, modified only
-         * on success. These are not breadth-first dependency levels: a newly
-         * available low ID may precede an old frontier member.
-         * @note Empty graph gives no tasks and indices {0}. Allocations occur
-         * on control and are caught by compile(). No parallel scheduling here.
-         * @pre Serialize edits; the Node owner must outlive the resulting plan.
-         */
-        [[nodiscard]] std::expected<std::vector<Node*>, ErrorType>
-        topologicalSort(std::vector<std::size_t>& layerIndices) const {
-            const auto order = topologicalOrder(*this);
-            if (!order) return std::unexpected(order.error());
-            std::unordered_map<NodeID, Node*> addresses;
-            addresses.reserve(nodes_.size());
-            for (const auto& node : nodes_) addresses.emplace(node->id(), node.get());
-            std::vector<Node*> result;
-            result.reserve(order->size());
-            std::vector<std::size_t> offsets;
-            if (order->size() >= offsets.max_size())
-                return std::unexpected(Error{ErrorCode::CapacityExceeded});
-            offsets.reserve(order->size() + 1);
-            offsets.push_back(0);
-            for (const auto id : *order) {
-                const auto found = addresses.find(id);
-                if (found == addresses.end()) return std::unexpected(Error{ErrorCode::NodeNotFound, id});
-                result.push_back(found->second);
-                offsets.push_back(result.size());
-            }
-            layerIndices = std::move(offsets);
-            return result;
         }
 
         // Sole control-owned storage; only unique_ptr handles move, never Nodes.

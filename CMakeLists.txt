@@ -57,6 +57,8 @@ target_sources(mka-audio-dsp
         src/connection.cppm
         src/graph_snapshot.cppm
         src/topology.cppm
+        src/compile_config.cppm
+        src/structural_compile.cppm
         src/dag.cppm
         src/execution_plan.cppm
 )
@@ -121,6 +123,7 @@ if (MKA_BUILD_TESTS)
             test/test_exhaustive_oracles.cpp
             test/test_dag_mutations.cpp
             test/test_errors.cpp
+            test/test_structural_compile.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests

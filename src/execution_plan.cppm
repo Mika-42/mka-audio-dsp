@@ -6,6 +6,7 @@ module;
 #include <expected>
 #include <memory>
 #include <new>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <unordered_map>
@@ -14,8 +15,24 @@ module;
 export module mka.audio.dsp.execution_plan;
 export import mka.audio.dsp.node;
 export import mka.audio.dsp.connection;
+export import mka.audio.dsp.compile_config;
 
 export namespace mka::audio::dsp {
+    /**
+     * @brief One immutable structural task, in the plan's topological order.
+     * @details The pointer borrows a stable Node owned by the graph. Source
+     * means no logical incoming In/Aux edge, including undeclared channels.
+     * Output membership is independent of successors and of source status.
+     * Compilation never invokes Node::process or prepares audio storage.
+     */
+    struct ExecutionTask {
+        Node* node = nullptr;
+        NodeID id = invalidNodeID;
+        std::size_t index = 0;
+        bool isSource = true;
+        bool isOutput = false;
+    };
+
     /** Control-side maximum callback shape; counts are physical, not ChannelIDs. */
     struct BackendConfig {
         FrameCount maxFrames = 0;
@@ -92,19 +109,49 @@ export namespace mka::audio::dsp {
         };
 
     public:
+        /// Empty, unprepared target; constructing it performs no allocation.
+        ExecutionPlan() noexcept = default;
+
+        /**
+         * @brief Construct validated, topologically ordered tasks on control.
+         * @pre Every task has a non-null, live Node and its matching id; ids
+         * are unique and index equals its position. Owners outlive this plan.
+         * @note Storage acquisition can throw; compile translates failures.
+         */
+        explicit ExecutionPlan(std::vector<ExecutionTask> tasks)
+            : executionTasks_(std::move(tasks)) {
+            plan_.reserve(executionTasks_.size());
+            layerIndices_.reserve(executionTasks_.size() + 1);
+            for (std::size_t i = 0; i < executionTasks_.size(); ++i) {
+                const auto& task = executionTasks_[i];
+                assert(task.node != nullptr && task.id == task.node->id() && task.index == i);
+                plan_.push_back(task.node);
+                layerIndices_.push_back(i);
+            }
+            layerIndices_.push_back(executionTasks_.size());
+            initializeStructuralIndices();
+        }
+
         /** Structural plan; tasks must be non-null and owned longer than the plan. */
         ExecutionPlan(std::vector<Node*> tasks, std::vector<std::size_t> layerIndices)
             : plan_(std::move(tasks)), layerIndices_(std::move(layerIndices)) {
-            borrows_.reserve(plan_.size());
-            for (const auto* node : plan_) {
+            executionTasks_.reserve(plan_.size());
+            for (std::size_t i = 0; i < plan_.size(); ++i) {
+                const auto* node = plan_[i];
                 assert(node != nullptr);
-                borrows_.push_back(detail::NodeBorrowAccess::retain(*node));
+                executionTasks_.push_back({plan_[i], node->id(), i, true, false});
             }
+            initializeStructuralIndices();
         }
 
         ExecutionPlan(const ExecutionPlan& other)
             : plan_(other.plan_), layerIndices_(other.layerIndices_), borrows_(other.borrows_),
+              executionTasks_(other.executionTasks_), taskIndices_(other.taskIndices_),
+              sourceTasks_(other.sourceTasks_), outputTasks_(other.outputTasks_),
               audio_(other.audio_ ? std::make_unique<AudioState>(*other.audio_) : nullptr) {
+            // Future preparation refreshes roles without allocating at commit.
+            sourceTasks_.reserve(plan_.size());
+            outputTasks_.reserve(plan_.size());
             if (audio_) {
                 // Raw descriptor pointers must address the copy's owned storage.
                 audio_->rebindInternal();
@@ -120,10 +167,16 @@ export namespace mka::audio::dsp {
         }
         ExecutionPlan(ExecutionPlan&& other) noexcept
             : plan_(std::move(other.plan_)), layerIndices_(std::move(other.layerIndices_)),
-              borrows_(std::move(other.borrows_)), audio_(std::move(other.audio_)) {
+              borrows_(std::move(other.borrows_)), executionTasks_(std::move(other.executionTasks_)),
+              taskIndices_(std::move(other.taskIndices_)), sourceTasks_(std::move(other.sourceTasks_)),
+              outputTasks_(std::move(other.outputTasks_)), audio_(std::move(other.audio_)) {
             other.plan_.clear();
             other.layerIndices_.clear();
             other.borrows_.clear();
+            other.executionTasks_.clear();
+            other.taskIndices_.clear();
+            other.sourceTasks_.clear();
+            other.outputTasks_.clear();
         }
         ExecutionPlan& operator=(ExecutionPlan&& other) noexcept {
             if (this != &other) {
@@ -135,6 +188,21 @@ export namespace mka::audio::dsp {
         ~ExecutionPlan() = default; // Release resources/borrow tokens on control.
 
         [[nodiscard]] std::span<Node* const> tasks() const noexcept { return plan_; }
+        /** Read-only task view, invalidated by control-side replacement/retirement. */
+        [[nodiscard]] std::span<const ExecutionTask> executionTasks() const noexcept {
+            return executionTasks_;
+        }
+        /// Source task positions, in topological order; no ownership transfer.
+        [[nodiscard]] std::span<const std::size_t> sourceTasks() const noexcept { return sourceTasks_; }
+        /// Output task positions, in topological order; may overlap sourceTasks.
+        [[nodiscard]] std::span<const std::size_t> outputTasks() const noexcept { return outputTasks_; }
+        /** Allocation-free lookup of a compiled task's position; absent ids return nullopt. */
+        [[nodiscard]] std::optional<std::size_t> taskIndexOf(const NodeID id) const noexcept {
+            const auto found = std::lower_bound(taskIndices_.begin(), taskIndices_.end(), id,
+                [](const auto& entry, const NodeID key) noexcept { return entry.first < key; });
+            if (found == taskIndices_.end() || found->first != id) return std::nullopt;
+            return found->second;
+        }
         [[nodiscard]] std::size_t layerCount() const noexcept {
             return layerIndices_.empty() ? 0 : layerIndices_.size() - 1;
         }
@@ -253,6 +321,7 @@ export namespace mka::audio::dsp {
                 }
             }
             audio_.swap(state);
+            refreshPreparedRoles();
             return {};
         } catch (const std::bad_alloc&) {
             return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded});
@@ -288,6 +357,35 @@ export namespace mka::audio::dsp {
         }
 
     private:
+        void initializeStructuralIndices() {
+            borrows_.reserve(plan_.size());
+            taskIndices_.reserve(plan_.size());
+            sourceTasks_.reserve(plan_.size());
+            outputTasks_.reserve(plan_.size());
+            for (std::size_t i = 0; i < plan_.size(); ++i) {
+                borrows_.push_back(detail::NodeBorrowAccess::retain(*plan_[i]));
+                taskIndices_.emplace_back(plan_[i]->id(), i);
+                if (executionTasks_[i].isSource) sourceTasks_.push_back(i);
+                if (executionTasks_[i].isOutput) outputTasks_.push_back(i);
+            }
+            std::sort(taskIndices_.begin(), taskIndices_.end(),
+                [](const auto& left, const auto& right) noexcept { return left.first < right.first; });
+        }
+
+        void refreshPreparedRoles() noexcept {
+            assert(audio_ != nullptr);
+            assert(sourceTasks_.capacity() >= plan_.size() && outputTasks_.capacity() >= plan_.size());
+            sourceTasks_.clear();
+            outputTasks_.clear();
+            for (std::size_t i = 0; i < executionTasks_.size(); ++i) {
+                auto& task = executionTasks_[i];
+                task.isSource = audio_->tasks[i].isSource;
+                task.isOutput = audio_->tasks[i].isOutput;
+                if (task.isSource) sourceTasks_.push_back(i);
+                if (task.isOutput) outputTasks_.push_back(i);
+            }
+        }
+
         template<typename InputAt, typename OutputAt>
         bool execute(const std::size_t inputCount, const std::size_t outputCount,
                      const FrameCount frames, InputAt inputAt, OutputAt outputAt) noexcept {
@@ -332,11 +430,19 @@ export namespace mka::audio::dsp {
             plan_.swap(other.plan_);
             layerIndices_.swap(other.layerIndices_);
             borrows_.swap(other.borrows_);
+            executionTasks_.swap(other.executionTasks_);
+            taskIndices_.swap(other.taskIndices_);
+            sourceTasks_.swap(other.sourceTasks_);
+            outputTasks_.swap(other.outputTasks_);
             audio_.swap(other.audio_);
         }
         std::vector<Node*> plan_;
         std::vector<std::size_t> layerIndices_;
         std::vector<detail::NodeBorrowToken> borrows_;
+        std::vector<ExecutionTask> executionTasks_;
+        std::vector<std::pair<NodeID, std::size_t>> taskIndices_;
+        std::vector<std::size_t> sourceTasks_;
+        std::vector<std::size_t> outputTasks_;
         std::unique_ptr<AudioState> audio_;
     };
 }
