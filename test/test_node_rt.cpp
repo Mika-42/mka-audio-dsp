@@ -1,11 +1,15 @@
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <cstdlib>
 #include <expected>
 #include <limits>
 #include <new>
 #include <span>
 #include <vector>
+#ifdef MKA_WRAP_PTHREAD_MUTEX
+#include <pthread.h>
+#endif
 
 #include <gtest/gtest.h>
 
@@ -17,6 +21,7 @@ namespace {
     thread_local bool measuring = false;
     thread_local std::size_t allocations = 0;
     thread_local std::size_t deallocations = 0;
+    thread_local std::size_t mutexAttempts = 0;
     thread_local bool failing = false;
     thread_local std::size_t allocationsBeforeFailure = 0;
     thread_local unsigned injectedFailures = 0;
@@ -58,6 +63,7 @@ namespace {
         AllocationWindow() noexcept {
             allocations = 0;
             deallocations = 0;
+            mutexAttempts = 0;
             measuring = true;
         }
         ~AllocationWindow() { measuring = false; }
@@ -72,6 +78,24 @@ namespace {
         ~FailureWindow() { failing = false; }
     };
 }
+
+#ifdef MKA_WRAP_PTHREAD_MUTEX
+extern "C" int __real_pthread_mutex_lock(pthread_mutex_t*);
+extern "C" int __real_pthread_mutex_trylock(pthread_mutex_t*);
+extern "C" int __real_pthread_mutex_timedlock(pthread_mutex_t*,const struct timespec*);
+extern "C" int __wrap_pthread_mutex_lock(pthread_mutex_t* mutex) {
+    if (measuring) ++mutexAttempts;
+    return __real_pthread_mutex_lock(mutex);
+}
+extern "C" int __wrap_pthread_mutex_trylock(pthread_mutex_t* mutex) {
+    if (measuring) ++mutexAttempts;
+    return __real_pthread_mutex_trylock(mutex);
+}
+extern "C" int __wrap_pthread_mutex_timedlock(pthread_mutex_t* mutex,const struct timespec* until) {
+    if (measuring) ++mutexAttempts;
+    return __real_pthread_mutex_timedlock(mutex,until);
+}
+#endif
 
 // Replacements belong only to mka-node-rt-tests, never to the DSP library.
 void* operator new(const std::size_t size) { return allocate(size); }
@@ -132,6 +156,20 @@ namespace {
         unsigned calls = 0; // Numeric state only; no retained context or pointer.
         std::size_t backendChannels = 0;
     };
+
+#ifdef MKA_WRAP_PTHREAD_MUTEX
+    TEST(RealtimeMutexProbe, DetectsAnExplicitMutexAcquisition) {
+        pthread_mutex_t mutex=PTHREAD_MUTEX_INITIALIZER;
+        int locked=-1;
+        {
+            const AllocationWindow window;
+            locked=pthread_mutex_lock(&mutex);
+            if (locked==0) pthread_mutex_unlock(&mutex);
+        }
+        EXPECT_EQ(locked,0); EXPECT_EQ(mutexAttempts,1U);
+        EXPECT_EQ(pthread_mutex_destroy(&mutex),0);
+    }
+#endif
 
     TEST(NodeAllocationProbe, DetectsAnExplicitCppAllocationAndDeallocation) {
         {
@@ -237,6 +275,28 @@ namespace {
         }
         EXPECT_TRUE(references); EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U);
         EXPECT_EQ(static_cast<GainNode*>(graph.node(*id))->calls,64U);
+    }
+
+    TEST(ExecutionRealtime, ValidRejectedAndZeroFrameCanonicalCallbacksUseNoHeapOrMutex) {
+        DAG graph;
+        const auto id=graph.add<GainNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
+        auto plan=graph.compile(BackendConfig{.maxFrames=2,.inputChannels=1,.outputChannels=1}); ASSERT_TRUE(plan);
+        const std::array<float,2> input{1,2}; std::array<float,3> output{99,99,77};
+        const std::array<const float*,1> inputs{input.data()}; const std::array outputs{output.data()};
+        {
+            const AllocationWindow window;
+            for (unsigned block=0;block<128;++block) {
+                plan->exec(mka::audio::AudioProcessContext{inputs,outputs,0});
+                plan->exec(mka::audio::AudioProcessContext{inputs,outputs,1});
+                plan->exec(mka::audio::AudioProcessContext{inputs,outputs,2});
+                plan->exec(mka::audio::AudioProcessContext{inputs,outputs,3,2,2});
+            }
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        EXPECT_EQ(static_cast<GainNode*>(graph.node(*id))->calls,128U*3U);
+        EXPECT_EQ(output,(std::array<float,3>{0,0,77}));
+        EXPECT_EQ(plan->takeCallbackDiagnostics(),static_cast<std::uint32_t>(CallbackDiagnostic::FrameCapacityExceeded));
+        EXPECT_EQ(plan->callbackDiagnostics(),0U);
     }
 
     struct ConstructionTrace {
