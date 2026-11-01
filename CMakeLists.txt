@@ -106,6 +106,7 @@ if (MKA_BUILD_TESTS)
             test/test_dag_storage.cpp
             test/test_connection.cpp
             test/test_connect.cpp
+            test/test_input_occupancy.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests
