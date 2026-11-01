@@ -396,30 +396,38 @@ namespace mka::audio::dsp {
             return nodeIt != nodes_.end();
         }
 
-        [[nodiscard]] bool pathExists(const std::uint64_t src, const std::uint64_t dst) const {
+        /**
+         * @brief Iterative reachability on control, including all In/Aux edges.
+         * @details Build adjacency once, then visit each reachable Node/edge at
+         * most once: O(V+E) average with integer hash tables, O(V+E) temporary
+         * memory. No recursive call stack or Config filtering. Parallel channel
+         * edges are harmless; discovered Nodes are queued only once. Allocation
+         * and length failures propagate to connect's structured error boundary.
+         * Graph/Nodes/plans are read-only; all temporary storage dies on control.
+         */
+        [[nodiscard]] bool pathExists(const NodeID src, const NodeID dst) const {
             if (src == dst)
                 return true;
 
-            std::vector<std::uint64_t> stack;
-            std::unordered_set<std::uint64_t> visited;
-
+            std::unordered_map<NodeID, std::vector<NodeID>> successors;
+            successors.reserve(nodes_.size());
+            for (const auto& edge : connections_)
+                successors[decodeNode(edge.from)].push_back(decodeNode(edge.to));
+            std::vector<NodeID> stack;
+            stack.reserve(nodes_.size());
+            std::unordered_set<NodeID> visited;
+            visited.reserve(nodes_.size());
+            visited.insert(src);
             stack.push_back(src);
 
             while (!stack.empty()) {
-                const std::uint64_t current = stack.back();
+                const NodeID current = stack.back();
                 stack.pop_back();
-
-                if (!visited.insert(current).second)
-                    continue;
-
-                for (const auto &[from, to]: connections_) {
-                    if (decodeNode(from) != current)
-                        continue;
-
-                    if (decodeNode(to) == dst)
-                        return true;
-
-                    stack.push_back(decodeNode(to));
+                const auto found = successors.find(current);
+                if (found == successors.end()) continue;
+                for (const auto next : found->second) {
+                    if (next == dst) return true;
+                    if (visited.insert(next).second) stack.push_back(next);
                 }
             }
 
