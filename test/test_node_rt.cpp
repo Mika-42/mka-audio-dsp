@@ -697,6 +697,61 @@ namespace {
         }
     }
 
+    TEST(InternalBindingAllocation, EveryPreparationAllocationPreservesTargetAndSeparateActiveContexts) {
+        const BackendConfig oldConfig{.maxFrames=1,.inputChannels=1,.outputChannels=1};
+        const BackendConfig nextConfig{.maxFrames=2,.inputChannels=1,.outputChannels=1};
+        std::size_t points=0;
+        {
+            DAG graph;
+            const auto a=graph.add<GainNode>(), b=graph.add<GainNode>(); ASSERT_TRUE(a); ASSERT_TRUE(b);
+            ASSERT_TRUE(graph.connect(encode(*b,PortType::In,0),encode(*a,PortType::Out,0)));
+            ASSERT_TRUE(graph.markAsOutput(*a));
+            ASSERT_TRUE(graph.markAsOutput(*b));
+            auto target=graph.compile(oldConfig); ASSERT_TRUE(target);
+            Result result;
+            {
+                const AllocationWindow measured;
+                result=target->prepareBackend(nextConfig,graph.connections(),graph.outputNodes());
+            }
+            ASSERT_TRUE(result); points=allocations;
+        }
+        ASSERT_GT(points,0U);
+        for (std::size_t i=0;i<points;++i) {
+            SCOPED_TRACE(i);
+            DAG graph;
+            const auto a=graph.add<GainNode>(), b=graph.add<GainNode>(); ASSERT_TRUE(a); ASSERT_TRUE(b);
+            ASSERT_TRUE(graph.connect(encode(*b,PortType::In,0),encode(*a,PortType::Out,0)));
+            ASSERT_TRUE(graph.markAsOutput(*a));
+            ASSERT_TRUE(graph.markAsOutput(*b));
+            auto target=graph.compile(oldConfig); ASSERT_TRUE(target);
+            ExecutionPlan active=*target;
+            const auto tasks=target->executionTasks();
+            const auto* descriptors=tasks[1].context.inputs.data();
+            const auto* producer=tasks[0].context.outputs[0].buffer;
+            const auto* activeProducer=active.executionTasks()[0].context.outputs[0].buffer;
+            Result result;
+            {
+                const FailureWindow fault{i};
+                result=target->prepareBackend(nextConfig,graph.connections(),graph.outputNodes());
+            }
+            ASSERT_FALSE(result); EXPECT_EQ(result.error().code,ErrorCode::MemoryBudgetExceeded);
+            EXPECT_EQ(injectedFailures,1U); EXPECT_EQ(target->executionTasks().data(),tasks.data());
+            EXPECT_EQ(tasks[1].context.inputs.data(),descriptors);
+            EXPECT_EQ(tasks[0].context.outputs[0].buffer,producer);
+            EXPECT_EQ(tasks[1].context.inputs[0].buffer,producer);
+            EXPECT_EQ(active.executionTasks()[0].context.outputs[0].buffer,activeProducer);
+            EXPECT_EQ(static_cast<GainNode*>(graph.node(*a))->calls,0U);
+            const std::array<float,2> input{3,5}; std::array<float,2> output{};
+            const std::array<const float*,1> inputs{input.data()}; const std::array outputs{output.data()};
+            target->exec(mka::audio::AudioProcessContext{inputs,outputs,1}); EXPECT_EQ(output[0],106.F);
+            active.exec(mka::audio::AudioProcessContext{inputs,outputs,1}); EXPECT_EQ(output[0],106.F);
+            ASSERT_TRUE(target->prepareBackend(nextConfig,graph.connections(),graph.outputNodes()));
+            target->exec(mka::audio::AudioProcessContext{inputs,outputs,2});
+            EXPECT_EQ(output[0],106.F); EXPECT_EQ(output[1],110.F);
+            EXPECT_EQ(active.executionTasks()[0].context.outputs[0].buffer,activeProducer);
+        }
+    }
+
     TEST(OutputMarkerRealtime, UnmarkKeepsTheOldRoleWithNoHeapOperationsDuringCallbacks) {
         DAG graph;
         auto id = graph.add<GainNode>();

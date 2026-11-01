@@ -345,8 +345,11 @@ export namespace mka::audio::dsp {
                     return std::unexpected(Error{ErrorCode::NodeNotFound, decodeNode(connection.to), connection.to});
                 if (from->second >= to->second)
                     return std::unexpected(Error{ErrorCode::InvalidParameter, decodeNode(connection.to), connection.to});
-                if (!incoming.emplace(connection.to, connection.from).second)
-                    return std::unexpected(Error{ErrorCode::InputOccupied, decodeNode(connection.to), connection.to});
+                const auto [existing,inserted]=incoming.emplace(connection.to,connection.from);
+                if (!inserted)
+                    return std::unexpected(Error{existing->second == connection.from ?
+                        ErrorCode::ConnectionExists : ErrorCode::InputOccupied,
+                        decodeNode(connection.to),connection.to});
                 state->tasks[to->second].isSource = false;
             }
             std::unordered_map<ChannelID, std::size_t> outputSlots;
@@ -354,6 +357,8 @@ export namespace mka::audio::dsp {
             std::size_t slot = 1;
             for (std::size_t i = 0; i < plan_.size(); ++i) {
                 auto& task = state->tasks[i];
+                task.outputs.reserve(plan_[i]->config().layoutOutput.size());
+                task.outputSlots.reserve(plan_[i]->config().layoutOutput.size());
                 for (const auto index : plan_[i]->config().layoutOutput) {
                     const auto channel = encode(plan_[i]->id(), PortType::Out, index);
                     outputSlots.emplace(channel, slot);
@@ -365,6 +370,10 @@ export namespace mka::audio::dsp {
                 auto& task = state->tasks[i];
                 const auto bindInputs = [&](const auto& layout, const PortType port,
                                             auto& descriptors, auto& bindings) {
+                    // Final descriptor and binding sizes are fixed on control,
+                    // before any sample pointer or ProcessContext span is patched.
+                    descriptors.reserve(layout.size());
+                    bindings.reserve(layout.size());
                     for (const auto index : layout) {
                         const auto channel = encode(plan_[i]->id(), port, index);
                         const auto edge = incoming.find(channel);

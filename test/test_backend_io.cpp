@@ -680,7 +680,7 @@ namespace {
         expectError(plan->prepareBackend(BackendConfig{}, missing, {}), ErrorType::NodeNotFound);
         const auto connection = detail::PlanConnection{a.channel(PortType::Out, 0), b.channel(PortType::In, 0)};
         const std::array duplicates{connection, connection};
-        expectError(plan->prepareBackend(BackendConfig{}, duplicates, {}), ErrorType::ChannelAlreadyConnected);
+        expectError(plan->prepareBackend(BackendConfig{}, duplicates, {}), ErrorType::ConnectionExists);
         const BackendConfig excessive{.inputChannels = std::numeric_limits<std::size_t>::max()};
         expectError(plan->prepareBackend(excessive, {}, {}), ErrorType::PreparationCapacityExceeded);
         EXPECT_TRUE(plan->isBackendPrepared());
