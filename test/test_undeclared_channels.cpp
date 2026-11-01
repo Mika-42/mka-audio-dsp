@@ -39,7 +39,7 @@ namespace {
     }
 
     void expectError(const Result& result, GraphError error) {
-        ASSERT_FALSE(result);
+        ASSERT_FALSE(result.has_value());
         EXPECT_EQ(result.error().code, error.code);
     }
 
