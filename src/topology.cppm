@@ -37,23 +37,29 @@ export namespace mka::audio::dsp::detail {
         positions.reserve(count);
         for (std::size_t i = 0; i < count; ++i) {
             if (graph.nodes[i] == invalidNodeID || !positions.emplace(graph.nodes[i], i).second)
-                return std::unexpected(GraphError::InvalidNodeIdentity);
+                return std::unexpected(Error{ErrorCode::InvalidParameter, graph.nodes[i]});
         }
         std::vector<std::vector<std::size_t>> successors(count);
         std::vector<std::size_t> remaining(count, 0);
         for (const auto& edge : graph.connections) {
             const auto sourcePort = decodePort(edge.from);
             const auto destinationPort = decodePort(edge.to);
-            if (!isValidPort(sourcePort) || !isValidPort(destinationPort))
-                return std::unexpected(GraphError::InvalidPort);
-            if (!isOutputPort(sourcePort) || !isInputPort(destinationPort))
-                return std::unexpected(GraphError::InvalidDirection);
+            if (!isValidPort(sourcePort) || !isValidPort(destinationPort)) {
+                const auto channel = !isValidPort(sourcePort) ? edge.from : edge.to;
+                return std::unexpected(Error{ErrorCode::InvalidPort, decodeNode(channel), channel});
+            }
+            if (!isOutputPort(sourcePort) || !isInputPort(destinationPort)) {
+                const auto channel = !isOutputPort(sourcePort) ? edge.from : edge.to;
+                return std::unexpected(Error{ErrorCode::InvalidDirection, decodeNode(channel), channel});
+            }
             const auto source = positions.find(decodeNode(edge.from));
             const auto destination = positions.find(decodeNode(edge.to));
-            if (source == positions.end() || destination == positions.end())
-                return std::unexpected(GraphError::NodeNotFound);
+            if (source == positions.end())
+                return std::unexpected(Error{ErrorCode::NodeNotFound, decodeNode(edge.from), edge.from});
+            if (destination == positions.end())
+                return std::unexpected(Error{ErrorCode::NodeNotFound, decodeNode(edge.to), edge.to});
             if (remaining[destination->second] == std::numeric_limits<std::size_t>::max())
-                return std::unexpected(GraphError::PreparationCapacityExceeded);
+                return std::unexpected(Error{ErrorCode::ArithmeticOverflow, decodeNode(edge.to), edge.to});
             successors[source->second].push_back(destination->second);
             ++remaining[destination->second];
         }
@@ -73,11 +79,11 @@ export namespace mka::audio::dsp::detail {
             for (const auto destination : successors[index])
                 if (--remaining[destination] == 0) ready.push(graph.nodes[destination]);
         }
-        if (result.size() != count) return std::unexpected(GraphError::CycleDetected);
+        if (result.size() != count) return std::unexpected(Error{ErrorCode::CycleDetected});
         return result;
     } catch (const std::bad_alloc&) {
-        return std::unexpected(GraphError::AllocationFailed);
+        return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded});
     } catch (const std::length_error&) {
-        return std::unexpected(GraphError::PreparationCapacityExceeded);
+        return std::unexpected(Error{ErrorCode::CapacityExceeded});
     }
 }

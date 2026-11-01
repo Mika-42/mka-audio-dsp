@@ -55,7 +55,7 @@ namespace {
     void expectError(const std::expected<std::vector<NodeID>, GraphError>& result,
                      GraphError error) {
         ASSERT_FALSE(result);
-        EXPECT_EQ(result.error(), error);
+        EXPECT_EQ(result.error().code, error.code);
     }
 
     TEST(StableTopologicalOrder, EmptyAndIsolatedNodesOccurExactlyOnceIncludingIdentityGaps) {

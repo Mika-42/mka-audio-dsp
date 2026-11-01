@@ -166,7 +166,7 @@ namespace {
             const auto rejectEdge = [&](ChannelID destination, ChannelID producer, GraphError error) {
                 const auto rejected = graph.connect(destination, producer);
                 ASSERT_FALSE(rejected);
-                EXPECT_EQ(rejected.error(), error);
+                EXPECT_EQ(rejected.error().code, error.code);
                 ASSERT_NO_FATAL_FAILURE(expectEditingState(graph, expected, trace));
             };
             ASSERT_NO_FATAL_FAILURE(rejectEdge(mixIn, encode(*source, PortType::Out, 1), GraphError::InputOccupied));

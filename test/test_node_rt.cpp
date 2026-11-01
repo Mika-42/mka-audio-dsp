@@ -542,6 +542,47 @@ namespace {
         }
     }
 
+    TEST(StructuredErrorAllocation, BackendCompileCatchesEveryAllocationAndPreservesTheOldPreparedPlan) {
+        const BackendConfig config{.maxFrames=1,.outputChannels=1};
+        std::size_t points=0;
+        {
+            ConstructionTrace trace;
+            DAG graph;
+            auto id=graph.add<AllocationNode>(trace); ASSERT_TRUE(id);
+            ASSERT_TRUE(graph.markAsOutput(*id));
+            std::expected<ExecutionPlan,Error> compiled{std::unexpected(Error{ErrorCode::PrepareFailed})};
+            {
+                const AllocationWindow measured;
+                compiled=graph.compile(config);
+            }
+            ASSERT_TRUE(compiled); points=allocations;
+        }
+        ASSERT_GT(points,0U);
+        for (std::size_t i=0;i<points;++i) {
+            SCOPED_TRACE(i);
+            ConstructionTrace trace;
+            DAG graph;
+            auto id=graph.add<AllocationNode>(trace); ASSERT_TRUE(id);
+            Node* const address=graph.node(*id);
+            ASSERT_TRUE(graph.markAsOutput(*id));
+            auto old=graph.compile(config); ASSERT_TRUE(old);
+            std::expected<ExecutionPlan,Error> failed{std::unexpected(Error{ErrorCode::PrepareFailed})};
+            {
+                const FailureWindow fault{i};
+                failed=graph.compile(config);
+            }
+            ASSERT_FALSE(failed); EXPECT_EQ(failed.error().code,ErrorCode::MemoryBudgetExceeded);
+            EXPECT_EQ(injectedFailures,1U); EXPECT_EQ(graph.node(*id),address);
+            EXPECT_EQ(trace.destroyed,0U); EXPECT_TRUE(old->isBackendPrepared());
+            ASSERT_EQ(old->tasks().size(),1U); EXPECT_EQ(old->tasks()[0],address);
+            ASSERT_EQ(graph.outputNodes().size(),1U); EXPECT_EQ(graph.outputNodes()[0],*id);
+            float output=99; const std::array outputs{&output};
+            ASSERT_TRUE(old->exec(BackendBlock{.outputs=outputs,.frames=1}));
+            EXPECT_EQ(output,0);
+            auto retry=graph.compile(config); ASSERT_TRUE(retry);
+        }
+    }
+
     TEST(OutputMarkerRealtime, UnmarkKeepsTheOldRoleWithNoHeapOperationsDuringCallbacks) {
         DAG graph;
         auto id = graph.add<GainNode>();

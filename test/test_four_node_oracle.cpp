@@ -25,7 +25,7 @@ namespace {
         unsigned processCalls = 0;
     };
 
-    [[nodiscard]] GraphError expectedError(reference::Decision decision) {
+    [[nodiscard]] auto expectedError(reference::Decision decision) {
         switch (decision) {
             case reference::Decision::InvalidPort: return GraphError::InvalidPort;
             case reference::Decision::InvalidDirection: return GraphError::InvalidDirection;

@@ -149,8 +149,9 @@ export namespace mka::audio::dsp {
      * @brief Check non-null pointers for the input descriptors to be consumed.
      * @param consumed Valid descriptor storage selected by the caller for use.
      * @param frames Number of samples per channel that the caller will consume.
-     * @return ErrorType::NullBuffer if frames > 0 and any buffer is null;
-     * success for zero frames or no consumed descriptors.
+     * @return InvalidParameter if frames > 0 and any buffer is null, carrying
+     * its logical node/channel identity when known (backend identities stay zero).
+     * Success for zero frames or no consumed descriptors.
      * @warning Only pointer presence is checked, not sample capacity, lifetime
      * or channel identity. The caller still guarantees at least frames live
      * floats per consumed buffer. This function never reads sample memory.
@@ -163,7 +164,8 @@ export namespace mka::audio::dsp {
         if (frames != 0) {
             for (const auto& channel : consumed) {
                 if (channel.buffer == nullptr) {
-                    return std::unexpected(ErrorType::NullBuffer);
+                    return std::unexpected(Error{ErrorCode::InvalidParameter,
+                        decodeNode(channel.channel), channel.channel});
                 }
             }
         }
@@ -172,8 +174,9 @@ export namespace mka::audio::dsp {
 
     /**
      * @brief Check non-null pointers for the output descriptors to be consumed.
-     * @return ErrorType::NullBuffer if frames > 0 and any buffer is null;
-     * success for zero frames or no consumed descriptors.
+     * @return InvalidParameter with the known logical node/channel identity
+     * for a positive-frame null buffer; backend context fields remain zero.
+     * Success for zero frames or no consumed descriptors.
      * @warning Validates pointer presence only: capacity and lifetime of writable
      * sample buffers remain caller preconditions. Samples are never accessed.
      * @note Pure constexpr/noexcept control-side operation without allocation,
@@ -185,7 +188,8 @@ export namespace mka::audio::dsp {
         if (frames != 0) {
             for (const auto& channel : consumed) {
                 if (channel.buffer == nullptr) {
-                    return std::unexpected(ErrorType::NullBuffer);
+                    return std::unexpected(Error{ErrorCode::InvalidParameter,
+                        decodeNode(channel.channel), channel.channel});
                 }
             }
         }

@@ -20,7 +20,7 @@ namespace {
 
     void expectError(const Result& result, GraphError error) {
         ASSERT_FALSE(result);
-        EXPECT_EQ(result.error(), error);
+        EXPECT_EQ(result.error().code, error.code);
     }
 
     void expectEdges(const DAG& graph, std::span<const Connection> expected) {

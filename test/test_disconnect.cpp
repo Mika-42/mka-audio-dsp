@@ -79,7 +79,7 @@ namespace {
             Case{encode(maxNodeID,PortType::In,0),out,GraphError::NodeNotFound},
             Case{in,encode(maxNodeID,PortType::Out,0),GraphError::NodeNotFound}}) {
             auto result=graph.disconnect(item.destination,item.source);
-            ASSERT_FALSE(result); EXPECT_EQ(result.error(),item.error);
+            ASSERT_FALSE(result); EXPECT_EQ(result.error().code,item.error.code);
             ASSERT_EQ(graph.connections().size(),1U);
             EXPECT_EQ(graph.connections()[0],(Connection{out,in}));
         }
