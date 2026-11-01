@@ -72,6 +72,11 @@ namespace {
         EXPECT_EQ(result.error(), error);
     }
 
+    void expectDisconnect(const std::expected<bool, GraphError>& result, const bool removed) {
+        ASSERT_TRUE(result.has_value());
+        EXPECT_EQ(*result, removed);
+    }
+
     std::vector<ChannelIndex> allChannelIndices() {
         std::vector<ChannelIndex> values;
         values.reserve(maxLayoutChannels);
@@ -222,8 +227,10 @@ namespace {
         ASSERT_TRUE(validateConfig(destination.config()));
         ASSERT_TRUE(graph.connect(destination.channel(PortType::In, 65535),
                                   source.channel(PortType::Out, 65535)));
-        ASSERT_TRUE(graph.disconnect(source.id(), destination.id()));
-        expectError(graph.disconnect(source.id(), destination.id()), ErrorType::ConnexionNotFound);
+        expectDisconnect(graph.disconnect(destination.channel(PortType::In, 65535),
+                                           source.channel(PortType::Out, 65535)), true);
+        expectDisconnect(graph.disconnect(destination.channel(PortType::In, 65535),
+                                           source.channel(PortType::Out, 65535)), false);
     }
 
     TEST(ConfigGraphContract, SparseLayoutsDoNotFilterUndeclaredMainOrAuxiliaryChannels) {
@@ -240,8 +247,11 @@ namespace {
                                   source.channel(PortType::Out, 65535)));
         ASSERT_TRUE(graph.connect(destination.channel(PortType::Aux, 65535),
                                   source.channel(PortType::Out, 65535)));
-        ASSERT_TRUE(graph.disconnect(source.id(), destination.id()));
-        ASSERT_TRUE(graph.disconnect(source.id(), destination.id()));
-        expectError(graph.disconnect(source.id(), destination.id()), ErrorType::ConnexionNotFound);
+        expectDisconnect(graph.disconnect(destination.channel(PortType::In, 65535),
+                                           source.channel(PortType::Out, 65535)), true);
+        expectDisconnect(graph.disconnect(destination.channel(PortType::Aux, 65535),
+                                           source.channel(PortType::Out, 65535)), true);
+        expectDisconnect(graph.disconnect(destination.channel(PortType::In, 65535),
+                                           source.channel(PortType::Out, 65535)), false);
     }
 }

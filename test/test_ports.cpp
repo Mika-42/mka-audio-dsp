@@ -59,6 +59,11 @@ namespace {
         EXPECT_EQ(result.error(), error);
     }
 
+    void expectDisconnect(const std::expected<bool, GraphError>& result, const bool removed) {
+        ASSERT_TRUE(result.has_value());
+        EXPECT_EQ(*result, removed);
+    }
+
     struct PortPair {
         PortType source;
         PortType destination;
@@ -136,18 +141,17 @@ namespace {
         } else {
             ASSERT_FALSE(result.has_value());
             EXPECT_EQ(result.error(), GraphError::InvalidDirection);
-            const auto absent = graph.disconnect(source.id(), destination.id());
-            ASSERT_FALSE(absent.has_value());
-            EXPECT_EQ(absent.error(), GraphError::ConnexionNotFound);
+            expectDisconnect(graph.disconnect(destination.channel(PortType::In, index),
+                                               source.channel(PortType::Out, index)), false);
             // Rejection must not leave any edge, reverse path or occupied input.
             ASSERT_TRUE(graph.connect(destination.channel(PortType::In, index),
                                       source.channel(PortType::Out, index)));
         }
 
-        ASSERT_TRUE(graph.disconnect(source.id(), destination.id()));
-        const auto removed = graph.disconnect(source.id(), destination.id());
-        ASSERT_FALSE(removed.has_value());
-        EXPECT_EQ(removed.error(), GraphError::ConnexionNotFound);
+        const auto connectedDestination = destination.channel(pair.allowed ? pair.destination : PortType::In, index);
+        const auto connectedSource = source.channel(PortType::Out, index);
+        expectDisconnect(graph.disconnect(connectedDestination, connectedSource), true);
+        expectDisconnect(graph.disconnect(connectedDestination, connectedSource), false);
     }
 
     const char* portName(const PortType port) {
@@ -187,12 +191,12 @@ namespace {
                                                   rawChannelID(source.id(), pair.source));
                 ASSERT_FALSE(result.has_value());
                 EXPECT_EQ(result.error(), GraphError::InvalidPort);
-                const auto absent = graph.disconnect(source.id(), destination.id());
-                ASSERT_FALSE(absent.has_value());
-                EXPECT_EQ(absent.error(), GraphError::ConnexionNotFound);
+                expectDisconnect(graph.disconnect(destination.channel(PortType::In, index),
+                                                   source.channel(PortType::Out, index)), false);
                 ASSERT_TRUE(graph.connect(destination.channel(PortType::In, index),
                                           source.channel(PortType::Out, index)));
-                ASSERT_TRUE(graph.disconnect(source.id(), destination.id()));
+                expectDisconnect(graph.disconnect(destination.channel(PortType::In, index),
+                                                   source.channel(PortType::Out, index)), true);
             }
         }
     }
@@ -232,16 +236,16 @@ namespace {
                 const auto existing = graph.connect(originalTo, originalFrom);
                 ASSERT_FALSE(existing.has_value());
                 EXPECT_EQ(existing.error(), GraphError::ConnectionExists);
-                const auto absent = graph.disconnect(c.id(), d.id());
-                ASSERT_FALSE(absent.has_value());
-                EXPECT_EQ(absent.error(), GraphError::ConnexionNotFound);
+                expectDisconnect(graph.disconnect(d.channel(PortType::In, index),
+                                                   c.channel(PortType::Out, index)), false);
             }
         }
 
-        ASSERT_TRUE(graph.disconnect(a.id(), b.id()));
-        expectError(graph.disconnect(a.id(), b.id()), GraphError::ConnexionNotFound);
+        expectDisconnect(graph.disconnect(originalTo, originalFrom), true);
+        expectDisconnect(graph.disconnect(originalTo, originalFrom), false);
         ASSERT_TRUE(graph.connect(d.channel(PortType::Aux, index), c.channel(PortType::Out, index)));
-        ASSERT_TRUE(graph.disconnect(c.id(), d.id()));
+        expectDisconnect(graph.disconnect(d.channel(PortType::Aux, index),
+                                           c.channel(PortType::Out, index)), true);
     }
 
     TEST(PortDirections, PortAndDirectionErrorsTakePriorityOverOtherGraphErrors) {
@@ -274,10 +278,10 @@ namespace {
         ASSERT_FALSE(missing.has_value());
         EXPECT_EQ(missing.error(), GraphError::InvalidPort);
 
-        ASSERT_TRUE(graph.disconnect(a.id(), b.id()));
-        const auto absent = graph.disconnect(b.id(), a.id());
-        ASSERT_FALSE(absent.has_value());
-        EXPECT_EQ(absent.error(), GraphError::ConnexionNotFound);
+        expectDisconnect(graph.disconnect(b.channel(PortType::In, index),
+                                           a.channel(PortType::Out, index)), true);
+        expectDisconnect(graph.disconnect(a.channel(PortType::In, index),
+                                           b.channel(PortType::Out, index)), false);
     }
 
     TEST(PortDirections, ValidDirectionsReturnDistinctStructuralErrors) {
@@ -306,8 +310,8 @@ namespace {
                     GraphError::CycleDetected);
         // Aux and In are distinct destinations even at the same channel index.
         ASSERT_TRUE(graph.connect(b.channel(PortType::Aux, index), aOut));
-        ASSERT_TRUE(graph.disconnect(a.id(), b.id()));
-        ASSERT_TRUE(graph.disconnect(a.id(), b.id()));
-        expectError(graph.disconnect(a.id(), b.id()), GraphError::ConnexionNotFound);
+        expectDisconnect(graph.disconnect(bIn, aOut), true);
+        expectDisconnect(graph.disconnect(b.channel(PortType::Aux, index), aOut), true);
+        expectDisconnect(graph.disconnect(bIn, aOut), false);
     }
 }

@@ -130,8 +130,10 @@ namespace {
         ASSERT_TRUE(graph.connect(in, out));
         ASSERT_TRUE(graph.connect(aux, out));
         ASSERT_TRUE(graph.connect(otherIn, out));
-        // At S02-04 the historical API removes the first edge of this Node pair.
-        ASSERT_TRUE(graph.disconnect(*first, *sink));
+        // S02-05 removes the exact In edge while preserving this Node pair's Aux.
+        const auto disconnected = graph.disconnect(in, out);
+        ASSERT_TRUE(disconnected.has_value());
+        EXPECT_TRUE(*disconnected);
         const std::array remaining{Connection{out, aux}, Connection{out, otherIn}};
         expectEdges(graph, remaining);
         const auto replacement = encode(*second, PortType::Out, 7);
