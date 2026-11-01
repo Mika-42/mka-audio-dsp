@@ -54,10 +54,19 @@ namespace {
         EXPECT_NE(tasks[2].context.inputs[0].buffer,producer);
         ASSERT_EQ(tasks[2].context.auxiliary.size(),1U); // Undeclared edges create no extra descriptors.
         EXPECT_EQ(tasks[1].context.inputs[0].channel,encode(*first,PortType::In,3));
-        for (std::size_t i=0;i<tasks.size();++i)
-            for (std::size_t j=i+1;j<tasks.size();++j)
-                for (const auto& a : tasks[i].context.outputs)
-                    for (const auto& b : tasks[j].context.outputs) EXPECT_NE(a.buffer,b.buffer);
+        // S05 permits reuse AFTER the last reader; only live intervals must
+        // have distinct outputs. The source's two fan-outs stay intact.
+        const auto life=plan->signalLifetimes();
+        ASSERT_EQ(life.size(),4U);
+        EXPECT_EQ(life[0],(SignalLifetime{0,2}));
+        EXPECT_EQ(life[1],(SignalLifetime{0,1}));
+        std::array<const float*,4> buffers{tasks[0].context.outputs[0].buffer,
+            tasks[0].context.outputs[1].buffer,tasks[1].context.outputs[0].buffer,
+            tasks[2].context.outputs[0].buffer};
+        for (SignalID a=0;a<4;++a) for (SignalID b=a+1;b<4;++b)
+            if (life[a].producedAt<=life[b].lastUse && life[b].producedAt<=life[a].lastUse)
+                EXPECT_NE(buffers[a],buffers[b]);
+        EXPECT_LT(plan->bufferSlotCount(),buffers.size());
         const std::array<float,4> input{2,3,4,5},alternate{7,8,9,10};
         std::array<float,4> left{},right{},alternateLeft{},alternateRight{};
         for (unsigned block=0;block<2;++block) {

@@ -15,7 +15,9 @@
 
 import mka.audio.dsp.node;
 import mka.audio.dsp.dag;
+import mka.audio.dsp.buffer_pool;
 #include "offline_pipeline.hpp"
+#include "pool_pipeline.hpp"
 
 namespace {
     // Constant-initialized thread-local counters avoid allocation in the probe.
@@ -138,6 +140,104 @@ void operator delete[](void* memory, std::align_val_t, const std::nothrow_t&) no
 
 namespace {
     using namespace mka::audio::dsp;
+
+    TEST(PoolRealtime, RecycledFanoutAndPersistentDelayNeedNoHeapOrMutexOnCallbacks) {
+        pool_test::Pipeline p;
+        const auto a=p.add(), b=p.add(), c=p.add(), d=p.add();
+        p.edge(a,b); p.edge(a,c,PortType::Aux);
+        const auto edge=p.edge(b,d);
+        p.edge(c,d,PortType::Aux);
+        ASSERT_TRUE(p.graph.markAsOutput(b)); ASSERT_TRUE(p.graph.markAsOutput(d));
+        const std::array delays{ConnectionDelay{edge,256}};
+        auto plan=p.graph.compile(BackendConfig{.maxFrames=128,.inputChannels=1,.outputChannels=1,
+                                                .connectionDelays=delays}); ASSERT_TRUE(plan);
+        std::array<float,128> input{}, first{}, second{};
+        const std::array<const float*,1> inputs{input.data()};
+        {
+            const AllocationWindow window;
+            for (unsigned block=0;block<64;++block) {
+                const std::array outputs{block%2 ? first.data() : second.data()};
+                plan->exec(mka::audio::AudioProcessContext{inputs,outputs,block%3 ? 128U : 0U});
+            }
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+    }
+
+    TEST(PoolAllocation, EveryFailureDuringDelayedPreparationKeepsTheActiveGeneration) {
+        pool_test::Pipeline p;
+        const auto a=p.add(), b=p.add();
+        const auto edge=p.edge(a,b);
+        ASSERT_TRUE(p.graph.markAsOutput(b));
+        const std::array delays{ConnectionDelay{edge,3}};
+        const BackendConfig cfg{.maxFrames=128,.inputChannels=1,.outputChannels=1,.connectionDelays=delays};
+        auto plan=p.graph.compile(cfg); ASSERT_TRUE(plan);
+        std::size_t points=0;
+        {
+            const AllocationWindow window;
+            const auto result=plan->prepareBackend(cfg,p.graph.connections(),p.graph.outputNodes());
+            if (!result) std::abort();
+            points=allocations;
+        }
+        ASSERT_GT(points,0U);
+        auto* const bound=plan->executionTasks()[0].context.outputs[0].buffer;
+        const auto total=plan->preparedMemoryUsage().totalBytes;
+        for (std::size_t point=0;point<points;++point) {
+            SCOPED_TRACE(point);
+            Result result;
+            {
+                const FailureWindow fault(point);
+                result=plan->prepareBackend(cfg,p.graph.connections(),p.graph.outputNodes());
+            }
+            ASSERT_FALSE(result);
+            EXPECT_EQ(result.error().code,ErrorCode::PrepareFailed);
+            EXPECT_EQ(injectedFailures,1U);
+            EXPECT_EQ(plan->executionTasks()[0].context.outputs[0].buffer,bound);
+            EXPECT_EQ(plan->preparedMemoryUsage().totalBytes,total);
+            EXPECT_TRUE(plan->isBackendPrepared());
+        }
+    }
+
+    TEST(BufferPoolFailure, AllocationFailurePreservesPreviouslyPreparedSlots) {
+        BufferPool pool;
+        ASSERT_TRUE(pool.prepare(1, 128));
+        auto* old = pool.buffer(0);
+        old[0] = 19.F;
+        Result result;
+        {
+            const FailureWindow window(0);
+            result = pool.prepare(7, 4096);
+        }
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().code, ErrorCode::PrepareFailed);
+        EXPECT_EQ(injectedFailures, 1U);
+        EXPECT_EQ(pool.buffer(0), old);
+        EXPECT_EQ(old[0], 19.F);
+    }
+
+    TEST(BufferPoolFailure, SilenceAllocationFailureAlsoPreservesBothOldAllocations) {
+        BufferPool pool;
+        ASSERT_TRUE(pool.prepare(1, 128));
+        auto* old = pool.buffer(0);
+        const auto* zero = pool.silence();
+        Result result;
+        {
+            const FailureWindow window(1); // Slot storage succeeds; silence fails.
+            result = pool.prepare(7, 4096);
+        }
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().code, ErrorCode::PrepareFailed);
+        EXPECT_EQ(injectedFailures, 1U);
+        EXPECT_EQ(pool.buffer(0), old);
+        EXPECT_EQ(pool.silence(), zero);
+        {
+            const AllocationWindow window;
+            for (unsigned callback = 0; callback < 64; ++callback)
+                for (FrameCount f = 0; f < 128; ++f) pool.buffer(0)[f] = pool.silence()[f];
+        }
+        EXPECT_EQ(allocations, 0U);
+        EXPECT_EQ(deallocations, 0U);
+        EXPECT_EQ(mutexAttempts, 0U);
+    }
 
     class GainNode final : public Node {
     public:
@@ -701,7 +801,7 @@ namespace {
                 const FailureWindow fault{i};
                 failed=graph.compile(config);
             }
-            ASSERT_FALSE(failed); EXPECT_EQ(failed.error().code,ErrorCode::MemoryBudgetExceeded);
+            ASSERT_FALSE(failed); EXPECT_EQ(failed.error().code,ErrorCode::PrepareFailed);
             EXPECT_EQ(injectedFailures,1U); EXPECT_EQ(graph.node(*id),address);
             EXPECT_EQ(trace.destroyed,0U); EXPECT_TRUE(old->isBackendPrepared());
             ASSERT_EQ(old->tasks().size(),1U); EXPECT_EQ(old->tasks()[0],address);
@@ -844,7 +944,7 @@ namespace {
                 const FailureWindow fault{i};
                 result=target->prepareBackend(nextConfig,graph.connections(),graph.outputNodes());
             }
-            ASSERT_FALSE(result); EXPECT_EQ(result.error().code,ErrorCode::MemoryBudgetExceeded);
+            ASSERT_FALSE(result); EXPECT_EQ(result.error().code,ErrorCode::PrepareFailed);
             EXPECT_EQ(injectedFailures,1U); EXPECT_EQ(target->executionTasks().data(),tasks.data());
             EXPECT_EQ(tasks[1].context.inputs.data(),descriptors);
             EXPECT_EQ(tasks[0].context.outputs[0].buffer,producer);
