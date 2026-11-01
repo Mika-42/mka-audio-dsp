@@ -15,6 +15,7 @@
 
 import mka.audio.dsp.node;
 import mka.audio.dsp.dag;
+#include "offline_pipeline.hpp"
 
 namespace {
     // Constant-initialized thread-local counters avoid allocation in the probe.
@@ -321,6 +322,31 @@ namespace {
             EXPECT_EQ(logical[i],i%2 ? 0.F : input[i]*2.F);
             EXPECT_EQ(output[i],i%2 ? 0.F : input[i]+100.F);
         }
+    }
+
+    TEST(OfflinePipelineRealtime, CompiledStereoPipelineUsesNoHeapOrMutexAcrossChangingAndRejectedBlocks) {
+        DAG graph;
+        std::array<NodeID,3> ids{}; ASSERT_TRUE(offline_test::buildPipeline(graph,ids));
+        auto plan=graph.compile(BackendConfig{.maxFrames=offline_test::FakeBackend::maximum,.inputChannels=2,.outputChannels=3}); ASSERT_TRUE(plan);
+        offline_test::FakeBackend first{1.F},second{-3.F};
+        const std::array<FrameCount,4> frames{0,1,128,offline_test::FakeBackend::maximum};
+        {
+            const AllocationWindow window;
+            for (unsigned block=0;block<64;++block)
+                plan->exec((block%2 ? second : first).io(frames[block%4]));
+            plan->exec(first.io(offline_test::FakeBackend::maximum+1));
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        for (auto id : ids) EXPECT_EQ(static_cast<offline_test::PipelineNode*>(graph.node(id))->calls,64U);
+        for (std::size_t lane=0;lane<2;++lane)
+            for (FrameCount i=0;i<offline_test::FakeBackend::maximum;++i)
+                EXPECT_EQ(second.outputs[lane][i],second.inputs[lane][i]*0.5F);
+        for (FrameCount i=0;i<offline_test::FakeBackend::maximum;++i) {
+            EXPECT_EQ(second.outputs[2][i],0.F);
+            for (auto* out : first.outputs) EXPECT_EQ(out[i],0.F);
+        }
+        EXPECT_EQ(first.outputStorage[0].front(),999.F); EXPECT_EQ(first.outputStorage[0].back(),999.F);
+        EXPECT_EQ(plan->takeCallbackDiagnostics(),static_cast<std::uint32_t>(CallbackDiagnostic::FrameCapacityExceeded));
     }
 
     struct ConstructionTrace {
