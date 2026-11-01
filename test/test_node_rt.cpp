@@ -220,6 +220,25 @@ namespace {
         }
     }
 
+    TEST(PreparedPlanRealtime, CanonicalCallbacksAndReferenceQueriesDoNotAllocateOrRelease) {
+        DAG graph;
+        const auto id=graph.add<GainNode>(); ASSERT_TRUE(id);
+        ASSERT_TRUE(graph.markAsOutput(*id));
+        auto plan=graph.compile(BackendConfig{.maxFrames=2,.inputChannels=1,.outputChannels=1}); ASSERT_TRUE(plan);
+        const std::array<float,2> input{1,2}; std::array<float,2> output{};
+        const std::array<const float*,1> inputs{input.data()}; const std::array outputs{output.data()};
+        bool references=true;
+        {
+            const AllocationWindow window;
+            for (FrameCount i=0;i<64;++i) {
+                plan->exec(mka::audio::AudioProcessContext{inputs,outputs,i%3});
+                references=references && plan->references(*id) && !plan->references(0);
+            }
+        }
+        EXPECT_TRUE(references); EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U);
+        EXPECT_EQ(static_cast<GainNode*>(graph.node(*id))->calls,64U);
+    }
+
     struct ConstructionTrace {
         unsigned completed = 0;
         unsigned destroyed = 0;

@@ -5,6 +5,7 @@ module;
 #include <cstdint>
 #include <expected>
 #include <memory>
+#include <limits>
 #include <new>
 #include <optional>
 #include <span>
@@ -16,6 +17,7 @@ export module mka.audio.dsp.execution_plan;
 export import mka.audio.dsp.node;
 export import mka.audio.dsp.connection;
 export import mka.audio.dsp.compile_config;
+export import mka.audio.process_context;
 
 export namespace mka::audio::dsp {
     /**
@@ -52,6 +54,8 @@ export namespace mka::audio::dsp {
         FrameCount maxFrames = 0;
         std::size_t inputChannels = 0;
         std::size_t outputChannels = 0;
+        /// Requested audio storage bytes; excludes structural arrays and temporaries.
+        std::size_t memoryBudgetBytes = std::numeric_limits<std::size_t>::max();
     };
 
     /**
@@ -82,7 +86,33 @@ export namespace mka::audio::dsp {
      * Standard C++ construction/copy may throw resource exceptions on control;
      * expected-returning preparation/compilation boundaries translate them to Error.
      */
-    class ExecutionPlan {
+    class ExecutionPlan final {
+        // Fixed baseline pool: one silence slot plus distinct logical outputs.
+        // Recycling and delay operations are introduced by their later sprints.
+        class BufferPool {
+        public:
+            static std::size_t maxSamples() noexcept { return std::vector<float>{}.max_size(); }
+            void prepare(const std::size_t slots, const FrameCount frames) {
+                maxFrames_ = frames;
+                samples_.resize(slots * static_cast<std::size_t>(frames), 0.F);
+            }
+            const float* inputBuffer(const std::size_t slot) const noexcept {
+                return maxFrames_ == 0 ? nullptr : samples_.data() + slot * maxFrames_;
+            }
+            float* outputBuffer(const std::size_t slot) noexcept {
+                assert(slot != 0); // The silence slot never has a writable view.
+                return maxFrames_ == 0 ? nullptr : samples_.data() + slot * maxFrames_;
+            }
+            void clearProduced(const FrameCount frames) noexcept {
+                if (frames == 0) return;
+                const auto stride = static_cast<std::size_t>(maxFrames_);
+                for (std::size_t offset = stride; offset < samples_.size(); offset += stride)
+                    std::fill_n(samples_.data() + offset, frames, 0.F);
+            }
+        private:
+            std::vector<float> samples_;
+            FrameCount maxFrames_ = 0;
+        };
         struct AudioTask {
             std::vector<InputChannel> inputs;
             std::vector<InputChannel> auxiliary;
@@ -97,23 +127,19 @@ export namespace mka::audio::dsp {
         struct AudioState {
             BackendConfig config;
             // Slot zero is read-only silence. Outputs each get their own slot.
-            std::vector<float> samples;
+            BufferPool pool;
             std::vector<AudioTask> tasks;
             std::vector<InputChannel> backendInputs;
             std::vector<OutputChannel> backendOutputs;
 
-            float* buffer(const std::size_t slot) noexcept {
-                return config.maxFrames == 0 ? nullptr :
-                    samples.data() + slot * static_cast<std::size_t>(config.maxFrames);
-            }
             void rebindInternal() noexcept {
                 for (auto& task : tasks) {
                     for (std::size_t i = 0; i < task.inputs.size(); ++i)
-                        task.inputs[i].buffer = buffer(task.inputSlots[i]);
+                        task.inputs[i].buffer = pool.inputBuffer(task.inputSlots[i]);
                     for (std::size_t i = 0; i < task.auxiliary.size(); ++i)
-                        task.auxiliary[i].buffer = buffer(task.auxiliarySlots[i]);
+                        task.auxiliary[i].buffer = pool.inputBuffer(task.auxiliarySlots[i]);
                     for (std::size_t i = 0; i < task.outputs.size(); ++i)
-                        task.outputs[i].buffer = buffer(task.outputSlots[i]);
+                        task.outputs[i].buffer = pool.outputBuffer(task.outputSlots[i]);
                 }
             }
             void clearBackend(const std::size_t inputs, const std::size_t outputs) noexcept {
@@ -232,6 +258,25 @@ export namespace mka::audio::dsp {
         }
         [[nodiscard]] bool isBackendPrepared() const noexcept { return audio_ != nullptr; }
 
+        /** Borrowed membership of this generation, including desired-graph removals. */
+        [[nodiscard]] bool references(const NodeID id) const noexcept {
+            return taskIndexOf(id).has_value();
+        }
+
+        /**
+         * @brief Canonical synchronous audio entry point; no allocation or lock.
+         * @pre This generation is prepared, active, single-threaded and not
+         * concurrently copied, moved, prepared or retired. The backend owns io.
+         * Publication/lifecycle synchronization belongs to the callback owner.
+         */
+        void exec(const mka::audio::AudioProcessContext& io) noexcept {
+            if ((!io.inputs.empty() && io.frames > io.inputCapacityFrames) ||
+                (!io.outputs.empty() && io.frames > io.outputCapacityFrames)) return;
+            (void)execute(io.inputs.size(), io.outputs.size(), io.frames,
+                [&](const std::size_t i) noexcept { return io.inputs[i]; },
+                [&](const std::size_t i) noexcept { return io.outputs[i]; });
+        }
+
         /**
          * @brief Prepare owned descriptors/storage on control, without editing Nodes.
          * @details Logical edges and roles are snapshotted. Capacity/semantic
@@ -251,7 +296,7 @@ export namespace mka::audio::dsp {
             positions.reserve(plan_.size());
             state->tasks.resize(plan_.size());
             const auto stride = static_cast<std::size_t>(config.maxFrames);
-            const auto maxSlots = stride == 0 ? state->samples.max_size() : state->samples.max_size() / stride;
+            const auto maxSlots = stride == 0 ? BufferPool::maxSamples() : BufferPool::maxSamples() / stride;
             std::size_t slots = 1; // Silence, even for a graph without outputs.
             if (maxSlots < slots) return std::unexpected(Error{ErrorCode::CapacityExceeded});
             for (std::size_t i = 0; i < plan_.size(); ++i) {
@@ -326,7 +371,30 @@ export namespace mka::audio::dsp {
                     bindInputs(plan_[i]->config().layoutInput, PortType::In, task.inputs, task.inputSlots);
                 bindInputs(plan_[i]->config().layoutAuxiliary, PortType::Aux, task.auxiliary, task.auxiliarySlots);
             }
-            state->samples.resize(slots * stride, 0.F);
+            // Count requested owned audio storage before acquiring sample memory.
+            // Allocator overhead and validation maps are outside this budget.
+            std::size_t bytes = sizeof(AudioState);
+            const auto account = [&](const std::size_t count, const std::size_t width) noexcept {
+                if (count > (std::numeric_limits<std::size_t>::max() - bytes) / width) return false;
+                bytes += count * width;
+                return true;
+            };
+            if (!account(plan_.size(),sizeof(AudioTask)) || !account(slots*stride,sizeof(float)) ||
+                !account(config.inputChannels,sizeof(InputChannel)) ||
+                !account(config.outputChannels,sizeof(OutputChannel)))
+                return std::unexpected(Error{ErrorCode::ArithmeticOverflow});
+            for (const auto& task : state->tasks) {
+                if (!account(task.inputs.size(),sizeof(InputChannel)) ||
+                    !account(task.auxiliary.size(),sizeof(InputChannel)) ||
+                    !account(task.outputs.size(),sizeof(OutputChannel)) ||
+                    !account(task.inputSlots.size(),sizeof(std::size_t)) ||
+                    !account(task.auxiliarySlots.size(),sizeof(std::size_t)) ||
+                    !account(task.outputSlots.size(),sizeof(std::size_t)))
+                    return std::unexpected(Error{ErrorCode::ArithmeticOverflow});
+            }
+            if (bytes > config.memoryBudgetBytes)
+                return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded});
+            state->pool.prepare(slots,config.maxFrames);
             state->backendInputs.resize(config.inputChannels);
             state->backendOutputs.resize(config.outputChannels);
             state->rebindInternal();
@@ -435,11 +503,7 @@ export namespace mka::audio::dsp {
                 state.backendOutputs[i] = {0, outputAt(i)};
                 if (frames != 0) std::fill_n(outputAt(i), frames, 0.F);
             }
-            const auto stride = static_cast<std::size_t>(state.config.maxFrames);
-            // Silence slot zero is initialized on control and never written in RT.
-            if (frames != 0)
-                for (std::size_t offset = stride; offset < state.samples.size(); offset += stride)
-                    std::fill_n(state.samples.data() + offset, frames, 0.F);
+            state.pool.clearProduced(frames);
             const auto physicalInputs = std::span<const InputChannel>{state.backendInputs}.first(inputCount);
             const auto physicalOutputs = std::span<const OutputChannel>{state.backendOutputs}.first(outputCount);
             for (std::size_t i = 0; i < executionTasks_.size(); ++i) {
