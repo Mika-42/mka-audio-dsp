@@ -339,6 +339,14 @@ namespace mka::audio::dsp {
             return it->get();
         }
 
+        /**
+         * @brief Compile desired structure into stable, borrowed Node tasks on control.
+         * @details No Node::process, backend access or audio buffer preparation.
+         * Temporary structural plans support inspection of desired membership
+         * and layers. Resource allocation may throw on control. The owner must
+         * outlive the plan; retire all task/layer views with their plan. Use the
+         * BackendConfig overload to prepare an executable audio snapshot.
+         */
         [[nodiscard]] std::expected<ExecutionPlan, ErrorType> compile() const {
             std::vector<std::size_t> layerIndices;
 
