@@ -39,3 +39,11 @@ Les DelayTasks lisent la production Out commune sans la modifier et écrivent un
 Un Aux déclaré et produit participe au maximum et reçoit son D exact comme un In. Une destination hors Config n'est pas un lecteur audio. Une sortie absente de layoutOutput ne produit aucun signal : son consommateur déclaré lit le silence, sans compensation artificielle. Une entrée non connectée reste aussi silencieuse. La contrainte topologique et le statut structurel de source restent déterminés par toutes les connexions désirées.
 
 Les tests rendent un diamant et dix jonctions à délais différents, en stratégies Reuse et Unique, avec des blocs 0/1/2/3/4. Ils comparent chaque échantillon In/Aux et produit à une rampe décalée calculée indépendamment, puis vérifient qu'un lecteur direct placé après les dix branches retrouve la source intacte. Les identités du DAG restent inchangées : aucun Node PDC ou mélangeur implicite.
+
+## S08-06 — Sorties logiques et routage matériel libre
+
+Le PDC V1 compense uniquement les arêtes logiques connues, avant le process consommateur. Un marqueur output ne décrit aucune voie matérielle : le Node reçoit directement tous les `backendOutputs` et choisit ses écritures. L'analyse n'invente ni mapping par indice, ni retard terminal global, ni compensation des transformations internes arbitraires du dernier Node. Cette limite est aussi documentée dans l'API Doxygen de `PdcAnalysis`.
+
+Pour synchroniser deux destinations matérielles, réunir d'abord les branches dans une jonction Mix/routeur dont les In/Aux sont compensés, puis router son signal commun vers les voies souhaitées. Deux Nodes output indépendants à 3 et 8 samples gardent leurs propres temps physiques. Le moteur n'en déduit pas un alignement automatique par canal.
+
+Les tests rendent la jonction 3/8 vers les voies libres 2 et 5, les deux outputs indépendants sans retard artificiel, un routeur output avec successeur (échantillons logiques distincts de ses écritures physiques) et plusieurs writers dont les plages d'écriture se recouvrent. Le dernier writer gagne par échantillon, sans sommation implicite.
