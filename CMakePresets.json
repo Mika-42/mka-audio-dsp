@@ -1,0 +1,15 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {"major":4,"minor":3,"patch":0},
+  "configurePresets": [
+    {"name":"debug","generator":"Ninja","binaryDir":"${sourceDir}/build/debug","cacheVariables":{"CMAKE_BUILD_TYPE":"Debug","MKA_BUILD_TESTS":"ON"}},
+    {"name":"asan-ubsan","inherits":"debug","binaryDir":"${sourceDir}/build/asan-ubsan","cacheVariables":{"MKA_ENABLE_ASAN_UBSAN":"ON"}},
+    {"name":"tsan","inherits":"debug","binaryDir":"${sourceDir}/build/tsan","cacheVariables":{"MKA_ENABLE_TSAN":"ON"}}
+  ],
+  "buildPresets": [{"name":"debug","configurePreset":"debug"},{"name":"asan-ubsan","configurePreset":"asan-ubsan"},{"name":"tsan","configurePreset":"tsan"}],
+  "testPresets": [
+    {"name":"debug","configurePreset":"debug","output":{"outputOnFailure":true}},
+    {"name":"asan-ubsan","configurePreset":"asan-ubsan","environment":{"ASAN_OPTIONS":"detect_leaks=1:halt_on_error=1","UBSAN_OPTIONS":"halt_on_error=1"},"output":{"outputOnFailure":true}},
+    {"name":"tsan","configurePreset":"tsan","environment":{"TSAN_OPTIONS":"halt_on_error=1"},"output":{"outputOnFailure":true}}
+  ]
+}

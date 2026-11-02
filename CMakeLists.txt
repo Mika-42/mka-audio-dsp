@@ -24,6 +24,24 @@ set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+option(MKA_ENABLE_ASAN_UBSAN "Instrument memory and undefined behavior" OFF)
+option(MKA_ENABLE_TSAN "Instrument concurrency (separate from ASan)" OFF)
+option(MKA_BUILD_RT_TESTS "Build global allocation/interposition probes" ON)
+if(MKA_ENABLE_ASAN_UBSAN AND MKA_ENABLE_TSAN)
+    message(FATAL_ERROR "ASan/UBSan and TSan require separate build directories")
+endif()
+if(MKA_ENABLE_ASAN_UBSAN OR MKA_ENABLE_TSAN)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        message(FATAL_ERROR "Sanitizer profiles require Clang or GCC")
+    endif()
+    if(MKA_ENABLE_TSAN)
+        add_compile_options(-fsanitize=thread -fno-omit-frame-pointer -O1)
+        add_link_options(-fsanitize=thread)
+    else()
+        add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+        add_link_options(-fsanitize=address,undefined)
+    endif()
+endif()
 include(FetchContent)
 
 FetchContent_Declare(
@@ -113,6 +131,7 @@ if (MKA_BUILD_TESTS)
             test/test_latency_recompile.cpp
             test/test_pdc_warmup.cpp
             test/test_control_diagnostics.cpp
+            test/test_v1_stress.cpp
             test/test_plan_switcher_storage.cpp
             test/test_plan_switcher_handshake.cpp
             test/test_plan_switcher_boundary.cpp
@@ -203,6 +222,7 @@ if (MKA_BUILD_TESTS)
 
     # Keep allocation interception local to this executable: it is not part of
     # the library and does not change the allocator used by application clients.
+    if(MKA_BUILD_RT_TESTS AND NOT MKA_ENABLE_TSAN)
     add_executable(mka-node-rt-tests test/test_node_rt.cpp)
     target_link_libraries(mka-node-rt-tests PRIVATE mka-audio-dsp GTest::gtest_main)
     target_compile_features(mka-node-rt-tests PRIVATE cxx_std_26)
@@ -215,5 +235,6 @@ if (MKA_BUILD_TESTS)
                 "-Wl,--wrap=pthread_mutex_timedlock")
     endif ()
     gtest_discover_tests(mka-node-rt-tests TEST_PREFIX "dsp.rt.")
+    endif()
 
 endif ()
