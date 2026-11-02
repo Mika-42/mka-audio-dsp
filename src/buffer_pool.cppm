@@ -40,7 +40,10 @@ export namespace mka::audio::dsp {
             const auto samples = static_cast<std::size_t>(slots) * frames;
             if (samples > maximum / sizeof(float))
                 return std::unexpected(CompileError{ErrorCode::ArithmeticOverflow});
-            return samples * sizeof(float);
+            const auto bytes = samples * sizeof(float);
+            if (frames > (maximum - bytes) / sizeof(float))
+                return std::unexpected(CompileError{ErrorCode::ArithmeticOverflow});
+            return bytes + static_cast<std::size_t>(frames) * sizeof(float);
         }
 
         /** Prepare exact slot storage with a strong failure guarantee, off RT. */
@@ -49,12 +52,15 @@ export namespace mka::audio::dsp {
             const std::size_t budgetBytes = std::numeric_limits<std::size_t>::max()) try {
             const auto bytes = storageBytes(slots, frames);
             if (!bytes) return std::unexpected(bytes.error());
-            if (*bytes / sizeof(float) > storage_.max_size())
+            const auto samples = static_cast<std::size_t>(slots) * frames;
+            if (samples > storage_.max_size() || frames > silence_.max_size())
                 return std::unexpected(CompileError{ErrorCode::CapacityExceeded});
             if (*bytes > budgetBytes)
                 return std::unexpected(CompileError{ErrorCode::MemoryBudgetExceeded});
-            std::vector<float> candidate(*bytes / sizeof(float), 0.F);
+            std::vector<float> candidate(samples, 0.F);
+            std::vector<float> silence(frames, 0.F);
             storage_.swap(candidate);
+            silence_.swap(silence);
             slots_ = slots;
             frames_ = frames;
             return {};
@@ -76,10 +82,17 @@ export namespace mka::audio::dsp {
         }
         [[nodiscard]] std::uint32_t slotCapacity() const noexcept { return slots_; }
         [[nodiscard]] FrameCount maxFrames() const noexcept { return frames_; }
-        [[nodiscard]] std::size_t allocatedBytes() const noexcept { return storage_.size() * sizeof(float); }
+        /// Separate immutable zero storage: no BufferId, writable view or recycling.
+        [[nodiscard]] const float* silence() const noexcept {
+            return frames_ == 0 ? nullptr : silence_.data();
+        }
+        [[nodiscard]] std::size_t allocatedBytes() const noexcept {
+            return (storage_.size() + silence_.size()) * sizeof(float);
+        }
 
     private:
         std::vector<float> storage_;
+        std::vector<float> silence_;
         std::uint32_t slots_ = 0;
         FrameCount frames_ = 0;
     };
