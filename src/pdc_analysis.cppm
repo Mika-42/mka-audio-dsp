@@ -14,6 +14,13 @@ export import mka.audio.dsp.latency_snapshot;
 export import mka.audio.dsp.connection;
 
 export namespace mka::audio::dsp {
+    /// Compensation on one complete logical Out -> In/Aux edge, in samples.
+    struct ConnectionDelay {
+        Connection connection;
+        std::uint64_t samples = 0;
+        bool operator==(const ConnectionDelay&) const noexcept = default;
+    };
+
     /// Overflow-checked sample-time addition; also supports wide accumulated inputs.
     [[nodiscard]] constexpr std::expected<std::uint64_t, CompileError>
     checkedLatencyAdd(const std::uint64_t arrival, const std::uint64_t intrinsic) noexcept {
@@ -34,16 +41,24 @@ export namespace mka::audio::dsp {
     /// Owned control-side analysis, in the generation's topological task order.
     struct PdcAnalysis {
         std::vector<NodeLatency> nodes;
+        /// Complete materialized audio-edge table, including D=0 direct links.
+        /// Sorted by destination then source ChannelID, independent of insertion.
+        std::vector<ConnectionDelay> edges;
 
         [[nodiscard]] const NodeLatency* find(const NodeID id) const noexcept {
             const auto it=std::find_if(nodes.begin(),nodes.end(),
                 [id](const NodeLatency& value) { return value.node==id; });
             return it==nodes.end() ? nullptr : &*it;
         }
+        [[nodiscard]] const ConnectionDelay* find(const Connection edge) const noexcept {
+            const auto it=std::find_if(edges.begin(),edges.end(),
+                [edge](const ConnectionDelay& value) { return value.connection==edge; });
+            return it==edges.end() ? nullptr : &*it;
+        }
     };
 
     /**
-     * @brief Compute A(v)=max L(pred(v)), L(v)=A(v)+P(v), entirely on control.
+     * @brief Compute A=max L(pred), L=A+P and exact-edge D=A-L(source) on control.
      * @details Reads only owned intrinsic values and numeric graph identities,
      * never Nodes or DSP state. audioEdges contains only materialized Out to
      * processed In/Aux connections; structural edges outside Config still
@@ -97,6 +112,17 @@ export namespace mka::audio::dsp {
             if (!cumulative) return std::unexpected(Error{cumulative.error().code,value.node});
             value.cumulative=*cumulative;
         }
+        result.edges.reserve(audioEdges.size());
+        for (const auto edge : audioEdges) {
+            const auto source=result.nodes[positions.find(decodeNode(edge.from))->second].cumulative;
+            const auto arrival=result.nodes[positions.find(decodeNode(edge.to))->second].arrival;
+            // The same predecessor set established A, so source <= arrival.
+            result.edges.push_back({edge,arrival-source});
+        }
+        std::sort(result.edges.begin(),result.edges.end(),[](const auto& a,const auto& b) {
+            return a.connection.to==b.connection.to ? a.connection.from<b.connection.from :
+                a.connection.to<b.connection.to;
+        });
         return result;
     } catch (const std::bad_alloc&) {
         return std::unexpected(Error{ErrorCode::PrepareFailed});

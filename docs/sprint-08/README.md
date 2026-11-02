@@ -23,3 +23,11 @@ Toutes les captures d'une génération réussissent avant de figer le cache. Le 
 La préparation retient comme arête audio une sortie Out présente dans `layoutOutput` dont la destination est présente dans `layoutInput` ou `layoutAuxiliary`. Les ports hors Config ne créent pas de lecteur : leurs liens continuent pourtant de contraindre l'ordre structurel. Une source logique non produite reste silencieuse. Aucun historique ni plan A n'est modifié par l'analyse. Les tables sont possédées et comptées au budget de B, sans accès dans `exec`.
 
 Tests : sources 0/3/8/512, chaîne, diamant In/Aux, ordre indépendant du stockage, ports ignorés, cumuls au-delà de 32 bits, erreurs de table/ordre/ports et addition proche de `UINT64_MAX`. Les limites 64 bits sont testées avec des opérandes cumulés synthétiques pour éviter de construire un graphe gigantesque.
+
+## S08-04 — Retards par connexion
+
+L'analyse possède maintenant une table complète `Connection{from,to} → D` triée par destination puis source. Pour chaque arête audio, `D=A(destination)-L(source)` est non négatif en `uint64_t`. La latence propre du consommateur est ajoutée ensuite, une fois. Les délais positifs insèrent une opération interne avant le consommateur, avec sortie et historique indépendants. Un même Out peut donc alimenter deux jonctions avec des délais différents. `D=0` garde le pointeur direct, sans DelayTask, y compris dans un planning explicite.
+
+La compilation backend applique automatiquement les D calculés. L'ancien champ `BackendConfig::connectionDelays`, s'il est non vide, fournit un planning explicite complet qui remplace l'insertion automatique (pour les intégrations existantes) ; les tables P/A/L/D restent l'analyse mathématique des déclarations intrinsèques, pas une description de ce planning manuel. Le span n'est jamais conservé. Dans les deux cas les opérations finales sont soumises à la même preuve de liveness, au budget et à la transaction de préparation.
+
+Les historiques internes appartiennent au plan, ne modifient pas le DAG, et traversent les callbacks. Les tests vérifient 3/8 → 5/0, Aux, pointeurs directs, fan-out à retards différents, impulsions sur deux blocs et latence du consommateur. L'exécutable RT instrumente une compensation automatique de 256 samples avec maxFrames=128 : zéro allocation, libération et mutex dans les callbacks.

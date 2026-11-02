@@ -442,8 +442,11 @@ namespace mka::audio::dsp {
 
         /**
          * @brief Compile and prepare direct backend I/O on control, before RT.
-         * @details Final Node/explicit-delay operations receive statically recycled
-         * plan-owned slots. PDC latency analysis and publication are separate.
+         * @details Capture coherent intrinsic latencies, analyze logical In/Aux
+         * paths and insert positive per-edge compensation delays. Final Node
+         * and Delay operations receive statically recycled plan-owned slots.
+         * A nonempty explicit delay schedule overrides automatic insertion.
+         * Publication remains separate; errors leave existing plans intact.
          */
         [[nodiscard]] std::expected<ExecutionPlan, ErrorType>
         compile(const BackendConfig& config) const try {
