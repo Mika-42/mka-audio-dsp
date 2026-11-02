@@ -54,6 +54,7 @@ target_sources(mka-audio-dsp
         src/process_context.cppm
         src/audio_process_context.cppm
         src/node.cppm
+        src/latency_snapshot.cppm
         src/channel.cppm
         src/connection.cppm
         src/graph_snapshot.cppm
@@ -133,6 +134,7 @@ if (MKA_BUILD_TESTS)
             test/test_config.cpp
             test/test_process_context.cpp
             test/test_node.cpp
+            test/test_latency_snapshot.cpp
             test/test_node_lifetime.cpp
             test/test_backend_io.cpp
             test/test_dag_storage.cpp

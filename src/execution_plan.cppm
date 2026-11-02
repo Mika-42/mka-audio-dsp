@@ -22,6 +22,7 @@ export import mka.audio.dsp.connection;
 export import mka.audio.dsp.compile_config;
 export import mka.audio.process_context;
 export import mka.audio.dsp.signal_liveness;
+export import mka.audio.dsp.latency_snapshot;
 
 export namespace mka::audio::dsp {
     /// Sticky, numeric callback diagnostics; formatting/handling belongs to control.
@@ -142,6 +143,7 @@ export namespace mka::audio::dsp {
 
         struct AudioState {
             BackendConfig config;
+            LatencySnapshot intrinsicLatencies;
             BufferPool pool;
             std::vector<AudioTask> tasks;
             std::vector<InputChannel> backendInputs;
@@ -328,6 +330,11 @@ export namespace mka::audio::dsp {
             return audio_ ? audio_->memory : PlanMemoryUsage{};
         }
 
+        /// Immutable generation-owned declaration table; null before preparation.
+        [[nodiscard]] const LatencySnapshot* latencySnapshot() const noexcept {
+            return audio_ ? &audio_->intrinsicLatencies : nullptr;
+        }
+
         /** Borrowed membership of this generation, including desired-graph removals. */
         [[nodiscard]] bool references(const NodeID id) const noexcept {
             return taskIndexOf(id).has_value();
@@ -423,6 +430,9 @@ export namespace mka::audio::dsp {
                         decodeNode(connection.to),connection.to});
                 state->tasks[to->second].isSource = false;
             }
+            auto intrinsic=detail::captureLatencies(plan_,config.sampleRate);
+            if (!intrinsic) return std::unexpected(intrinsic.error());
+            state->intrinsicLatencies=std::move(*intrinsic);
             std::unordered_map<ChannelID, std::size_t> outputSlots;
             outputSlots.reserve(signalCount);
             std::size_t slot = 0;
@@ -533,6 +543,7 @@ export namespace mka::audio::dsp {
             account(executionTasks_); account(taskIndices_); account(sourceTasks_); account(outputTasks_);
             account(state->tasks); account(state->operations); account(state->delays);
             account(state->lifetimes); account(state->assignment.slotOf);
+            account(state->intrinsicLatencies.nodes);
             metadata.push_back({config.inputChannels, sizeof(InputChannel), alignof(InputChannel)});
             metadata.push_back({config.outputChannels, sizeof(OutputChannel), alignof(OutputChannel)});
             for (const auto& task : state->tasks) {

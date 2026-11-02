@@ -3,6 +3,7 @@
 //
 module;
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <utility>
 export module mka.audio.dsp.node;
@@ -13,7 +14,12 @@ export import mka.audio.dsp.process_context;
 // Defined in this module to avoid attaching cross-module DAG/ExecutionPlan
 // forward declarations to the Node module. Tokens borrow; they do not own Node.
 export namespace mka::audio::dsp::detail {
-    struct NodeBorrowState {};
+    // Only serialized control accesses these fields. Audio never reads them.
+    struct NodeBorrowState {
+        mutable bool hasLatency = false;
+        mutable LatencySamples latency = 0;
+        mutable std::uint32_t sampleRate = 0;
+    };
     using NodeBorrowToken = std::shared_ptr<const NodeBorrowState>;
     struct NodeBorrowAccess;
     struct NodeConfigAccess;
@@ -118,10 +124,33 @@ export namespace mka::audio::dsp::detail {
     /** Internal control-side borrow tracking; never copied/released in process. */
     struct NodeBorrowAccess {
         static NodeBorrowToken retain(const Node& node) noexcept {
+            // A new borrow epoch may observe a newly prepared DSP declaration.
+            if (node.borrowState_.use_count() == 1) node.borrowState_->hasLatency = false;
             return node.borrowState_;
         }
         static bool inUse(const Node& node) noexcept {
             return node.borrowState_.use_count() > 1;
+        }
+
+        /** Caller owns at most one of the plan borrows counted here. */
+        static std::expected<LatencySamples, Error> readLatency(
+            const Node& node, const std::uint32_t sampleRate) noexcept {
+            const auto& state = *node.borrowState_;
+            if (state.hasLatency && node.borrowState_.use_count() > 1) {
+                if (state.sampleRate != sampleRate)
+                    return std::unexpected(Error{ErrorCode::NodeInUse, node.id()});
+                return state.latency; // Never query mutable DSP shared with A.
+            }
+            if (node.borrowState_.use_count() > 2)
+                return std::unexpected(Error{ErrorCode::NodeInUse, node.id()});
+            return node.latencySamples(); // Exclusive/quiescent first preparation.
+        }
+
+        static void freezeLatency(const Node& node, const std::uint32_t sampleRate,
+                                  const LatencySamples latency) noexcept {
+            node.borrowState_->latency = latency;
+            node.borrowState_->sampleRate = sampleRate;
+            node.borrowState_->hasLatency = true;
         }
     };
 
