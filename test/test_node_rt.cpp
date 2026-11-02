@@ -20,6 +20,7 @@ import mka.audio.dsp.buffer_pool;
 #include "pool_pipeline.hpp"
 #include "backend_routing_fixture.hpp"
 #include "last_writer_fixture.hpp"
+#include "pair_routing_fixture.hpp"
 
 namespace {
     // Constant-initialized thread-local counters avoid allocation in the probe.
@@ -230,6 +231,27 @@ namespace {
         EXPECT_TRUE(seen[4].inputSamplesIntact);
         for (auto* backend : {&a,&b}) for (unsigned c=0;c<6;++c) for (FrameCount f=0;f<128;++f)
             EXPECT_EQ(backend->outputs[c][f],backend_test::lastWriterSample(c,f,policies));
+    }
+
+    TEST(TwoSixRoutingRealtime, PhysicalPairsAndLogicalSuccessorRenderWithoutHeapOrMutex) {
+        for (const std::uint32_t outputs : {2U,6U}) {
+            std::array<NodeID,3> ids;
+            std::array<backend_test::PairRouting,3> routing;
+            std::array<backend_test::Observation,3> seen;
+            DAG graph; ASSERT_TRUE(backend_test::buildPairRouting(graph,ids,routing,seen,outputs));
+            auto plan=graph.compile(BackendConfig{.maxFrames=128,.inputChannels=6,.outputChannels=outputs}); ASSERT_TRUE(plan);
+            backend_test::FakeBackend a(1.F),b(100.F);
+            {
+                const AllocationWindow window;
+                for (unsigned block=0;block<32;++block) {
+                    const auto io=(block%2 ? a : b).io(block%3 ? 128U : 0U,6,outputs);
+                    const backend_test::IOScope scope(io); plan->exec(io);
+                }
+            }
+            EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+            for (auto* backend : {&a,&b}) for (unsigned c=0;c<outputs;++c) for (FrameCount f=0;f<128;++f)
+                EXPECT_EQ(backend->outputs[c][f],backend_test::routedPairSample(outputs,c,f,*backend));
+        }
     }
 
     TEST(PoolRealtime, RecycledFanoutAndPersistentDelayNeedNoHeapOrMutexOnCallbacks) {
