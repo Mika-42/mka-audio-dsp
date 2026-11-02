@@ -138,6 +138,7 @@ if (MKA_BUILD_TESTS)
             test/test_latency_snapshot.cpp
             test/test_pdc_analysis.cpp
             test/test_pdc_edges.cpp
+            test/test_pdc_fanout.cpp
             test/test_node_lifetime.cpp
             test/test_backend_io.cpp
             test/test_dag_storage.cpp
