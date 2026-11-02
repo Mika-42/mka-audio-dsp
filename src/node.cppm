@@ -85,11 +85,20 @@ export namespace mka::audio::dsp {
         virtual void process(const ProcessContext& context) noexcept = 0;
 
         /**
-         * @brief Intrinsic latency in whole samples, zero unless overridden.
-         * @note Read on control from coherent state. Preparing a new plan must
-         * not mutate DSP state simultaneously used by the active plan.
+         * @brief Algorithmic delay in whole samples at the effective sample rate.
+         * @details Zero by default (for example a gain). A lookahead/plugin
+         * declares the actual displacement of its output samples, common to
+         * all audio paths/channels in V1. CPU duration, callback size and a
+         * reverberation tail (TailInfo) are different quantities.
+         * @note Capture on control for one generation; exec never queries this
+         * method. Keep the declaration and corresponding DSP behavior stable
+         * while any plan borrows this Node. A latency/rate change requires
+         * quiescence of all such plans or a distinct, independently prepared
+         * Node for candidate B. Never prepare/mutate a shared active Node to
+         * obtain B's latency; atomically changing a number alone does not
+         * coordinate a change of DSP behavior with publication.
          */
-        [[nodiscard]] virtual std::uint32_t latencySamples() const noexcept {
+        [[nodiscard]] virtual LatencySamples latencySamples() const noexcept {
             return 0;
         }
 

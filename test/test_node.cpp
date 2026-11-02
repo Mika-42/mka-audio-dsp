@@ -21,6 +21,8 @@ namespace {
                                void (Node::*)(const ProcessContext&) noexcept>);
     static_assert(std::same_as<decltype(&Node::latencySamples),
                                std::uint32_t (Node::*)() const noexcept>);
+    static_assert(std::same_as<LatencySamples, std::uint32_t>);
+    static_assert(noexcept(std::declval<const Node&>().latencySamples()));
     static_assert(std::same_as<decltype(&Node::id), NodeID (Node::*)() const noexcept>);
     static_assert(std::same_as<decltype(&Node::channel),
                                ChannelID (Node::*)(PortType, ChannelIndex) const noexcept>);
@@ -150,6 +152,26 @@ namespace {
         const Node& maximumBase = maximum;
         EXPECT_EQ(delayedBase.latencySamples(), 128U);
         EXPECT_EQ(maximumBase.latencySamples(), UINT32_MAX);
+    }
+
+    TEST(NodeInterface, GainAndLookaheadDeclareSamplesIndependentlyOfBlockSizeAndTail) {
+        const ScalarGainNode gain{1};
+        EXPECT_EQ(gain.latencySamples(), 0U);
+        for (const LatencySamples delay : {64U, 256U}) {
+            DeclaredLatencyNode plugin{2, delay};
+            Node& processor=plugin;
+            // An adapter may separately expose a long reverb tail. Neither
+            // that value nor callback size is part of the latency declaration.
+            constexpr unsigned tailSamples=48000;
+            for (const FrameCount frames : {0U, 1U, 128U, 512U}) {
+                EXPECT_EQ(processor.latencySamples(), delay);
+                EXPECT_NE(processor.latencySamples(), tailSamples);
+                std::array<float,512> output{};
+                const std::array descriptors{OutputChannel{0,output.data()}};
+                processor.process(ProcessContext{.outputs=descriptors,.frames=frames});
+                EXPECT_EQ(processor.latencySamples(), delay);
+            }
+        }
     }
 
     TEST(NodeInterface, IdentityChannelAndConfigAccessorsAreNonVirtual) {
