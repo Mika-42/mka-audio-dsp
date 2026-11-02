@@ -179,6 +179,31 @@ namespace {
         }
     }
 
+    TEST(PlanSwitcherRealtime, RetirementAndNodeDestructionOccurOnlyOnControlAfterAck) {
+        switcher_test::LifetimeTrace trace;
+        DAG graph; PlanSwitcher switcher;
+        const auto id=graph.add<switcher_test::SignalNode>(&trace); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
+        const BackendConfig cfg{.maxFrames=4,.inputChannels=1,.outputChannels=1};
+        ASSERT_TRUE(switcher.initialize(graph,cfg)); ASSERT_TRUE(graph.remove(*id));
+        ASSERT_TRUE(switcher.prepareInactivePlan(graph,cfg)); ASSERT_TRUE(switcher.publishReadyPlan());
+        switcher_test::IO io;
+        {
+            const AllocationWindow window;
+            switcher_test::onAudio=true;
+            switcher.exec(io.block());
+            switcher_test::onAudio=false;
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        EXPECT_EQ(trace.destroyed.load(),0U);
+        Result retired;
+        {
+            const AllocationWindow controlWindow;
+            retired=switcher.retireAcknowledgedPlan();
+        }
+        ASSERT_TRUE(retired); EXPECT_EQ(allocations,0U); EXPECT_GT(deallocations,0U);
+        EXPECT_EQ(graph.collectRetiredNodes(),1U); EXPECT_EQ(trace.destroyedOnAudio.load(),0U);
+    }
+
     TEST(BackendCapacityRealtime, FixedPhysicalShapesAndRejectionsNeverAllocateOrLock) {
         for (const std::uint32_t count : {0U,1U,2U,6U}) {
             backend_test::Observation observation; observation.expectOutput=true;
