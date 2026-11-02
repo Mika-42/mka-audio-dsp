@@ -187,6 +187,30 @@ namespace {
         for (const auto& o : seen) { EXPECT_EQ(o.calls,32U); EXPECT_TRUE(o.directInputs); EXPECT_TRUE(o.directOutputs); }
     }
 
+    TEST(HardwareSilenceRealtime, RepeatedPartialWritesCannotLeaveResiduesOnUnusedChannels) {
+        backend_test::Observation seen; seen.expectOutput=true;
+        backend_test::WritePolicy policy{.lanes=1U<<2,.begin=2,.end=7,.stride=2,.physicalValue=40.F};
+        DAG graph;
+        const auto id=graph.add<backend_test::PhysicalWriter>(seen,policy); ASSERT_TRUE(id);
+        ASSERT_TRUE(graph.markAsOutput(*id));
+        auto plan=graph.compile(BackendConfig{.maxFrames=128,.outputChannels=6}); ASSERT_TRUE(plan);
+        backend_test::FakeBackend a,b;
+        {
+            const AllocationWindow window;
+            for (unsigned block=0;block<32;++block) {
+                const auto io=(block%2 ? a : b).io(block%3 ? 128U : 0U,0,6);
+                const backend_test::IOScope scope(io); plan->exec(io);
+            }
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        for (auto* backend : {&a,&b}) for (unsigned c=0;c<6;++c) {
+            EXPECT_EQ(backend->outputStorage[c].front(),backend_test::guard);
+            EXPECT_EQ(backend->outputStorage[c].back(),backend_test::guard);
+            for (FrameCount f=0;f<128;++f)
+                EXPECT_EQ(backend->outputs[c][f],c==2 && (f==2 || f==4 || f==6) ? 42.F : 0.F);
+        }
+    }
+
     TEST(PoolRealtime, RecycledFanoutAndPersistentDelayNeedNoHeapOrMutexOnCallbacks) {
         pool_test::Pipeline p;
         const auto a=p.add(), b=p.add(), c=p.add(), d=p.add();
