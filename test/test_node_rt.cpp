@@ -204,6 +204,33 @@ namespace {
         EXPECT_EQ(graph.collectRetiredNodes(),1U); EXPECT_EQ(trace.destroyedOnAudio.load(),0U);
     }
 
+    TEST(PlanSwitcherFailure, EveryCandidateAllocationFailurePreservesTheActiveGenerationAndDesiredGraph) {
+        DAG graph; PlanSwitcher switcher;
+        const auto id=graph.add<switcher_test::SignalNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
+        const BackendConfig cfg{.maxFrames=4,.inputChannels=1,.outputChannels=1};
+        ASSERT_TRUE(switcher.initialize(graph,cfg));
+        std::size_t points=0;
+        Result prepared;
+        {
+            const AllocationWindow window;
+            prepared=switcher.prepareInactivePlan(graph,cfg); points=allocations;
+        }
+        ASSERT_TRUE(prepared); ASSERT_GT(points,0U); ASSERT_TRUE(switcher.discardReadyPlan());
+        switcher_test::IO io;
+        for (std::size_t point=0;point<points;++point) {
+            SCOPED_TRACE(point); Result result;
+            {
+                const FailureWindow fault(point);
+                result=switcher.prepareAndPublish(graph,cfg);
+            }
+            ASSERT_FALSE(result); EXPECT_EQ(injectedFailures,1U);
+            EXPECT_TRUE(result.error().code==ErrorCode::PrepareFailed || result.error().code==ErrorCode::MemoryBudgetExceeded);
+            EXPECT_EQ(switcher.handshakeState(),HandshakeState::Idle); EXPECT_EQ(switcher.readyPlan(),nullptr);
+            EXPECT_EQ(switcher.controlGeneration(),1U); EXPECT_NE(graph.node(*id),nullptr);
+            switcher.exec(io.block()); EXPECT_EQ(io.input,io.output);
+        }
+    }
+
     TEST(BackendCapacityRealtime, FixedPhysicalShapesAndRejectionsNeverAllocateOrLock) {
         for (const std::uint32_t count : {0U,1U,2U,6U}) {
             backend_test::Observation observation; observation.expectOutput=true;

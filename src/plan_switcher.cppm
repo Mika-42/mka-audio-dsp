@@ -134,6 +134,20 @@ export namespace mka::audio::dsp {
             return {};
         }
 
+        /**
+         * @brief Compile a coherent desired graph and publish it on control.
+         * @details The caller serializes graph edits. A busy switcher rejects
+         * before compilation; desired edits remain in DAG for the next attempt.
+         * Compilation never mutates active/shared DSP state or consumes edits.
+         */
+        [[nodiscard]] Result prepareAndPublish(const DAG& graph,const BackendConfig& backend,
+                                               const CompileConfig& limits={}) {
+            if (gate_.load(std::memory_order_acquire)==CallbackGate::Stopped)
+                return std::unexpected(Error{ErrorCode::PrepareFailed});
+            if (auto result=prepareInactivePlan(graph,backend,limits); !result) return result;
+            return publishReadyPlan();
+        }
+
         /** Audio only, at a block boundary. A call from inside process returns false. */
         [[nodiscard]] bool trySwapAtBlockBoundary() noexcept {
             auto expected=CallbackGate::Ready;
