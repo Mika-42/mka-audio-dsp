@@ -1420,7 +1420,7 @@ namespace {
 namespace {
     TEST(DelayTaskRealtime, CompiledConcreteTaskExecutesWithoutHeapDeletesOrMutexes) {
         using namespace mka::audio::dsp;
-        for (const std::uint64_t delay : {1U,3U,256U}) {
+        for (const std::uint64_t delay : {1U,3U,256U,512U}) {
             detail::DelayTask task; ASSERT_TRUE(task.prepare(delay));
             std::array<float,130> input{},output{}; input.fill(1.F); output.fill(-999.F);
             ASSERT_TRUE(task.bind(input.data()+1,output.data()+1,128));

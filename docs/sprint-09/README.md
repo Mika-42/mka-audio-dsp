@@ -23,3 +23,11 @@ Chaque callback contrôle l'intégralité de l'entrée read-only et les sentinel
 ExecutionPlan utilise ce type pour ses opérations de retard ; l'ancien ring privé est supprimé. Le pool, les tâches et leurs lignes appartiennent à son stockage heap stable. Après copie contrôlée du pool, tous les pointeurs sont rebindés et validés ; déplacer le wrapper ne déplace pas ce stockage. Aucune adresse backend ne réside dans une DelayTask. Les historiques restent hors de la freelist et du buffer silence. Le budget total est vérifié avant la préparation des lignes ; tout refus de préparation/binding préserve l'ancien plan.
 
 Les tests vérifient D=1/3/256 sur plusieurs callbacks, plages identiques/partiellement superposées/adjacentes, overflow des adresses sans déréférencement, refus préservant l'ancien flux, copie/move et rebinding de vrais plans, zéro frames/capacité, D=0 direct et zéro allocation/libération/mutex RT.
+
+## S09-04 — Ordre final producteur → retard → consommateur
+
+La compilation conserve un `PlanOperationInfo` immutable pour chaque opération finale : kind, index de tâche, NodeID pour les Nodes, connexion exacte et D sélectionné pour un retard, ainsi que ses identités de production avant recyclage. `operationSchedule()` expose cette vue numérique en lecture seule, jusqu'au remplacement/retrait du plan. Elle ne contient aucun pointeur DSP/backend et son stockage est inclus dans le budget.
+
+Les DelayTasks positives sont insérées avant le consommateur, après leur producteur topologique. D=0 conserve la liaison directe. Les allocations du pool et des lignes finissent avant le binding ; les connexions et Nodes du DAG désiré restent inchangés. L'audio ne consulte que kind/index, sans construction de tâches ni résolution de ChannelID.
+
+Les tests vérifient l'ordre et les samples sur une chaîne D=1+3+512, un diamant avec Aux retardé, un même Out vers trois jonctions D=1/3/512 et un lecteur direct tardif, des blocs variables et des guards. Un refus de B conserve le planning et l'historique actif. Les tests RT directs incluent D=512.
