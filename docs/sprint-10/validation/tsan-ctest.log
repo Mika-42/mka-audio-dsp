@@ -1,0 +1,713 @@
+Test project /workspace/.mka-build/sprint07-tsan
+        Start   1: dsp.FundamentalTypes.PreserveExactNumericLimits
+  1/354 Test   #1: dsp.FundamentalTypes.PreserveExactNumericLimits ...................................................................   Passed    0.04 sec
+        Start   2: dsp.ChannelIndexConversion.AcceptsBothBoundsAndTheirNeighbours
+  2/354 Test   #2: dsp.ChannelIndexConversion.AcceptsBothBoundsAndTheirNeighbours ....................................................   Passed    0.05 sec
+        Start   3: dsp.ChannelIndexConversion.PreservesEveryRepresentableIndex
+  3/354 Test   #3: dsp.ChannelIndexConversion.PreservesEveryRepresentableIndex .......................................................   Passed    0.04 sec
+        Start   4: dsp.ChannelIndexConversion.RejectsOverflowInsteadOfWrappingToZeroOrOne
+  4/354 Test   #4: dsp.ChannelIndexConversion.RejectsOverflowInsteadOfWrappingToZeroOrOne ............................................   Passed    0.06 sec
+        Start   5: dsp.ChannelIndexConversion.RejectsEveryHighBitBeforeNarrowing
+  5/354 Test   #5: dsp.ChannelIndexConversion.RejectsEveryHighBitBeforeNarrowing .....................................................   Passed    0.06 sec
+        Start   6: dsp.ChannelIndexConversion.RejectsNegativeValuesAndSignedExtremes
+  6/354 Test   #6: dsp.ChannelIndexConversion.RejectsNegativeValuesAndSignedExtremes .................................................   Passed    0.06 sec
+        Start   7: dsp.ChannelIndexConversion.SupportsAllStandardIntegralSourceTypes
+  7/354 Test   #7: dsp.ChannelIndexConversion.SupportsAllStandardIntegralSourceTypes .................................................   Passed    0.05 sec
+        Start   8: dsp.LatencyRecompile.Zero64Then256ThenZeroUsesNewDSPAndNewCompensationOnlyAtBoundary
+  8/354 Test   #8: dsp.LatencyRecompile.Zero64Then256ThenZeroUsesNewDSPAndNewCompensationOnlyAtBoundary ..............................   Passed    0.03 sec
+        Start   9: dsp.LatencyRecompile.DesiredLatencyChangeDuringPendingCannotAlterPublishedSnapshot
+  9/354 Test   #9: dsp.LatencyRecompile.DesiredLatencyChangeDuringPendingCannotAlterPublishedSnapshot ................................   Passed    0.06 sec
+        Start  10: dsp.PdcWarmup.FreshGenerationStartsAtZeroRegardlessOfAWarmHistoryAndBlockPartition
+ 10/354 Test  #10: dsp.PdcWarmup.FreshGenerationStartsAtZeroRegardlessOfAWarmHistoryAndBlockPartition ................................   Passed    0.05 sec
+        Start  11: dsp.ControlDiagnostics.EveryStableCategoryAndUnknownValueKeepsNumericContext
+ 11/354 Test  #11: dsp.ControlDiagnostics.EveryStableCategoryAndUnknownValueKeepsNumericContext ......................................   Passed    0.06 sec
+        Start  12: dsp.ControlDiagnostics.SwitcherFlagsSurviveRetirementAndDrainWithoutCallbackFormatting
+ 12/354 Test  #12: dsp.ControlDiagnostics.SwitcherFlagsSurviveRetirementAndDrainWithoutCallbackFormatting ............................   Passed    0.03 sec
+        Start  13: dsp.ControlDiagnostics.ConcurrentControlDrainAndInvalidCallbacksUseOnlyAtomicFlags
+ 13/354 Test  #13: dsp.ControlDiagnostics.ConcurrentControlDrainAndInvalidCallbacksUseOnlyAtomicFlags ................................   Passed    0.03 sec
+        Start  14: dsp.V1Stress.TenThousandLatencyEditsPublicationsAndRetirementsAcrossTwoThreads
+ 14/354 Test  #14: dsp.V1Stress.TenThousandLatencyEditsPublicationsAndRetirementsAcrossTwoThreads ....................................   Passed    7.20 sec
+        Start  15: dsp.DeclaredLatencyContract.IncorrectPluginDeclarationIsNotAutomaticallyMeasuredOrRepaired
+ 15/354 Test  #15: dsp.DeclaredLatencyContract.IncorrectPluginDeclarationIsNotAutomaticallyMeasuredOrRepaired ........................   Passed    0.05 sec
+        Start  16: dsp.BackendOscillator.ASourceMayIgnoreAllSixPhysicalInputs
+ 16/354 Test  #16: dsp.BackendOscillator.ASourceMayIgnoreAllSixPhysicalInputs ........................................................   Passed    0.05 sec
+        Start  17: dsp.V1Acceptance.StereoGainDelayMixHeadphonesSpeakersLastWriterAndSilenceMatchEveryImpulseSample
+ 17/354 Test  #17: dsp.V1Acceptance.StereoGainDelayMixHeadphonesSpeakersLastWriterAndSilenceMatchEveryImpulseSample ..................   Passed    0.14 sec
+        Start  18: dsp.V1Acceptance.BoundarySwapAndPendingEditsPreserveAudibleAAndKeepNewHistoryPrivate
+ 18/354 Test  #18: dsp.V1Acceptance.BoundarySwapAndPendingEditsPreserveAudibleAAndKeepNewHistoryPrivate ..............................   Passed    0.04 sec
+        Start  19: dsp.PlanSwitcherStorage.StableSlotsHaveIndependentDescriptorsSamplesAndDelayHistories
+ 19/354 Test  #19: dsp.PlanSwitcherStorage.StableSlotsHaveIndependentDescriptorsSamplesAndDelayHistories .............................   Passed    0.05 sec
+        Start  20: dsp.PlanSwitcherStorage.FailedCandidateAndBusySlotPreserveTheActiveGeneration
+ 20/354 Test  #20: dsp.PlanSwitcherStorage.FailedCandidateAndBusySlotPreserveTheActiveGeneration .....................................   Passed    0.05 sec
+        Start  21: dsp.PlanSwitcherHandshake.IdlePendingAcknowledgedIdleKeepsIndicesAndSlotOwnershipCoherent
+ 21/354 Test  #21: dsp.PlanSwitcherHandshake.IdlePendingAcknowledgedIdleKeepsIndicesAndSlotOwnershipCoherent .........................   Passed    0.07 sec
+        Start  22: dsp.PlanSwitcherHandshake.ReleaseAcquirePublishesCompleteDescriptorsAndRetiresOnlyAfterAck
+ 22/354 Test  #22: dsp.PlanSwitcherHandshake.ReleaseAcquirePublishesCompleteDescriptorsAndRetiresOnlyAfterAck ........................   Passed    0.07 sec
+        Start  23: dsp.PlanSwitcherBoundary.TenThousandSwapsRenderExactlyOneGenerationPerBlock
+ 23/354 Test  #23: dsp.PlanSwitcherBoundary.TenThousandSwapsRenderExactlyOneGenerationPerBlock .......................................   Passed    0.90 sec
+        Start  24: dsp.PlanSwitcherBoundary.PendingPublishedDuringProcessWaitsForTheNextCallback
+ 24/354 Test  #24: dsp.PlanSwitcherBoundary.PendingPublishedDuringProcessWaitsForTheNextCallback .....................................   Passed    0.06 sec
+        Start  25: dsp.PlanSwitcherRetirement.NoAckMeansNoReleaseAndAnAcknowledgedSlotIsClearedExactlyOnce
+ 25/354 Test  #25: dsp.PlanSwitcherRetirement.NoAckMeansNoReleaseAndAnAcknowledgedSlotIsClearedExactlyOnce ...........................   Passed    0.04 sec
+        Start  26: dsp.PlanSwitcherRetirement.SharedNodeSurvivesTheFirstAckUntilEveryGenerationReleasesItsBorrow
+ 26/354 Test  #26: dsp.PlanSwitcherRetirement.SharedNodeSurvivesTheFirstAckUntilEveryGenerationReleasesItsBorrow .....................   Passed    0.06 sec
+        Start  27: dsp.PlanSwitcherEdits.PendingSnapshotStaysImmutableWhileDesiredCChangesAndItsCompilationFails
+ 27/354 Test  #27: dsp.PlanSwitcherEdits.PendingSnapshotStaysImmutableWhileDesiredCChangesAndItsCompilationFails .....................   Passed    0.05 sec
+        Start  28: dsp.PlanSwitcherEdits.SharedNodeConfigurationCannotBeMutatedWhileAnyGenerationBorrowsIt
+ 28/354 Test  #28: dsp.PlanSwitcherEdits.SharedNodeConfigurationCannotBeMutatedWhileAnyGenerationBorrowsIt ...........................   Passed    0.07 sec
+        Start  29: dsp.PlanSwitcherNodeLifetime.ExternalGenerationKeepsARemovedNodeAliveAfterBothManagerSlotsReleaseIt
+ 29/354 Test  #29: dsp.PlanSwitcherNodeLifetime.ExternalGenerationKeepsARemovedNodeAliveAfterBothManagerSlotsReleaseIt ...............   Passed    0.05 sec
+        Start  30: dsp.PlanSwitcherNodeLifetime.RemovalWithAFailedReplacementStillRendersTheOldNodeUntilSuccessfulRetirement
+ 30/354 Test  #30: dsp.PlanSwitcherNodeLifetime.RemovalWithAFailedReplacementStillRendersTheOldNodeUntilSuccessfulRetirement .........   Passed    0.06 sec
+        Start  31: dsp.PlanSwitcherNodeLifetime.RepeatedAddRemoveNeverDestroysOnAudioOrReusesLiveIdentity
+ 31/354 Test  #31: dsp.PlanSwitcherNodeLifetime.RepeatedAddRemoveNeverDestroysOnAudioOrReusesLiveIdentity ............................   Passed    0.05 sec
+        Start  32: dsp.PlanSwitcherStop.PendingWithoutAnyCallbackIsCanceledWithoutWaitingAndCanResume
+ 32/354 Test  #32: dsp.PlanSwitcherStop.PendingWithoutAnyCallbackIsCanceledWithoutWaitingAndCanResume ................................   Passed    0.07 sec
+        Start  33: dsp.PlanSwitcherStop.StopAfterAdoptionReconcilesAckAndDiscardsUnpublishedReadyOffAudio
+ 33/354 Test  #33: dsp.PlanSwitcherStop.StopAfterAdoptionReconcilesAckAndDiscardsUnpublishedReadyOffAudio ............................   Passed    0.07 sec
+        Start  34: dsp.PlanSwitcherStop.BackendStopJoinsAnInFlightCallbackBeforeCancelingPending
+ 34/354 Test  #34: dsp.PlanSwitcherStop.BackendStopJoinsAnInFlightCallbackBeforeCancelingPending .....................................   Passed    0.04 sec
+        Start  35: dsp.PlanSwitcherStress.TenThousandThreadedSwapsIncludeEditsFailuresRetirementStopAndPdc
+ 35/354 Test  #35: dsp.PlanSwitcherStress.TenThousandThreadedSwapsIncludeEditsFailuresRetirementStopAndPdc ...........................   Passed    2.71 sec
+        Start  36: dsp.BackendCapacities.FixedZeroOneTwoSixChannelSnapshotsSurviveCallerEditsAndAddressChanges
+ 36/354 Test  #36: dsp.BackendCapacities.FixedZeroOneTwoSixChannelSnapshotsSurviveCallerEditsAndAddressChanges .......................   Passed    0.06 sec
+        Start  37: dsp.BackendCapacities.ShapeMismatchAndNullOrOversizedBlocksRejectWithoutProcessingOrWritingPastCapacity
+ 37/354 Test  #37: dsp.BackendCapacities.ShapeMismatchAndNullOrOversizedBlocksRejectWithoutProcessingOrWritingPastCapacity ...........   Passed    0.05 sec
+        Start  38: dsp.BackendCapacities.WideValuesAreRejectedBeforeAnyNarrowingAndFailedPreparationKeepsTheSnapshot
+ 38/354 Test  #38: dsp.BackendCapacities.WideValuesAreRejectedBeforeAnyNarrowingAndFailedPreparationKeepsTheSnapshot .................   Passed    0.05 sec
+        Start  39: dsp.BackendSources.CompileRolesFromAllIncomingEdgesIndependentlyOfLayoutsAndOutputMarkers
+ 39/354 Test  #39: dsp.BackendSources.CompileRolesFromAllIncomingEdgesIndependentlyOfLayoutsAndOutputMarkers .........................   Passed    0.05 sec
+        Start  40: dsp.BackendSources.DesiredGraphEditsAndFailedPreparationNeverChangeAnOldSourceList
+ 40/354 Test  #40: dsp.BackendSources.DesiredGraphEditsAndFailedPreparationNeverChangeAnOldSourceList ................................   Passed    0.05 sec
+        Start  41: dsp.PhysicalInputViews.MultipleSourcesBorrowEveryPhysicalChannelRegardlessOfTheirInputLayouts
+ 41/354 Test  #41: dsp.PhysicalInputViews.MultipleSourcesBorrowEveryPhysicalChannelRegardlessOfTheirInputLayouts .....................   Passed    0.05 sec
+        Start  42: dsp.PhysicalInputViews.ExactZeroFrameShapeAcceptsNullPointersAndDoesNotRetainCallbackViews
+ 42/354 Test  #42: dsp.PhysicalInputViews.ExactZeroFrameShapeAcceptsNullPointersAndDoesNotRetainCallbackViews ........................   Passed    0.05 sec
+        Start  43: dsp.PhysicalOutputViews.SourceOutputWithSuccessorWritesHardwareWithoutChangingLogicalProduction
+ 43/354 Test  #43: dsp.PhysicalOutputViews.SourceOutputWithSuccessorWritesHardwareWithoutChangingLogicalProduction ...................   Passed    0.06 sec
+        Start  44: dsp.PhysicalOutputViews.MarkerSnapshotAndPhysicalChannelChoiceDoNotDependOnEdges
+ 44/354 Test  #44: dsp.PhysicalOutputViews.MarkerSnapshotAndPhysicalChannelChoiceDoNotDependOnEdges ..................................   Passed    0.07 sec
+        Start  45: dsp.HardwareSilence.EmptyGraphZerosEveryAnnouncedChannelAndOnlyTheCurrentFrameRange
+ 45/354 Test  #45: dsp.HardwareSilence.EmptyGraphZerosEveryAnnouncedChannelAndOnlyTheCurrentFrameRange ...............................   Passed    0.05 sec
+        Start  46: dsp.HardwareSilence.AllOutputsAreZeroBeforeFirstProcessAndPartialWritersLeaveSilentHoles
+ 46/354 Test  #46: dsp.HardwareSilence.AllOutputsAreZeroBeforeFirstProcessAndPartialWritersLeaveSilentHoles ..........................   Passed    0.10 sec
+        Start  47: dsp.LastWriterWins.EffectiveSampleWritesRespectTopologyPartialRangesAndIndependentWriters
+ 47/354 Test  #47: dsp.LastWriterWins.EffectiveSampleWritesRespectTopologyPartialRangesAndIndependentWriters .........................   Passed    0.07 sec
+        Start  48: dsp.TwoSixRouting.NodePoliciesSelectPairsWithoutHardwareChannelsOrEdgesInTheEngine
+ 48/354 Test  #48: dsp.TwoSixRouting.NodePoliciesSelectPairsWithoutHardwareChannelsOrEdgesInTheEngine ................................   Passed    0.05 sec
+        Start  49: dsp.TwoSixRouting.NodeChecksUnavailableInputAndOutputIndicesBeforeAccess
+ 49/354 Test  #49: dsp.TwoSixRouting.NodeChecksUnavailableInputAndOutputIndicesBeforeAccess ..........................................   Passed    0.05 sec
+        Start  50: dsp.HeadphonePipeline.PhysicalInputsThroughGainReachTwoPairsWithPerSampleLastWriterAndFreshPointers
+ 50/354 Test  #50: dsp.HeadphonePipeline.PhysicalInputsThroughGainReachTwoPairsWithPerSampleLastWriterAndFreshPointers ...............   Passed    0.06 sec
+        Start  51: dsp.HeadphonePipeline.MalformedBlocksRemainBoundedAndTheSamePreparedPlanRecovers
+ 51/354 Test  #51: dsp.HeadphonePipeline.MalformedBlocksRemainBoundedAndTheSamePreparedPlanRecovers ..................................   Passed    0.06 sec
+        Start  52: dsp.BufferPool.ExactMonoCapacitiesAreIsolatedAndStable
+ 52/354 Test  #52: dsp.BufferPool.ExactMonoCapacitiesAreIsolatedAndStable ............................................................   Passed    0.21 sec
+        Start  53: dsp.BufferPool.FailedBudgetAndOverflowPreserveOldStorage
+ 53/354 Test  #53: dsp.BufferPool.FailedBudgetAndOverflowPreserveOldStorage ..........................................................   Passed    0.06 sec
+        Start  54: dsp.BufferPool.ZeroFramesAndIndependentControlCopy
+ 54/354 Test  #54: dsp.BufferPool.ZeroFramesAndIndependentControlCopy ................................................................   Passed    0.04 sec
+        Start  55: dsp.BufferPool.SilenceIsSharedConstAndExcludedFromEveryWritableSlot
+ 55/354 Test  #55: dsp.BufferPool.SilenceIsSharedConstAndExcludedFromEveryWritableSlot ...............................................   Passed    0.04 sec
+        Start  56: dsp.SignalLiveness.ChainDiamondAuxAndUnconsumedOutputsHaveExactIndices
+ 56/354 Test  #56: dsp.SignalLiveness.ChainDiamondAuxAndUnconsumedOutputsHaveExactIndices ............................................   Passed    0.04 sec
+        Start  57: dsp.SignalLiveness.TenWayFanoutDelayAndLateTerminalReaderExtendEveryProduction
+ 57/354 Test  #57: dsp.SignalLiveness.TenWayFanoutDelayAndLateTerminalReaderExtendEveryProduction ....................................   Passed    0.05 sec
+        Start  58: dsp.SignalLiveness.RejectsMissingDuplicateFutureAndInvalidProductions
+ 58/354 Test  #58: dsp.SignalLiveness.RejectsMissingDuplicateFutureAndInvalidProductions .............................................   Passed    0.07 sec
+        Start  59: dsp.StaticSlots.LastInputAndNewOutputNeverAliasWithinOneOperation
+ 59/354 Test  #59: dsp.StaticSlots.LastInputAndNewOutputNeverAliasWithinOneOperation .................................................   Passed    0.06 sec
+        Start  60: dsp.StaticSlots.DiamondLateReadersAndDelayMatchANonRecyclingSampleOracle
+ 60/354 Test  #60: dsp.StaticSlots.DiamondLateReadersAndDelayMatchANonRecyclingSampleOracle ..........................................   Passed    0.04 sec
+        Start  61: dsp.StaticSlots.InvalidIntervalsAndCapacityFailWithoutNarrowing
+ 61/354 Test  #61: dsp.StaticSlots.InvalidIntervalsAndCapacityFailWithoutNarrowing ...................................................   Passed    0.05 sec
+        Start  62: dsp.FanoutLiveness.LateAuxDelayAndMarkedOutputSuccessorPreserveSourceSamples
+ 62/354 Test  #62: dsp.FanoutLiveness.LateAuxDelayAndMarkedOutputSuccessorPreserveSourceSamples ......................................   Passed    0.06 sec
+        Start  63: dsp.FanoutLiveness.RejectsPrematureRecyclingAtTheLastConsumerBeforeBinding
+ 63/354 Test  #63: dsp.FanoutLiveness.RejectsPrematureRecyclingAtTheLastConsumerBeforeBinding ........................................   Passed    0.06 sec
+        Start  64: dsp.PlanMemory.ExactBudgetIncludesSilenceHistoriesMetadataAndPadding
+ 64/354 Test  #64: dsp.PlanMemory.ExactBudgetIncludesSilenceHistoriesMetadataAndPadding ..............................................   Passed    0.07 sec
+        Start  65: dsp.PlanMemory.OverflowIsDistinctFromCapacityAndBudgetBeforeAnyAllocation
+ 65/354 Test  #65: dsp.PlanMemory.OverflowIsDistinctFromCapacityAndBudgetBeforeAnyAllocation .........................................   Passed    0.05 sec
+        Start  66: dsp.PlanMemory.NearSizeMaxAndDominantHistoryNeedNoArbitraryCeiling
+ 66/354 Test  #66: dsp.PlanMemory.NearSizeMaxAndDominantHistoryNeedNoArbitraryCeiling ................................................   Passed    0.05 sec
+        Start  67: dsp.PoolIntegration.ChainUsesFourMonoSlotsWithStableBindingsAndExactStereoRender
+ 67/354 Test  #67: dsp.PoolIntegration.ChainUsesFourMonoSlotsWithStableBindingsAndExactStereoRender ..................................   Passed    0.09 sec
+        Start  68: dsp.PoolIntegration.FanoutAuxMultipleSourcesOutputSuccessorAndExplicitDelayExecuteTheFinalOrder
+ 68/354 Test  #68: dsp.PoolIntegration.FanoutAuxMultipleSourcesOutputSuccessorAndExplicitDelayExecuteTheFinalOrder ...................   Passed    0.06 sec
+        Start  69: dsp.PoolIntegration.BudgetAndCapacityRefusalKeepActiveStorageAndExactBudgetSucceeds
+ 69/354 Test  #69: dsp.PoolIntegration.BudgetAndCapacityRefusalKeepActiveStorageAndExactBudgetSucceeds ...............................   Passed    0.04 sec
+        Start  70: dsp.PoolRenderOracle.LongChainAndDiamondKeepEveryIntermediateSample
+ 70/354 Test  #70: dsp.PoolRenderOracle.LongChainAndDiamondKeepEveryIntermediateSample ...............................................   Passed    0.99 sec
+        Start  71: dsp.PoolRenderOracle.TenWayFanoutLateReadersAuxAndMultipleBackendWriters
+ 71/354 Test  #71: dsp.PoolRenderOracle.TenWayFanoutLateReadersAuxAndMultipleBackendWriters ..........................................   Passed    0.37 sec
+        Start  72: dsp.PoolRenderOracle.DelaysZeroThreeAnd256HaveIndependentPersistentHistories
+ 72/354 Test  #72: dsp.PoolRenderOracle.DelaysZeroThreeAnd256HaveIndependentPersistentHistories ......................................   Passed    0.55 sec
+        Start  73: dsp.PoolRenderOracle.UndeclaredEdgesSilenceMultipleSourcesAndMissingPortsRemainSafe
+ 73/354 Test  #73: dsp.PoolRenderOracle.UndeclaredEdgesSilenceMultipleSourcesAndMissingPortsRemainSafe ...............................   Passed    0.13 sec
+        Start  74: dsp.PoolRenderOracle.DeterministicGeneratedGraphsCoverDifferentLivenessAndDelayShapes
+ 74/354 Test  #74: dsp.PoolRenderOracle.DeterministicGeneratedGraphsCoverDifferentLivenessAndDelayShapes .............................   Passed    3.56 sec
+        Start  75: dsp.PortTypeContract.HasFixedSixteenBitCodes
+ 75/354 Test  #75: dsp.PortTypeContract.HasFixedSixteenBitCodes ......................................................................   Passed    0.07 sec
+        Start  76: dsp.PortTypeContract.ClassifiesMainAndAuxiliaryInputsAndOutput
+ 76/354 Test  #76: dsp.PortTypeContract.ClassifiesMainAndAuxiliaryInputsAndOutput ....................................................   Passed    0.07 sec
+        Start  77: dsp.PortTypeContract.HelpersClassifyEverySixteenBitRepresentation
+ 77/354 Test  #77: dsp.PortTypeContract.HelpersClassifyEverySixteenBitRepresentation .................................................   Passed    0.06 sec
+        Start  78: dsp.PortDirections.RejectsUndefinedCodesInEitherPosition
+ 78/354 Test  #78: dsp.PortDirections.RejectsUndefinedCodesInEitherPosition ..........................................................   Passed    0.07 sec
+        Start  79: dsp.PortDirections.RejectionsPreserveAnExistingEdgeAndDoNotAddAnother
+ 79/354 Test  #79: dsp.PortDirections.RejectionsPreserveAnExistingEdgeAndDoNotAddAnother .............................................   Passed    0.06 sec
+        Start  80: dsp.PortDirections.PortAndDirectionErrorsTakePriorityOverOtherGraphErrors
+ 80/354 Test  #80: dsp.PortDirections.PortAndDirectionErrorsTakePriorityOverOtherGraphErrors .........................................   Passed    0.04 sec
+        Start  81: dsp.PortDirections.ValidDirectionsReturnDistinctStructuralErrors
+ 81/354 Test  #81: dsp.PortDirections.ValidDirectionsReturnDistinctStructuralErrors ..................................................   Passed    0.08 sec
+        Start  82: dsp.ChannelIDCodec.MatchesIndependentNumericGoldenValues
+ 82/354 Test  #82: dsp.ChannelIDCodec.MatchesIndependentNumericGoldenValues ..........................................................   Passed    0.05 sec
+        Start  83: dsp.ChannelIDCodec.RoundTripsAllBoundaryCombinations
+ 83/354 Test  #83: dsp.ChannelIDCodec.RoundTripsAllBoundaryCombinations ..............................................................   Passed    0.05 sec
+        Start  84: dsp.ChannelIDCodec.PreservesEveryChannelIndexWithoutFieldCollisions
+ 84/354 Test  #84: dsp.ChannelIDCodec.PreservesEveryChannelIndexWithoutFieldCollisions ...............................................   Passed    0.08 sec
+        Start  85: dsp.ChannelIDCodec.ExtractsEachOfTheSixtyFourBitsFromOnlyItsOwnField
+ 85/354 Test  #85: dsp.ChannelIDCodec.ExtractsEachOfTheSixtyFourBitsFromOnlyItsOwnField ..............................................   Passed    0.04 sec
+        Start  86: dsp.ChannelIDCodec.DistinctNodePortAndIndexTuplesNeverCollide
+ 86/354 Test  #86: dsp.ChannelIDCodec.DistinctNodePortAndIndexTuplesNeverCollide .....................................................   Passed    0.05 sec
+        Start  87: dsp.ChannelIDCodec.PreservesAndRejectsEveryUndefinedDecodedPortCode
+ 87/354 Test  #87: dsp.ChannelIDCodec.PreservesAndRejectsEveryUndefinedDecodedPortCode ...............................................   Passed    0.05 sec
+        Start  88: dsp.ChannelIDCodec.ArbitraryIdentifiersDecodeAndRecombineWithoutLosingBits
+ 88/354 Test  #88: dsp.ChannelIDCodec.ArbitraryIdentifiersDecodeAndRecombineWithoutLosingBits ........................................   Passed    0.05 sec
+        Start  89: dsp.ChannelIDCodec.EncoderPreservesEveryNodeBitIncludingTheHighest
+ 89/354 Test  #89: dsp.ChannelIDCodec.EncoderPreservesEveryNodeBitIncludingTheHighest ................................................   Passed    0.04 sec
+        Start  90: dsp.AudioChannelDescriptors.DefaultInitializationLeavesZeroIdentityAndNullPreparationBuffer
+ 90/354 Test  #90: dsp.AudioChannelDescriptors.DefaultInitializationLeavesZeroIdentityAndNullPreparationBuffer .......................   Passed    0.07 sec
+        Start  91: dsp.AudioChannelDescriptors.CopiesPreserveLogicalIdentityAndBorrowCallerOwnedStorage
+ 91/354 Test  #91: dsp.AudioChannelDescriptors.CopiesPreserveLogicalIdentityAndBorrowCallerOwnedStorage ..............................   Passed    0.07 sec
+        Start  92: dsp.AudioChannelDescriptors.MonoConsumerWritesThroughConstOutputDescriptors
+ 92/354 Test  #92: dsp.AudioChannelDescriptors.MonoConsumerWritesThroughConstOutputDescriptors .......................................   Passed    0.04 sec
+        Start  93: dsp.AudioChannelDescriptors.StereoAndSixBackendLanesUsePositionWithZeroIdentity
+ 93/354 Test  #93: dsp.AudioChannelDescriptors.StereoAndSixBackendLanesUsePositionWithZeroIdentity ...................................   Passed    0.04 sec
+        Start  94: dsp.AudioChannelDescriptors.ExplicitReadOnlyViewAliasesMutableSamplesWithoutOwnership
+ 94/354 Test  #94: dsp.AudioChannelDescriptors.ExplicitReadOnlyViewAliasesMutableSamplesWithoutOwnership .............................   Passed    0.05 sec
+        Start  95: dsp.AudioChannelBuffers.PositiveFramesRejectNullInputAtEveryConsumedPositionWithoutMutation
+ 95/354 Test  #95: dsp.AudioChannelBuffers.PositiveFramesRejectNullInputAtEveryConsumedPositionWithoutMutation .......................   Passed    0.06 sec
+        Start  96: dsp.AudioChannelBuffers.PositiveFramesRejectNullOutputAtEveryConsumedPositionWithoutMutation
+ 96/354 Test  #96: dsp.AudioChannelBuffers.PositiveFramesRejectNullOutputAtEveryConsumedPositionWithoutMutation ......................   Passed    0.05 sec
+        Start  97: dsp.AudioChannelBuffers.EmptyViewsAndZeroFramesDoNotAccessSamplesOrNullPointers
+ 97/354 Test  #97: dsp.AudioChannelBuffers.EmptyViewsAndZeroFramesDoNotAccessSamplesOrNullPointers ...................................   Passed    0.04 sec
+        Start  98: dsp.AudioChannelBuffers.ValidationInspectsPointersOnlyEvenForMaximumFrameCount
+ 98/354 Test  #98: dsp.AudioChannelBuffers.ValidationInspectsPointersOnlyEvenForMaximumFrameCount ....................................   Passed    0.05 sec
+        Start  99: dsp.AudioChannelBuffers.DisconnectedInputCanBorrowAReadOnlySilenceBuffer
+ 99/354 Test  #99: dsp.AudioChannelBuffers.DisconnectedInputCanBorrowAReadOnlySilenceBuffer ..........................................   Passed    0.05 sec
+        Start 100: dsp.AudioChannelBuffers.CallbackHarnessRebindsBackendBuffersAndClearsBorrowedPointers
+100/354 Test #100: dsp.AudioChannelBuffers.CallbackHarnessRebindsBackendBuffersAndClearsBorrowedPointers .............................   Passed    0.06 sec
+        Start 101: dsp.ConfigLayouts.DefaultsToThreeEmptyLayouts
+101/354 Test #101: dsp.ConfigLayouts.DefaultsToThreeEmptyLayouts .....................................................................   Passed    0.05 sec
+        Start 102: dsp.ConfigLayouts.AcceptsSparseUnsortedLayoutsAndPreservesBoundaryIndices
+102/354 Test #102: dsp.ConfigLayouts.AcceptsSparseUnsortedLayoutsAndPreservesBoundaryIndices .........................................   Passed    0.06 sec
+        Start 103: dsp.ConfigLayouts.AllowsTheSameIndicesAcrossIndependentPorts
+103/354 Test #103: dsp.ConfigLayouts.AllowsTheSameIndicesAcrossIndependentPorts ......................................................   Passed    0.04 sec
+        Start 104: dsp.ConfigLayouts.RejectsAdjacentAndSeparatedDuplicatesInEachPortWithoutMutation
+104/354 Test #104: dsp.ConfigLayouts.RejectsAdjacentAndSeparatedDuplicatesInEachPortWithoutMutation ..................................   Passed    0.07 sec
+        Start 105: dsp.ConfigLayouts.EachPortAcceptsAll65536DistinctIndicesWithoutACombinedLimit
+105/354 Test #105: dsp.ConfigLayouts.EachPortAcceptsAll65536DistinctIndicesWithoutACombinedLimit .....................................   Passed    0.05 sec
+        Start 106: dsp.ConfigLayouts.Rejects65537EntriesBeforeDuplicateChecksWithinEachPort
+106/354 Test #106: dsp.ConfigLayouts.Rejects65537EntriesBeforeDuplicateChecksWithinEachPort ..........................................   Passed    0.07 sec
+        Start 107: dsp.ConfigLayouts.FullCapacityDoesNotHideARepeatedIndex
+107/354 Test #107: dsp.ConfigLayouts.FullCapacityDoesNotHideARepeatedIndex ...........................................................   Passed    0.05 sec
+        Start 108: dsp.ConfigLayouts.CopiesOwnIndependentVectorStorage
+108/354 Test #108: dsp.ConfigLayouts.CopiesOwnIndependentVectorStorage ...............................................................   Passed    0.05 sec
+        Start 109: dsp.ConfigNodeSnapshot.OwnsAReadOnlyCopyUnaffectedByCallerEdits
+109/354 Test #109: dsp.ConfigNodeSnapshot.OwnsAReadOnlyCopyUnaffectedByCallerEdits ...................................................   Passed    0.07 sec
+        Start 110: dsp.ConfigNodeSnapshot.RemainsValidAfterTheCallerTemporaryIsDestroyed
+110/354 Test #110: dsp.ConfigNodeSnapshot.RemainsValidAfterTheCallerTemporaryIsDestroyed .............................................   Passed    0.07 sec
+        Start 111: dsp.ConfigGraphContract.EmptyLayoutsDoNotRejectLogicalConnections
+111/354 Test #111: dsp.ConfigGraphContract.EmptyLayoutsDoNotRejectLogicalConnections .................................................   Passed    0.04 sec
+        Start 112: dsp.ConfigGraphContract.SparseLayoutsDoNotFilterUndeclaredMainOrAuxiliaryChannels
+112/354 Test #112: dsp.ConfigGraphContract.SparseLayoutsDoNotFilterUndeclaredMainOrAuxiliaryChannels .................................   Passed    0.04 sec
+        Start 113: dsp.ProcessContextViews.DefaultsToFiveEmptyNonOwningFields
+113/354 Test #113: dsp.ProcessContextViews.DefaultsToFiveEmptyNonOwningFields ........................................................   Passed    0.06 sec
+        Start 114: dsp.ProcessContextViews.OrdinaryNodeUsesAllInternalViewsAndIgnoresUnusedBackendData
+114/354 Test #114: dsp.ProcessContextViews.OrdinaryNodeUsesAllInternalViewsAndIgnoresUnusedBackendData ...............................   Passed    0.05 sec
+        Start 115: dsp.ProcessContextViews.SourceAloneReceivesEveryPhysicalInputDespiteEmptyLayout
+115/354 Test #115: dsp.ProcessContextViews.SourceAloneReceivesEveryPhysicalInputDespiteEmptyLayout ...................................   Passed    0.05 sec
+        Start 116: dsp.ProcessContextViews.OutputAloneReceivesEveryBackendOutputAlongsideLogicalOutputs
+116/354 Test #116: dsp.ProcessContextViews.OutputAloneReceivesEveryBackendOutputAlongsideLogicalOutputs ..............................   Passed    0.04 sec
+        Start 117: dsp.ProcessContextViews.SourceAndOutputRolesAreIndependentOnTheSameNode
+117/354 Test #117: dsp.ProcessContextViews.SourceAndOutputRolesAreIndependentOnTheSameNode ...........................................   Passed    0.04 sec
+        Start 118: dsp.ProcessContextViews.OutputNodeKeepsItsLogicalBufferForASuccessor
+118/354 Test #118: dsp.ProcessContextViews.OutputNodeKeepsItsLogicalBufferForASuccessor ..............................................   Passed    0.05 sec
+        Start 119: dsp.ProcessContextPreparation.ValidatesInternalPointersWithoutMutatingBindings
+119/354 Test #119: dsp.ProcessContextPreparation.ValidatesInternalPointersWithoutMutatingBindings ....................................   Passed    0.06 sec
+        Start 120: dsp.ProcessContextPreparation.SourceIgnoresUnusedInternalInputsAndZeroMaximumAllowsPreparationNulls
+120/354 Test #120: dsp.ProcessContextPreparation.SourceIgnoresUnusedInternalInputsAndZeroMaximumAllowsPreparationNulls ...............   Passed    0.05 sec
+        Start 121: dsp.ProcessContextGuards.ZeroFramesSkipTheConsumerEvenWithNullDescriptors
+121/354 Test #121: dsp.ProcessContextGuards.ZeroFramesSkipTheConsumerEvenWithNullDescriptors .........................................   Passed    0.04 sec
+        Start 122: dsp.ProcessContextGuards.ZeroChannelsAllowAPositiveFrameContext
+122/354 Test #122: dsp.ProcessContextGuards.ZeroChannelsAllowAPositiveFrameContext ...................................................   Passed    0.04 sec
+        Start 123: dsp.ProcessContextGuards.ExcessiveFramesSkipSamplesAndTheNextCallbackUsesFreshViews
+123/354 Test #123: dsp.ProcessContextGuards.ExcessiveFramesSkipSamplesAndTheNextCallbackUsesFreshViews ...............................   Passed    0.05 sec
+        Start 124: dsp.ProcessContextGuards.BackendInputCountOverflowSkipsTheConsumer
+124/354 Test #124: dsp.ProcessContextGuards.BackendInputCountOverflowSkipsTheConsumer ................................................   Passed    0.04 sec
+        Start 125: dsp.ProcessContextGuards.BackendOutputCountOverflowSkipsTheConsumerAndLeavesSamplesUntouched
+125/354 Test #125: dsp.ProcessContextGuards.BackendOutputCountOverflowSkipsTheConsumerAndLeavesSamplesUntouched ......................   Passed    0.06 sec
+        Start 126: dsp.ProcessContextGuards.NullPointersInEverySelectedViewRejectBeforeTheConsumer
+126/354 Test #126: dsp.ProcessContextGuards.NullPointersInEverySelectedViewRejectBeforeTheConsumer ...................................   Passed    0.04 sec
+        Start 127: dsp.ProcessContextLifetime.SuccessiveCallbacksBorrowOnlyTheirCurrentDescriptorStorage
+127/354 Test #127: dsp.ProcessContextLifetime.SuccessiveCallbacksBorrowOnlyTheirCurrentDescriptorStorage .............................   Passed    0.04 sec
+        Start 128: dsp.NodeInterface.OrdinaryAccessorsPreserveIdentityAndReadOnlyConfiguration
+128/354 Test #128: dsp.NodeInterface.OrdinaryAccessorsPreserveIdentityAndReadOnlyConfiguration .......................................   Passed    0.04 sec
+        Start 129: dsp.NodeInterface.ChannelReturnsTheSpecifiedNumericGoldenIdentity
+129/354 Test #129: dsp.NodeInterface.ChannelReturnsTheSpecifiedNumericGoldenIdentity .................................................   Passed    0.06 sec
+        Start 130: dsp.NodeInterface.ValidPortsAndBoundaryIndicesPreserveTheExactNodeIdentity
+130/354 Test #130: dsp.NodeInterface.ValidPortsAndBoundaryIndicesPreserveTheExactNodeIdentity ........................................   Passed    0.07 sec
+        Start 131: dsp.NodeInterface.DefaultLatencyIsExactlyZeroWithoutAnOverride
+131/354 Test #131: dsp.NodeInterface.DefaultLatencyIsExactlyZeroWithoutAnOverride ....................................................   Passed    0.05 sec
+        Start 132: dsp.NodeInterface.VirtualLatencyOverrideDispatchesThroughTheBaseInterface
+132/354 Test #132: dsp.NodeInterface.VirtualLatencyOverrideDispatchesThroughTheBaseInterface .........................................   Passed    0.05 sec
+        Start 133: dsp.NodeInterface.GainAndLookaheadDeclareSamplesIndependentlyOfBlockSizeAndTail
+133/354 Test #133: dsp.NodeInterface.GainAndLookaheadDeclareSamplesIndependentlyOfBlockSizeAndTail ...................................   Passed    0.05 sec
+        Start 134: dsp.NodeInterface.IdentityChannelAndConfigAccessorsAreNonVirtual
+134/354 Test #134: dsp.NodeInterface.IdentityChannelAndConfigAccessorsAreNonVirtual ..................................................   Passed    0.06 sec
+        Start 135: dsp.NodeInterface.ConfigurationRemainsOwnedAfterCallerStorageChanges
+135/354 Test #135: dsp.NodeInterface.ConfigurationRemainsOwnedAfterCallerStorageChanges ..............................................   Passed    0.05 sec
+        Start 136: dsp.NodeProcessingContract.VirtualProcessUsesFreshBackendViewsWithoutRetainingTheirPointers
+136/354 Test #136: dsp.NodeProcessingContract.VirtualProcessUsesFreshBackendViewsWithoutRetainingTheirPointers .......................   Passed    0.04 sec
+        Start 137: dsp.NodeProcessingContract.ZeroAndInvalidBlocksDoNotInvokeTheEffect
+137/354 Test #137: dsp.NodeProcessingContract.ZeroAndInvalidBlocksDoNotInvokeTheEffect ...............................................   Passed    0.04 sec
+        Start 138: dsp.DelayLine.DefaultAndPreparedZeroCopyWithoutHistoryAndPermitIdenticalPointer
+138/354 Test #138: dsp.DelayLine.DefaultAndPreparedZeroCopyWithoutHistoryAndPermitIdenticalPointer ...................................   Passed    0.05 sec
+        Start 139: dsp.DelayLine.ThreeSamplesPersistAcrossTheTwoReferenceBlocks
+139/354 Test #139: dsp.DelayLine.ThreeSamplesPersistAcrossTheTwoReferenceBlocks ......................................................   Passed    0.05 sec
+        Start 140: dsp.DelayLine.DelayOneAndDelayLongerThanEveryBlockFollowAbsoluteStreamTime
+140/354 Test #140: dsp.DelayLine.DelayOneAndDelayLongerThanEveryBlockFollowAbsoluteStreamTime ........................................   Passed    0.07 sec
+        Start 141: dsp.DelayLine.OverflowAndQuotaFailuresPreserveThePreviousCursorAndSamples
+141/354 Test #141: dsp.DelayLine.OverflowAndQuotaFailuresPreserveThePreviousCursorAndSamples .........................................   Passed    0.04 sec
+        Start 142: dsp.DelayLine.SuccessfulPreparationExplicitlyResetsHistoryAndCanReleaseIt
+142/354 Test #142: dsp.DelayLine.SuccessfulPreparationExplicitlyResetsHistoryAndCanReleaseIt .........................................   Passed    0.04 sec
+        Start 143: dsp.DelayLine.CopiesOwnIndependentHistoryAndMovesPreserveTheStreamCursor
+143/354 Test #143: dsp.DelayLine.CopiesOwnIndependentHistoryAndMovesPreserveTheStreamCursor ..........................................   Passed    0.04 sec
+        Start 144: dsp.DelayLineOracle.ImpulsesRampsAndAlternationMatchEachSampleForAllDelayAndBlockBoundaries
+144/354 Test #144: dsp.DelayLineOracle.ImpulsesRampsAndAlternationMatchEachSampleForAllDelayAndBlockBoundaries .......................   Passed    0.07 sec
+        Start 145: dsp.DelayLineOracle.AbsoluteOutputIsInvariantUnderSingleSampleFixedAndVariablePartitions
+145/354 Test #145: dsp.DelayLineOracle.AbsoluteOutputIsInvariantUnderSingleSampleFixedAndVariablePartitions ..........................   Passed    0.32 sec
+        Start 146: dsp.DelayLineOracle.LongRunsOfEmptyNullBlocksNeverAdvanceAHistoryOrWriteDestination
+146/354 Test #146: dsp.DelayLineOracle.LongRunsOfEmptyNullBlocksNeverAdvanceAHistoryOrWriteDestination ...............................   Passed    0.04 sec
+        Start 147: dsp.DelayLineOracle.ExplicitReprepareResetsOnlyAfterSuccessEvenAtExactBudgetAndOverflowLimits
+147/354 Test #147: dsp.DelayLineOracle.ExplicitReprepareResetsOnlyAfterSuccessEvenAtExactBudgetAndOverflowLimits .....................   Passed    0.04 sec
+        Start 148: dsp.DelayTask.PositiveDelaysPersistAndRenderExactlyAcrossManyShortBlocks
+148/354 Test #148: dsp.DelayTask.PositiveDelaysPersistAndRenderExactlyAcrossManyShortBlocks ..........................................   Passed    0.05 sec
+        Start 149: dsp.DelayTask.ReferenceBlocksShareTheSameHistoryIncludingZeroFrameExecutions
+149/354 Test #149: dsp.DelayTask.ReferenceBlocksShareTheSameHistoryIncludingZeroFrameExecutions ......................................   Passed    0.05 sec
+        Start 150: dsp.DelayTask.InvalidNullIdenticalPartialAndOverflowingBindingsPreserveTheOldViewsAndHistory
+150/354 Test #150: dsp.DelayTask.InvalidNullIdenticalPartialAndOverflowingBindingsPreserveTheOldViewsAndHistory ......................   Passed    0.05 sec
+        Start 151: dsp.DelayTask.RejectedPreparationPreservesBothDeclaredDelayAndRunningHistory
+151/354 Test #151: dsp.DelayTask.RejectedPreparationPreservesBothDeclaredDelayAndRunningHistory ......................................   Passed    0.04 sec
+        Start 152: dsp.DelayTask.CopiesAndMovesOwnIndependentHistoryAndCanRebindTheirBorrowedViews
+152/354 Test #152: dsp.DelayTask.CopiesAndMovesOwnIndependentHistoryAndCanRebindTheirBorrowedViews ...................................   Passed    0.04 sec
+        Start 153: dsp.DelayTask.ZeroCapacityPermitsNullViewsButNoNonemptyCallbackCanUseThem
+153/354 Test #153: dsp.DelayTask.ZeroCapacityPermitsNullViewsButNoNonemptyCallbackCanUseThem .........................................   Passed    0.04 sec
+        Start 154: dsp.DelayTask.PlanCopiesRebindToIndependentPoolsAndWrapperMovesKeepStableInternalPointers
+154/354 Test #154: dsp.DelayTask.PlanCopiesRebindToIndependentPoolsAndWrapperMovesKeepStableInternalPointers .........................   Passed    0.05 sec
+        Start 155: dsp.DelayTask.ZeroRequestedDelayRemainsADirectPlanBindingWithoutTaskOrHistory
+155/354 Test #155: dsp.DelayTask.ZeroRequestedDelayRemainsADirectPlanBindingWithoutTaskOrHistory .....................................   Passed    0.04 sec
+        Start 156: dsp.DelayTaskOrder.ChainOneThreeAnd512HasStrictProducerDelayConsumerOrderAndExactPersistentRender
+156/354 Test #156: dsp.DelayTaskOrder.ChainOneThreeAnd512HasStrictProducerDelayConsumerOrderAndExactPersistentRender .................   Passed    0.05 sec
+        Start 157: dsp.DelayTaskOrder.DiamondCompensatesAuxiliaryAfterItsProducerAndLeavesTheLongestMainPathDirect
+157/354 Test #157: dsp.DelayTaskOrder.DiamondCompensatesAuxiliaryAfterItsProducerAndLeavesTheLongestMainPathDirect ...................   Passed    0.04 sec
+        Start 158: dsp.DelayTaskOrder.SharedOutHasDistinctOneThreeAnd512EdgeProductionsAndALateDirectReader
+158/354 Test #158: dsp.DelayTaskOrder.SharedOutHasDistinctOneThreeAnd512EdgeProductionsAndALateDirectReader ..........................   Passed    0.05 sec
+        Start 159: dsp.DelayTaskOrder.CandidateFailureLeavesActiveScheduleAndHistoryUntouched
+159/354 Test #159: dsp.DelayTaskOrder.CandidateFailureLeavesActiveScheduleAndHistoryUntouched ........................................   Passed    0.04 sec
+        Start 160: dsp.DelayTaskLiveness.RecycledAndUniquePoolsMatchAnIndependentSampleAndLastReaderOracle
+160/354 Test #160: dsp.DelayTaskLiveness.RecycledAndUniquePoolsMatchAnIndependentSampleAndLastReaderOracle ...........................   Passed    0.05 sec
+        Start 161: dsp.DelayTaskLiveness.RejectsPrematureReleaseSameOperationAliasAndMalformedDelayProductions
+161/354 Test #161: dsp.DelayTaskLiveness.RejectsPrematureReleaseSameOperationAliasAndMalformedDelayProductions .......................   Passed    0.04 sec
+        Start 162: dsp.DelayBindings.MainAuxiliaryAndOutputSuccessorStayBoundWhileHardwareBanksAndFrameCountsChange
+162/354 Test #162: dsp.DelayBindings.MainAuxiliaryAndOutputSuccessorStayBoundWhileHardwareBanksAndFrameCountsChange ..................   Passed    0.04 sec
+        Start 163: dsp.DelayBindings.ReadyGenerationOwnsDistinctCompensatedBuffersAndFailedCandidateCannotRebindActive
+163/354 Test #163: dsp.DelayBindings.ReadyGenerationOwnsDistinctCompensatedBuffersAndFailedCandidateCannotRebindActive ...............   Passed    0.04 sec
+        Start 164: dsp.DelayBindings.RejectedAndEmptyCallbacksDoNotAdvanceTheCompensationOrPluginHistories
+164/354 Test #164: dsp.DelayBindings.RejectedAndEmptyCallbacksDoNotAdvanceTheCompensationOrPluginHistories ...........................   Passed    0.08 sec
+        Start 165: dsp.DelayAudioPdc.P01P02P03StereoMonoPathsMatchEveryInternalAndPhysicalImpulseSample
+165/354 Test #165: dsp.DelayAudioPdc.P01P02P03StereoMonoPathsMatchEveryInternalAndPhysicalImpulseSample ..............................   Passed    0.12 sec
+        Start 166: dsp.DelayAudioPdc.FixedVariableAndNonRecyclingRendersAreIdenticalAcrossEveryCallbackPartition
+166/354 Test #166: dsp.DelayAudioPdc.FixedVariableAndNonRecyclingRendersAreIdenticalAcrossEveryCallbackPartition .....................   Passed    0.20 sec
+        Start 167: dsp.DelayAudioPdc.P04P05ThreeSamplesRenderTheExactTwoReferenceBlocksThroughACompiledPlan
+167/354 Test #167: dsp.DelayAudioPdc.P04P05ThreeSamplesRenderTheExactTwoReferenceBlocksThroughACompiledPlan ..........................   Passed    0.04 sec
+        Start 168: dsp.DelayAudioPdc.ErrorsPreserveAAndBoundaryPublicationStartsBWithItsOwnZeroFilledHistory
+168/354 Test #168: dsp.DelayAudioPdc.ErrorsPreserveAAndBoundaryPublicationStartsBWithItsOwnZeroFilledHistory .........................   Passed    0.04 sec
+        Start 169: dsp.DelayAudioPdc.ConcurrentAutomaticStereoCandidatesKeepSharedDSPAndPrivateHistoriesRaceFree
+169/354 Test #169: dsp.DelayAudioPdc.ConcurrentAutomaticStereoCandidatesKeepSharedDSPAndPrivateHistoriesRaceFree .....................   Passed    0.92 sec
+        Start 170: dsp.LatencyCapture.DeterministicOwnedTableUsesEachDeclarationOnceAndNeverInExec
+170/354 Test #170: dsp.LatencyCapture.DeterministicOwnedTableUsesEachDeclarationOnceAndNeverInExec ...................................   Passed    0.05 sec
+        Start 171: dsp.LatencyCapture.NewBorrowEpochCapturesChangedDeclarationWithoutEditingOldSnapshot
+171/354 Test #171: dsp.LatencyCapture.NewBorrowEpochCapturesChangedDeclarationWithoutEditingOldSnapshot ..............................   Passed    0.05 sec
+        Start 172: dsp.LatencyCapture.SharedActiveAndPendingReuseFrozenValueWithoutVirtualDSPAccess
+172/354 Test #172: dsp.LatencyCapture.SharedActiveAndPendingReuseFrozenValueWithoutVirtualDSPAccess ..................................   Passed    0.04 sec
+        Start 173: dsp.LatencyCapture.RateChangeWithSharedNodeFailsAndLeavesAExecutable
+173/354 Test #173: dsp.LatencyCapture.RateChangeWithSharedNodeFailsAndLeavesAExecutable ..............................................   Passed    0.05 sec
+        Start 174: dsp.LatencyCapture.UncertainUnpreparedSharingRefusesCaptureBeforeQueryingDSP
+174/354 Test #174: dsp.LatencyCapture.UncertainUnpreparedSharingRefusesCaptureBeforeQueryingDSP ......................................   Passed    0.04 sec
+        Start 175: dsp.LatencyCapture.InputOrderDoesNotChangeTableAndMalformedNodesAreRejected
+175/354 Test #175: dsp.LatencyCapture.InputOrderDoesNotChangeTableAndMalformedNodesAreRejected .......................................   Passed    0.04 sec
+        Start 176: dsp.LatencyCapture.ConcurrentCandidatePreparationNeverRequeriesAudioOwnedDSP
+176/354 Test #176: dsp.LatencyCapture.ConcurrentCandidatePreparationNeverRequeriesAudioOwnedDSP ......................................   Passed    0.14 sec
+        Start 177: dsp.PdcAnalysis.EmptyAndIndependentSourcesHaveZeroArrival
+177/354 Test #177: dsp.PdcAnalysis.EmptyAndIndependentSourcesHaveZeroArrival .........................................................   Passed    0.06 sec
+        Start 178: dsp.PdcAnalysis.ChainAccumulatesIntrinsicLatencyExactlyOnce
+178/354 Test #178: dsp.PdcAnalysis.ChainAccumulatesIntrinsicLatencyExactlyOnce .......................................................   Passed    0.06 sec
+        Start 179: dsp.PdcAnalysis.DiamondAndAuxiliaryTakeMaximumOfAllAudioPredecessors
+179/354 Test #179: dsp.PdcAnalysis.DiamondAndAuxiliaryTakeMaximumOfAllAudioPredecessors ..............................................   Passed    0.04 sec
+        Start 180: dsp.PdcAnalysis.IntrinsicUint32LimitsAccumulateInUint64
+180/354 Test #180: dsp.PdcAnalysis.IntrinsicUint32LimitsAccumulateInUint64 ...........................................................   Passed    0.05 sec
+        Start 181: dsp.PdcAnalysis.CheckedAdditionRejectsOverflowBeforeAdding
+181/354 Test #181: dsp.PdcAnalysis.CheckedAdditionRejectsOverflowBeforeAdding ........................................................   Passed    0.07 sec
+        Start 182: dsp.PdcAnalysis.InvalidSnapshotOrderAndAudioEndpointsReturnControlErrors
+182/354 Test #182: dsp.PdcAnalysis.InvalidSnapshotOrderAndAudioEndpointsReturnControlErrors ..........................................   Passed    0.10 sec
+        Start 183: dsp.PdcAnalysis.CompilationUsesOnlyMaterializedAudioPortsAndKeepsStructuralEdges
+183/354 Test #183: dsp.PdcAnalysis.CompilationUsesOnlyMaterializedAudioPortsAndKeepsStructuralEdges ..................................   Passed    0.06 sec
+        Start 184: dsp.PdcAnalysis.NodeStorageOrderDoesNotReplaceTopologicalOrder
+184/354 Test #184: dsp.PdcAnalysis.NodeStorageOrderDoesNotReplaceTopologicalOrder ....................................................   Passed    0.04 sec
+        Start 185: dsp.PdcEdges.ThreeAndEightProduceFiveAndZeroForExactMainAndAuxiliaryEdges
+185/354 Test #185: dsp.PdcEdges.ThreeAndEightProduceFiveAndZeroForExactMainAndAuxiliaryEdges .........................................   Passed    0.06 sec
+        Start 186: dsp.PdcEdges.ImpulsesAlignAcrossTwoFourFrameCallbacksAtTheLogicalJunction
+186/354 Test #186: dsp.PdcEdges.ImpulsesAlignAcrossTwoFourFrameCallbacksAtTheLogicalJunction .........................................   Passed    0.07 sec
+        Start 187: dsp.PdcEdges.ConsumerIntrinsicDelayIsCountedAndRenderedOnceAfterInputAlignment
+187/354 Test #187: dsp.PdcEdges.ConsumerIntrinsicDelayIsCountedAndRenderedOnceAfterInputAlignment ....................................   Passed    0.06 sec
+        Start 188: dsp.PdcEdges.ZeroCompensationUsesDirectPointersWithoutDelayOperationsOrHistory
+188/354 Test #188: dsp.PdcEdges.ZeroCompensationUsesDirectPointersWithoutDelayOperationsOrHistory ....................................   Passed    0.06 sec
+        Start 189: dsp.PdcEdges.SameOutputReceivesDifferentCompensationOnTwoExactFanoutConnections
+189/354 Test #189: dsp.PdcEdges.SameOutputReceivesDifferentCompensationOnTwoExactFanoutConnections ...................................   Passed    0.05 sec
+        Start 190: dsp.PdcEdges.LargeIntrinsicDifferenceStaysWideInExactEdgeTable
+190/354 Test #190: dsp.PdcEdges.LargeIntrinsicDifferenceStaysWideInExactEdgeTable ....................................................   Passed    0.05 sec
+        Start 191: dsp.PdcFanout.TenBranchHistoriesAndLateDirectReaderPreserveSharedSourceSampleExactly
+191/354 Test #191: dsp.PdcFanout.TenBranchHistoriesAndLateDirectReaderPreserveSharedSourceSampleExactly ..............................   Passed    0.06 sec
+        Start 192: dsp.PdcFanout.AuxiliaryThreeAlignsWithMainEightWhileIgnoredAndUnproducedPortsStaySilent
+192/354 Test #192: dsp.PdcFanout.AuxiliaryThreeAlignsWithMainEightWhileIgnoredAndUnproducedPortsStaySilent ...........................   Passed    0.05 sec
+        Start 193: dsp.PdcFanout.FourNodeDiamondCompensatesOnlyTheShortBranchWithoutImplicitMixNodes
+193/354 Test #193: dsp.PdcFanout.FourNodeDiamondCompensatesOnlyTheShortBranchWithoutImplicitMixNodes .................................   Passed    0.06 sec
+        Start 194: dsp.PdcOutputs.CommonLogicalJunctionAlignsThreeAndEightBeforeFreeRoutingToLanesTwoAndFive
+194/354 Test #194: dsp.PdcOutputs.CommonLogicalJunctionAlignsThreeAndEightBeforeFreeRoutingToLanesTwoAndFive .........................   Passed    0.05 sec
+        Start 195: dsp.PdcOutputs.IndependentMarkedNodesKeepTheirOwnPhysicalTimingsWithoutInventedAlignment
+195/354 Test #195: dsp.PdcOutputs.IndependentMarkedNodesKeepTheirOwnPhysicalTimingsWithoutInventedAlignment ..........................   Passed    0.08 sec
+        Start 196: dsp.PdcOutputs.MarkedRouterWithSuccessorKeepsLogicalSamplesSeparateFromArbitraryHardwareWrites
+196/354 Test #196: dsp.PdcOutputs.MarkedRouterWithSuccessorKeepsLogicalSamplesSeparateFromArbitraryHardwareWrites ....................   Passed    0.06 sec
+        Start 197: dsp.PdcOutputs.MultipleWritersKeepPerSampleLastWriterWinsAfterLogicalCompensation
+197/354 Test #197: dsp.PdcOutputs.MultipleWritersKeepPerSampleLastWriterWinsAfterLogicalCompensation .................................   Passed    0.07 sec
+        Start 198: dsp.PdcBudget.ZeroOneAnd256DelaysFitIndependentFrameAndHistoryCapacities
+198/354 Test #198: dsp.PdcBudget.ZeroOneAnd256DelaysFitIndependentFrameAndHistoryCapacities ..........................................   Passed    0.07 sec
+        Start 199: dsp.PdcBudget.ExactAggregateBudgetIncludesTablesTemporariesSilenceAndEveryHistory
+199/354 Test #199: dsp.PdcBudget.ExactAggregateBudgetIncludesTablesTemporariesSilenceAndEveryHistory .................................   Passed    0.05 sec
+        Start 200: dsp.PdcBudget.RejectedCandidatesPreserveActiveGenerationAndItsRunningHistory
+200/354 Test #200: dsp.PdcBudget.RejectedCandidatesPreserveActiveGenerationAndItsRunningHistory ......................................   Passed    0.05 sec
+        Start 201: dsp.PdcBudget.SampleQuotaAndPlatformSizeProductsAreCheckedWithoutAllocatingHugeHistories
+201/354 Test #201: dsp.PdcBudget.SampleQuotaAndPlatformSizeProductsAreCheckedWithoutAllocatingHugeHistories ..........................   Passed    0.05 sec
+        Start 202: dsp.PdcBudget.UnrepresentableExplicitHistoryIsRejectedBeforeReplacingPreparedAutomaticState
+202/354 Test #202: dsp.PdcBudget.UnrepresentableExplicitHistoryIsRejectedBeforeReplacingPreparedAutomaticState .......................   Passed    0.05 sec
+        Start 203: dsp.PdcOracle.EveryFourNodeDagInAllTwentyFourIdentityOrdersMatchesEveryNodeAndExactEdge
+203/354 Test #203: dsp.PdcOracle.EveryFourNodeDagInAllTwentyFourIdentityOrdersMatchesEveryNodeAndExactEdge ...........................   Passed    0.81 sec
+        Start 204: dsp.PdcOracle.FourWayJoinFanoutTwoLogicalOutputsIgnoredPortsAndIdentityGapsMatchReference
+204/354 Test #204: dsp.PdcOracle.FourWayJoinFanoutTwoLogicalOutputsIgnoredPortsAndIdentityGapsMatchReference .........................   Passed    0.04 sec
+        Start 205: dsp.PdcOracle.ZeroLatencyDiamondAndNonzeroLatencyChainAreIndependentOfContainerOrder
+205/354 Test #205: dsp.PdcOracle.ZeroLatencyDiamondAndNonzeroLatencyChainAreIndependentOfContainerOrder ..............................   Passed    0.05 sec
+        Start 206: dsp.PdcOracle.WideCumulativeTableAndRejectedHugeHistoryPreserveThePreviousGeneration
+206/354 Test #206: dsp.PdcOracle.WideCumulativeTableAndRejectedHugeHistoryPreserveThePreviousGeneration ..............................   Passed    0.05 sec
+        Start 207: dsp.PdcOracle.Uint64BoundaryResultsAndErrorsMatchIndependentKnownSums
+207/354 Test #207: dsp.PdcOracle.Uint64BoundaryResultsAndErrorsMatchIndependentKnownSums .............................................   Passed    0.04 sec
+        Start 208: dsp.PdcOracle.ConcurrentAutomaticCandidatesAndSwapsKeepTablesCoherentAndAudioBounded
+208/354 Test #208: dsp.PdcOracle.ConcurrentAutomaticCandidatesAndSwapsKeepTablesCoherentAndAudioBounded ..............................   Passed    0.33 sec
+        Start 209: dsp.NodePlanLifetime.RemovedNodeRemainsAliveForAnOldPlanAndDisappearsFromTheDesiredGraph
+209/354 Test #209: dsp.NodePlanLifetime.RemovedNodeRemainsAliveForAnOldPlanAndDisappearsFromTheDesiredGraph ..........................   Passed    0.04 sec
+        Start 210: dsp.NodePlanLifetime.ReleasingPlanAllowsExactlyOnePolymorphicDestruction
+210/354 Test #210: dsp.NodePlanLifetime.ReleasingPlanAllowsExactlyOnePolymorphicDestruction ..........................................   Passed    0.05 sec
+        Start 211: dsp.NodePlanLifetime.IndependentCompiledPlansEachKeepTheirBorrowUntilRetirement
+211/354 Test #211: dsp.NodePlanLifetime.IndependentCompiledPlansEachKeepTheirBorrowUntilRetirement ...................................   Passed    0.05 sec
+        Start 212: dsp.NodePlanLifetime.CopyAndMoveConstructionPreserveBorrowsAndEmptyMovedFromTasks
+212/354 Test #212: dsp.NodePlanLifetime.CopyAndMoveConstructionPreserveBorrowsAndEmptyMovedFromTasks .................................   Passed    0.04 sec
+        Start 213: dsp.NodePlanLifetime.CopyAssignmentReleasesOldBorrowAndRetainsTheNewOneIncludingSelfCopy
+213/354 Test #213: dsp.NodePlanLifetime.CopyAssignmentReleasesOldBorrowAndRetainsTheNewOneIncludingSelfCopy ..........................   Passed    0.06 sec
+        Start 214: dsp.NodePlanLifetime.MoveAssignmentReleasesOldBorrowAndSurvivesSelfMove
+214/354 Test #214: dsp.NodePlanLifetime.MoveAssignmentReleasesOldBorrowAndSurvivesSelfMove ...........................................   Passed    0.04 sec
+        Start 215: dsp.NodePlanLifetime.WorkerProcessBorrowsWithoutOwningOrDestroyingTheNode
+215/354 Test #215: dsp.NodePlanLifetime.WorkerProcessBorrowsWithoutOwningOrDestroyingTheNode .........................................   Passed    0.05 sec
+        Start 216: dsp.BackendRoles.MarkingRejectsMissingNodesAndIsIdempotent
+216/354 Test #216: dsp.BackendRoles.MarkingRejectsMissingNodesAndIsIdempotent ........................................................   Passed    0.04 sec
+        Start 217: dsp.BackendRoles.RemovingANodeClearsItsOutputMarkerBeforeTheNextCompilation
+217/354 Test #217: dsp.BackendRoles.RemovingANodeClearsItsOutputMarkerBeforeTheNextCompilation .......................................   Passed    0.08 sec
+        Start 218: dsp.BackendRoles.EmptyLayoutSourceAndOutputSeesAllSixPhysicalLanesDirectly
+218/354 Test #218: dsp.BackendRoles.EmptyLayoutSourceAndOutputSeesAllSixPhysicalLanesDirectly ........................................   Passed    0.05 sec
+        Start 219: dsp.BackendRoles.AnUnmarkedSourceCannotWriteTheBackend
+219/354 Test #219: dsp.BackendRoles.AnUnmarkedSourceCannotWriteTheBackend ............................................................   Passed    0.04 sec
+        Start 220: dsp.BackendRoles.MarkersAreSnapshottedWithoutChangingExistingPlans
+220/354 Test #220: dsp.BackendRoles.MarkersAreSnapshottedWithoutChangingExistingPlans ................................................   Passed    0.05 sec
+        Start 221: dsp.BackendRouting.MarkedNonSourceExecutesAfterItsProducerEvenWithLowerNodeID
+221/354 Test #221: dsp.BackendRouting.MarkedNonSourceExecutesAfterItsProducerEvenWithLowerNodeID .....................................   Passed    0.11 sec
+        Start 222: dsp.BackendRouting.MarkedSourceRetainsDistinctLogicalOutputsForItsSuccessor
+222/354 Test #222: dsp.BackendRouting.MarkedSourceRetainsDistinctLogicalOutputsForItsSuccessor .......................................   Passed    0.04 sec
+        Start 223: dsp.BackendRouting.SameLaneUsesTheLastEffectiveWriteWithoutMixingOrIntermediateClears
+223/354 Test #223: dsp.BackendRouting.SameLaneUsesTheLastEffectiveWriteWithoutMixingOrIntermediateClears .............................   Passed    0.04 sec
+        Start 224: dsp.BackendRouting.EmptyGraphStillClearsAllPhysicalOutputsForActualFramesOnly
+224/354 Test #224: dsp.BackendRouting.EmptyGraphStillClearsAllPhysicalOutputsForActualFramesOnly .....................................   Passed    0.04 sec
+        Start 225: dsp.BackendRouting.AnyIncomingAuxEdgePreventsSourceStatusEvenOutsideTheLayout
+225/354 Test #225: dsp.BackendRouting.AnyIncomingAuxEdgePreventsSourceStatusEvenOutsideTheLayout .....................................   Passed    0.05 sec
+        Start 226: dsp.BackendRouting.UnproducedLogicalChannelsReadSilenceInsteadOfPhysicalInputs
+226/354 Test #226: dsp.BackendRouting.UnproducedLogicalChannelsReadSilenceInsteadOfPhysicalInputs ....................................   Passed    0.04 sec
+        Start 227: dsp.BackendRouting.UnwrittenInternalOutputsAreResetForEachCallback
+227/354 Test #227: dsp.BackendRouting.UnwrittenInternalOutputsAreResetForEachCallback ................................................   Passed    0.04 sec
+        Start 228: dsp.BackendRouting.SparseLogicalIndicesBindByIdentityInsteadOfArrayPosition
+228/354 Test #228: dsp.BackendRouting.SparseLogicalIndicesBindByIdentityInsteadOfArrayPosition .......................................   Passed    0.04 sec
+        Start 229: dsp.BackendRouting.ConnectedAuxiliaryReceivesLogicalSamplesAndMakesANonSource
+229/354 Test #229: dsp.BackendRouting.ConnectedAuxiliaryReceivesLogicalSamplesAndMakesANonSource .....................................   Passed    0.04 sec
+        Start 230: dsp.BackendRouting.LogicalFanOutFeedsIndependentWritersWithoutReservingPhysicalLanes
+230/354 Test #230: dsp.BackendRouting.LogicalFanOutFeedsIndependentWritersWithoutReservingPhysicalLanes ..............................   Passed    0.04 sec
+        Start 231: dsp.BackendLifetime.EveryCallbackUsesItsCurrentAddressesAndChannelCounts
+231/354 Test #231: dsp.BackendLifetime.EveryCallbackUsesItsCurrentAddressesAndChannelCounts ..........................................   Passed    0.05 sec
+        Start 232: dsp.BackendLifetime.CopiesOwnIndependentLogicalStorageAndMovesTransferPreparation
+232/354 Test #232: dsp.BackendLifetime.CopiesOwnIndependentLogicalStorageAndMovesTransferPreparation .................................   Passed    0.04 sec
+        Start 233: dsp.BackendGuards.RejectedBlocksSilenceTheirKnownCapacityAndTheNextValidCallbackRecovers
+233/354 Test #233: dsp.BackendGuards.RejectedBlocksSilenceTheirKnownCapacityAndTheNextValidCallbackRecovers ..........................   Passed    0.04 sec
+        Start 234: dsp.BackendPreparation.StructuralPlansRejectBackendExecutionUntilPrepared
+234/354 Test #234: dsp.BackendPreparation.StructuralPlansRejectBackendExecutionUntilPrepared .........................................   Passed    0.05 sec
+        Start 235: dsp.BackendPreparation.ZeroMaximumFramesCallsTasksWithoutAccessingSamples
+235/354 Test #235: dsp.BackendPreparation.ZeroMaximumFramesCallsTasksWithoutAccessingSamples .........................................   Passed    0.04 sec
+        Start 236: dsp.BackendPreparation.SemanticFailuresPreservePreviouslyPreparedState
+236/354 Test #236: dsp.BackendPreparation.SemanticFailuresPreservePreviouslyPreparedState ............................................   Passed    0.08 sec
+        Start 237: dsp.BackendPreparation.UnencodableLegacyIndicesAreRejectedBeforeNarrowing
+237/354 Test #237: dsp.BackendPreparation.UnencodableLegacyIndicesAreRejectedBeforeNarrowing .........................................   Passed    0.07 sec
+        Start 238: dsp.BackendCallbackAdapter.DescriptorViewsUsePhysicalInputsAndBackendOutputsOnly
+238/354 Test #238: dsp.BackendCallbackAdapter.DescriptorViewsUsePhysicalInputsAndBackendOutputsOnly ..................................   Passed    0.04 sec
+        Start 239: dsp.DAGStorage.MixedTypesForwardArgumentsAndExposeBorrowedMutableAndConstLookups
+239/354 Test #239: dsp.DAGStorage.MixedTypesForwardArgumentsAndExposeBorrowedMutableAndConstLookups ..................................   Passed    0.04 sec
+        Start 240: dsp.DAGStorage.AbsentAndInvalidIdentitiesReturnNullFromBothOverloads
+240/354 Test #240: dsp.DAGStorage.AbsentAndInvalidIdentitiesReturnNullFromBothOverloads ..............................................   Passed    0.04 sec
+        Start 241: dsp.DAGStorage.GrowingAndReorderingOwnerStoragePreservesEveryLiveAddressAndOldTasks
+241/354 Test #241: dsp.DAGStorage.GrowingAndReorderingOwnerStoragePreservesEveryLiveAddressAndOldTasks ...............................   Passed    0.08 sec
+        Start 242: dsp.DAGStorage.RemovedIdentitiesAreNeverReusedEvenAfterCollection
+242/354 Test #242: dsp.DAGStorage.RemovedIdentitiesAreNeverReusedEvenAfterCollection .................................................   Passed    0.05 sec
+        Start 243: dsp.DAGStorage.QuotaRejectsBeforeConstructionAndDoesNotConsumeAnIdentity
+243/354 Test #243: dsp.DAGStorage.QuotaRejectsBeforeConstructionAndDoesNotConsumeAnIdentity ..........................................   Passed    0.04 sec
+        Start 244: dsp.DAGStorage.RetiredNodesCountAgainstQuotaUntilEveryPlanReleasesItsBorrowAndControlCollects
+244/354 Test #244: dsp.DAGStorage.RetiredNodesCountAgainstQuotaUntilEveryPlanReleasesItsBorrowAndControlCollects .....................   Passed    0.03 sec
+        Start 245: dsp.DAGStorage.ConstructorExceptionPreservesTheOldGraphPlanAndNextIdentity
+245/354 Test #245: dsp.DAGStorage.ConstructorExceptionPreservesTheOldGraphPlanAndNextIdentity ........................................   Passed    0.04 sec
+        Start 246: dsp.DAGStorage.ConstructorBadAllocReturnsAllocationFailureAndPreservesTheCandidate
+246/354 Test #246: dsp.DAGStorage.ConstructorBadAllocReturnsAllocationFailureAndPreservesTheCandidate ................................   Passed    0.05 sec
+        Start 247: dsp.DAGStorage.RejectsConstructorsThatIgnoreTheAssignedBaseIdentity
+247/354 Test #247: dsp.DAGStorage.RejectsConstructorsThatIgnoreTheAssignedBaseIdentity ...............................................   Passed    0.06 sec
+        Start 248: dsp.DAGIdentitySequence.ChecksTheActualUint32BoundaryBeforeNarrowingAndNeverWraps
+248/354 Test #248: dsp.DAGIdentitySequence.ChecksTheActualUint32BoundaryBeforeNarrowingAndNeverWraps .................................   Passed    0.05 sec
+        Start 249: dsp.DAGIdentitySequence.InvalidOrAlreadyExhaustedCursorsCannotYieldTruncatedIdentities
+249/354 Test #249: dsp.DAGIdentitySequence.InvalidOrAlreadyExhaustedCursorsCannotYieldTruncatedIdentities ............................   Passed    0.04 sec
+        Start 250: dsp.ConnectionValue.DefaultsToZeroAndCopiesCanBeEditedIndependently
+250/354 Test #250: dsp.ConnectionValue.DefaultsToZeroAndCopiesCanBeEditedIndependently ...............................................   Passed    0.04 sec
+        Start 251: dsp.ConnectionValue.EqualityUsesBothFullWidthIdentitiesRatherThanNodePairs
+251/354 Test #251: dsp.ConnectionValue.EqualityUsesBothFullWidthIdentitiesRatherThanNodePairs ........................................   Passed    0.04 sec
+        Start 252: dsp.ConnectionStorage.SameNodesKeepDistinctChannelsAndPortsInInsertionOrderOutsideLayouts
+252/354 Test #252: dsp.ConnectionStorage.SameNodesKeepDistinctChannelsAndPortsInInsertionOrderOutsideLayouts .........................   Passed    0.05 sec
+        Start 253: dsp.ConnectionStorage.ExactDuplicateRefusalPreservesTheStoredValueAndAllowsOtherChannels
+253/354 Test #253: dsp.ConnectionStorage.ExactDuplicateRefusalPreservesTheStoredValueAndAllowsOtherChannels ..........................   Passed    0.04 sec
+        Start 254: dsp.ConnectionStorage.FanOutSharesTheProducerButEveryDestinationHasOneOwner
+254/354 Test #254: dsp.ConnectionStorage.FanOutSharesTheProducerButEveryDestinationHasOneOwner .......................................   Passed    0.06 sec
+        Start 255: dsp.ConnectionStorage.OutputMarkersDoNotCreateHardwareEdgesAndZeroCannotNameABackendNode
+255/354 Test #255: dsp.ConnectionStorage.OutputMarkersDoNotCreateHardwareEdgesAndZeroCannotNameABackendNode ..........................   Passed    0.04 sec
+        Start 256: dsp.ConnectionStorage.NodeStorageGrowthAndUnrelatedRemovalDoNotChangeConnectionValues
+256/354 Test #256: dsp.ConnectionStorage.NodeStorageGrowthAndUnrelatedRemovalDoNotChangeConnectionValues .............................   Passed    0.04 sec
+        Start 257: dsp.ConnectionStorage.GrowingTheEdgeContainerPreservesEveryPairAndDetachedCopies
+257/354 Test #257: dsp.ConnectionStorage.GrowingTheEdgeContainerPreservesEveryPairAndDetachedCopies ..................................   Passed    0.07 sec
+        Start 258: dsp.ConnectionStorage.LegacyWideFieldsAreRejectedBeforeNarrowingOrCreatingAliasedEdges
+258/354 Test #258: dsp.ConnectionStorage.LegacyWideFieldsAreRejectedBeforeNarrowingOrCreatingAliasedEdges ............................   Passed    0.07 sec
+        Start 259: dsp.ConnectionStorage.DetachedValueRemainsUsableAfterItsGraphAndNodesAreDestroyed
+259/354 Test #259: dsp.ConnectionStorage.DetachedValueRemainsUsableAfterItsGraphAndNodesAreDestroyed .................................   Passed    0.05 sec
+        Start 260: dsp.ConnectionStorage.EditingDesiredEdgesPreservesThePreviouslyPreparedPlanSnapshot
+260/354 Test #260: dsp.ConnectionStorage.EditingDesiredEdgesPreservesThePreviouslyPreparedPlanSnapshot ...............................   Passed    0.05 sec
+        Start 261: dsp.ConnectContract.DestinationComesFirstAndInvertedArgumentsDoNotCreateAnEdge
+261/354 Test #261: dsp.ConnectContract.DestinationComesFirstAndInvertedArgumentsDoNotCreateAnEdge ....................................   Passed    0.05 sec
+        Start 262: dsp.ConnectTransaction.EverySemanticRefusalPreservesDesiredEdgesAddressesAndTheOldAudioPlan
+262/354 Test #262: dsp.ConnectTransaction.EverySemanticRefusalPreservesDesiredEdgesAddressesAndTheOldAudioPlan .......................   Passed    0.07 sec
+        Start 263: dsp.ConnectCycles.AuxAndUndeclaredChannelsParticipateInIndirectCyclesAndSelfLoops
+263/354 Test #263: dsp.ConnectCycles.AuxAndUndeclaredChannelsParticipateInIndirectCyclesAndSelfLoops .................................   Passed    0.05 sec
+        Start 264: dsp.ConnectErrors.PortThenDirectionThenExistenceThenDuplicateAndOccupancyHaveStablePriority
+264/354 Test #264: dsp.ConnectErrors.PortThenDirectionThenExistenceThenDuplicateAndOccupancyHaveStablePriority .......................   Passed    0.04 sec
+        Start 265: dsp.ConnectDecoding.UndefinedPortBitsAreNeverNormalizedToValidLowPortBits
+265/354 Test #265: dsp.ConnectDecoding.UndefinedPortBitsAreNeverNormalizedToValidLowPortBits .........................................   Passed    0.04 sec
+        Start 266: dsp.ConnectLegacyAdapter.UsesDestinationFirstAndSeparatesInvalidPortFromInvalidDirection
+266/354 Test #266: dsp.ConnectLegacyAdapter.UsesDestinationFirstAndSeparatesInvalidPortFromInvalidDirection ..........................   Passed    0.05 sec
+        Start 267: dsp.InputOccupancy.CompleteDestinationIdentityKeepsNodesPortsAndIndicesIndependent
+267/354 Test #267: dsp.InputOccupancy.CompleteDestinationIdentityKeepsNodesPortsAndIndicesIndependent ................................   Passed    0.04 sec
+        Start 268: dsp.InputOccupancy.ASecondProducerIsRejectedForInAndAuxWithoutChangingTheOldPlan
+268/354 Test #268: dsp.InputOccupancy.ASecondProducerIsRejectedForInAndAuxWithoutChangingTheOldPlan ..................................   Passed    0.04 sec
+        Start 269: dsp.InputOccupancy.ExactDuplicatePrecedesOccupancyButAnotherOutputOfTheSameNodeIsOccupied
+269/354 Test #269: dsp.InputOccupancy.ExactDuplicatePrecedesOccupancyButAnotherOutputOfTheSameNodeIsOccupied .........................   Passed    0.04 sec
+        Start 270: dsp.InputOccupancy.DisconnectFreesOnlyTheRemovedDestinationAndKeepsOtherOccupancy
+270/354 Test #270: dsp.InputOccupancy.DisconnectFreesOnlyTheRemovedDestinationAndKeepsOtherOccupancy .................................   Passed    0.04 sec
+        Start 271: dsp.InputOccupancy.RemovingProducersAndConsumersReleasesOnlyTheirIncidentDestinations
+271/354 Test #271: dsp.InputOccupancy.RemovingProducersAndConsumersReleasesOnlyTheirIncidentDestinations .............................   Passed    0.03 sec
+        Start 272: dsp.ExactDisconnect.RemovesOnlyTheNamedChannelAndAuxWhilePreservingOtherEdges
+272/354 Test #272: dsp.ExactDisconnect.RemovesOnlyTheNamedChannelAndAuxWhilePreservingOtherEdges .....................................   Passed    0.04 sec
+        Start 273: dsp.ExactDisconnect.AbsentPairIsSuccessfulFalseOnEmptyGraphWithLiveEndpoints
+273/354 Test #273: dsp.ExactDisconnect.AbsentPairIsSuccessfulFalseOnEmptyGraphWithLiveEndpoints ......................................   Passed    0.04 sec
+        Start 274: dsp.ExactDisconnect.MalformedDirectionsAndMissingNodesPreserveAllEdges
+274/354 Test #274: dsp.ExactDisconnect.MalformedDirectionsAndMissingNodesPreserveAllEdges ............................................   Passed    0.04 sec
+        Start 275: dsp.ExactDisconnect.ExistingPlanKeepsItsRoutingAfterAnExactRemoval
+275/354 Test #275: dsp.ExactDisconnect.ExistingPlanKeepsItsRoutingAfterAnExactRemoval ................................................   Passed    0.03 sec
+        Start 276: dsp.NodeRemoval.AbsentIdentityPreservesEdgesNodeAddressesOutputRolesAndOldPlan
+276/354 Test #276: dsp.NodeRemoval.AbsentIdentityPreservesEdgesNodeAddressesOutputRolesAndOldPlan ....................................   Passed    0.03 sec
+        Start 277: dsp.NodeRemoval.IsolatedUnborrowedNodeIsDestroyedImmediatelyOnceOnControl
+277/354 Test #277: dsp.NodeRemoval.IsolatedUnborrowedNodeIsDestroyedImmediatelyOnceOnControl .........................................   Passed    0.03 sec
+        Start 278: dsp.NodeRemoval.RemovesAllIncidentEdgesAndOutputMarkerButKeepsUnrelatedEdgesAndOldBindings
+278/354 Test #278: dsp.NodeRemoval.RemovesAllIncidentEdgesAndOutputMarkerButKeepsUnrelatedEdgesAndOldBindings ........................   Passed    0.04 sec
+        Start 279: dsp.NodeRemoval.FailedReplacementWhilePendingPreservesAllReferencingGenerations
+279/354 Test #279: dsp.NodeRemoval.FailedReplacementWhilePendingPreservesAllReferencingGenerations ...................................   Passed    0.03 sec
+        Start 280: dsp.NodeRemoval.CallbackAcknowledgmentDoesNotReleaseOtherGenerationsOrDestroyOnAudio
+280/354 Test #280: dsp.NodeRemoval.CallbackAcknowledgmentDoesNotReleaseOtherGenerationsOrDestroyOnAudio ..............................   Passed    0.04 sec
+        Start 281: dsp.OutputMarkers.InvalidAndRepeatedEditsPreserveAUniqueSortedControlCollection
+281/354 Test #281: dsp.OutputMarkers.InvalidAndRepeatedEditsPreserveAUniqueSortedControlCollection ...................................   Passed    0.03 sec
+        Start 282: dsp.OutputMarkers.RemovingANodeDropsItsMarkerWithoutCreatingHardwareEdges
+282/354 Test #282: dsp.OutputMarkers.RemovingANodeDropsItsMarkerWithoutCreatingHardwareEdges .........................................   Passed    0.03 sec
+        Start 283: dsp.OutputMarkers.MarkUnmarkAndRemarkCreateIndependentSnapshotsForASourceWithASuccessor
+283/354 Test #283: dsp.OutputMarkers.MarkUnmarkAndRemarkCreateIndependentSnapshotsForASourceWithASuccessor ...........................   Passed    0.04 sec
+        Start 284: dsp.OutputMarkers.UnmarkingANonSourceKeepsLogicalOutputsForItsSuccessor
+284/354 Test #284: dsp.OutputMarkers.UnmarkingANonSourceKeepsLogicalOutputsForItsSuccessor ...........................................   Passed    0.03 sec
+        Start 285: dsp.OutputMarkers.StableWritersUseCurrentBackendAddressesAndLastEffectiveSampleWins
+285/354 Test #285: dsp.OutputMarkers.StableWritersUseCurrentBackendAddressesAndLastEffectiveSampleWins ...............................   Passed    0.05 sec
+        Start 286: dsp.EditableDAGIntegration.SourceGainMixOutputEditsPreserveExactDesiredStateWithoutAudio
+286/354 Test #286: dsp.EditableDAGIntegration.SourceGainMixOutputEditsPreserveExactDesiredStateWithoutAudio ..........................   Passed    0.04 sec
+        Start 287: dsp.CycleReachability.OneTwoAndFourNodeCyclesLeaveEdgesMarkersAndBorrowedTasksUnchanged
+287/354 Test #287: dsp.CycleReachability.OneTwoAndFourNodeCyclesLeaveEdgesMarkersAndBorrowedTasksUnchanged ...........................   Passed    0.05 sec
+        Start 288: dsp.CycleReachability.DiamondFanOutAndParallelLogicalEdgesRemainLegal
+288/354 Test #288: dsp.CycleReachability.DiamondFanOutAndParallelLogicalEdgesRemainLegal .............................................   Passed    0.04 sec
+        Start 289: dsp.CycleReachability.UndeclaredAuxiliaryEdgesCountAndDisconnectRemovesTheirReachability
+289/354 Test #289: dsp.CycleReachability.UndeclaredAuxiliaryEdgesCountAndDisconnectRemovesTheirReachability ..........................   Passed    0.03 sec
+        Start 290: dsp.CycleReachability.LongChainUsesNoRecursionAndHandlesGapsAndAnIsolatedNode
+290/354 Test #290: dsp.CycleReachability.LongChainUsesNoRecursionAndHandlesGapsAndAnIsolatedNode .....................................   Passed    0.50 sec
+        Start 291: dsp.CycleReachability.SampledFourNodeReachabilityMatchesIndependentTransitiveClosure
+291/354 Test #291: dsp.CycleReachability.SampledFourNodeReachabilityMatchesIndependentTransitiveClosure ..............................   Passed    0.04 sec
+        Start 292: dsp.UndeclaredChannels.EmptyAndSparseLayoutsAllowOutInAndAuxAtZeroAnd65535
+292/354 Test #292: dsp.UndeclaredChannels.EmptyAndSparseLayoutsAllowOutInAndAuxAtZeroAnd65535 ........................................   Passed    0.04 sec
+        Start 293: dsp.UndeclaredChannels.ConfigReplacementPreservesIdentityAddressEdgesAndOutputMarkers
+293/354 Test #293: dsp.UndeclaredChannels.ConfigReplacementPreservesIdentityAddressEdgesAndOutputMarkers .............................   Passed    0.04 sec
+        Start 294: dsp.UndeclaredChannels.EveryPlanBorrowProtectsTheConfigAndExistingPreparedRouting
+294/354 Test #294: dsp.UndeclaredChannels.EveryPlanBorrowProtectsTheConfigAndExistingPreparedRouting .................................   Passed    0.04 sec
+        Start 295: dsp.UndeclaredChannels.InvalidConfigOrMissingIdentityLeavesConfigAndStructureUnchanged
+295/354 Test #295: dsp.UndeclaredChannels.InvalidConfigOrMissingIdentityLeavesConfigAndStructureUnchanged ............................   Passed    0.04 sec
+        Start 296: dsp.UndeclaredChannels.UndeclaredIndicesStillObeyPortsOccupancyAndAcyclicity
+296/354 Test #296: dsp.UndeclaredChannels.UndeclaredIndicesStillObeyPortsOccupancyAndAcyclicity ......................................   Passed    0.04 sec
+        Start 297: dsp.StableTopologicalOrder.EmptyAndIsolatedNodesOccurExactlyOnceIncludingIdentityGaps
+297/354 Test #297: dsp.StableTopologicalOrder.EmptyAndIsolatedNodesOccurExactlyOnceIncludingIdentityGaps .............................   Passed    0.03 sec
+        Start 298: dsp.StableTopologicalOrder.NewlyAvailableSmallerIdentityPrecedesAnOlderReadyNodeAndDecidesLastWriter
+298/354 Test #298: dsp.StableTopologicalOrder.NewlyAvailableSmallerIdentityPrecedesAnOlderReadyNodeAndDecidesLastWriter ..............   Passed    0.03 sec
+        Start 299: dsp.StableTopologicalOrder.DiamondFanOutAndParallelInAuxEdgesIgnoreConnectionInsertionOrder
+299/354 Test #299: dsp.StableTopologicalOrder.DiamondFanOutAndParallelInAuxEdgesIgnoreConnectionInsertionOrder .......................   Passed    0.04 sec
+        Start 300: dsp.StableTopologicalOrder.NonContiguousSnapshotIdentitiesAreIndependentOfNodeContainerOrder
+300/354 Test #300: dsp.StableTopologicalOrder.NonContiguousSnapshotIdentitiesAreIndependentOfNodeContainerOrder ......................   Passed    0.04 sec
+        Start 301: dsp.StableTopologicalOrder.CyclicSnapshotFixturesFailWithoutMutatingTheirOwnedValues
+301/354 Test #301: dsp.StableTopologicalOrder.CyclicSnapshotFixturesFailWithoutMutatingTheirOwnedValues ..............................   Passed    0.03 sec
+        Start 302: dsp.StableTopologicalOrder.InvalidSnapshotFieldsReturnStructuredErrorsRatherThanPartialOrders
+302/354 Test #302: dsp.StableTopologicalOrder.InvalidSnapshotFieldsReturnStructuredErrorsRatherThanPartialOrders .....................   Passed    0.04 sec
+        Start 303: dsp.FourNodeOracle.AllAcyclicMasksAndCandidateRelationsMatchIndependentClosureAndOccupancy
+303/354 Test #303: dsp.FourNodeOracle.AllAcyclicMasksAndCandidateRelationsMatchIndependentClosureAndOccupancy ........................   Passed    0.81 sec
+        Start 304: dsp.ExhaustiveDAGOracles.EveryStructuralChannelPartitionAndOrderMatchesIndependentModels
+304/354 Test #304: dsp.ExhaustiveDAGOracles.EveryStructuralChannelPartitionAndOrderMatchesIndependentModels ..........................   Passed    5.26 sec
+        Start 305: dsp.ExhaustiveDAGOracles.AllOfficialDirectionsMalformedPortsAndMissingNodesPreserveRefusedState
+305/354 Test #305: dsp.ExhaustiveDAGOracles.AllOfficialDirectionsMalformedPortsAndMissingNodesPreserveRefusedState ...................   Passed    1.91 sec
+        Start 306: dsp.StructuredErrors.EveryCanonicalFamilyRoundTripsThroughTheSharedExpectedValue
+306/354 Test #306: dsp.StructuredErrors.EveryCanonicalFamilyRoundTripsThroughTheSharedExpectedValue ..................................   Passed    0.04 sec
+        Start 307: dsp.StructuredErrors.ConnectionPortDirectionAndMissingEndpointKeepTheFullOffendingChannel
+307/354 Test #307: dsp.StructuredErrors.ConnectionPortDirectionAndMissingEndpointKeepTheFullOffendingChannel .........................   Passed    0.04 sec
+        Start 308: dsp.StructuredErrors.DuplicateOccupationAndCycleIdentifyTheDestinationWithoutMutation
+308/354 Test #308: dsp.StructuredErrors.DuplicateOccupationAndCycleIdentifyTheDestinationWithoutMutation .............................   Passed    0.03 sec
+        Start 309: dsp.StructuredErrors.NodeOperationsCarryIdentityAndConfigErrorsPreserveTheOwnedSnapshot
+309/354 Test #309: dsp.StructuredErrors.NodeOperationsCarryIdentityAndConfigErrorsPreserveTheOwnedSnapshot ...........................   Passed    0.03 sec
+        Start 310: dsp.StructuredErrors.ConstructionAndQuotaFailuresKeepTheAttemptedIdentityWithoutConsumingIt
+310/354 Test #310: dsp.StructuredErrors.ConstructionAndQuotaFailuresKeepTheAttemptedIdentityWithoutConsumingIt .......................   Passed    0.03 sec
+        Start 311: dsp.StructuredErrors.PreparationErrorsCarryLinkOrMarkerContextAndPreserveTheOldPreparedState
+311/354 Test #311: dsp.StructuredErrors.PreparationErrorsCarryLinkOrMarkerContextAndPreserveTheOldPreparedState ......................   Passed    0.04 sec
+        Start 312: dsp.StructuredErrors.NullLogicalSamplesKeepTheChannelWhilePhysicalViewsKeepZeroContext
+312/354 Test #312: dsp.StructuredErrors.NullLogicalSamplesKeepTheChannelWhilePhysicalViewsKeepZeroContext ............................   Passed    0.03 sec
+        Start 313: dsp.StructuralCompilation.DefaultAndEmptyTargetsHaveNoAudioOrTasks
+313/354 Test #313: dsp.StructuralCompilation.DefaultAndEmptyTargetsHaveNoAudioOrTasks ................................................   Passed    0.05 sec
+        Start 314: dsp.StructuralCompilation.IsolatesIncludeIdentityGapsAndIndependentOutputMembership
+314/354 Test #314: dsp.StructuralCompilation.IsolatesIncludeIdentityGapsAndIndependentOutputMembership ...............................   Passed    0.03 sec
+        Start 315: dsp.StructuralCompilation.UndeclaredAuxiliaryDependenciesUseGlobalPriorityAndIndependentRoles
+315/354 Test #315: dsp.StructuralCompilation.UndeclaredAuxiliaryDependenciesUseGlobalPriorityAndIndependentRoles .....................   Passed    0.05 sec
+        Start 316: dsp.StructuralCompilation.DiamondAndParallelLogicalEdgesYieldOneTaskPerNode
+316/354 Test #316: dsp.StructuralCompilation.DiamondAndParallelLogicalEdgesYieldOneTaskPerNode .......................................   Passed    0.03 sec
+        Start 317: dsp.StructuralCompilation.DetachedOwnerOrderDoesNotAffectRanksOrRoleIndexes
+317/354 Test #317: dsp.StructuralCompilation.DetachedOwnerOrderDoesNotAffectRanksOrRoleIndexes .......................................   Passed    0.05 sec
+        Start 318: dsp.StructuralCompilation.InvalidDetachedSnapshotsPreservePreparedTargetAndAllExistingBorrows
+318/354 Test #318: dsp.StructuralCompilation.InvalidDetachedSnapshotsPreservePreparedTargetAndAllExistingBorrows .....................   Passed    0.03 sec
+        Start 319: dsp.StructuralCompilation.InvalidOwnersAndIntrinsicConfigDoNotAcquirePartialBorrows
+319/354 Test #319: dsp.StructuralCompilation.InvalidOwnersAndIntrinsicConfigDoNotAcquirePartialBorrows ...............................   Passed    0.04 sec
+        Start 320: dsp.StructuralCompilation.CapacityBudgetAndCheckedArithmeticRejectBeforeReplacingTheTarget
+320/354 Test #320: dsp.StructuralCompilation.CapacityBudgetAndCheckedArithmeticRejectBeforeReplacingTheTarget ........................   Passed    0.03 sec
+        Start 321: dsp.StructuralCompilation.ReplacingTheCandidateKeepsTheSeparatePreparedGenerationIntact
+321/354 Test #321: dsp.StructuralCompilation.ReplacingTheCandidateKeepsTheSeparatePreparedGenerationIntact ...........................   Passed    0.03 sec
+        Start 322: dsp.StructuralCompilation.CopyMoveAndLegacyPreparationKeepMetadataIndexesConsistent
+322/354 Test #322: dsp.StructuralCompilation.CopyMoveAndLegacyPreparationKeepMetadataIndexesConsistent ...............................   Passed    0.03 sec
+        Start 323: dsp.ExecutionTasks.StableOwnedContextsAreProcessedExactlyOnceEvenForZeroFrames
+323/354 Test #323: dsp.ExecutionTasks.StableOwnedContextsAreProcessedExactlyOnceEvenForZeroFrames ....................................   Passed    0.04 sec
+        Start 324: dsp.ExecutionTasks.CopyAndMoveKeepInternalContextsBoundToTheirOwnDescriptors
+324/354 Test #324: dsp.ExecutionTasks.CopyAndMoveKeepInternalContextsBoundToTheirOwnDescriptors ......................................   Passed    0.04 sec
+        Start 325: dsp.ExecutionTasks.RemovedNodesSurviveEveryBorrowingGenerationUntilControlRetirement
+325/354 Test #325: dsp.ExecutionTasks.RemovedNodesSurviveEveryBorrowingGenerationUntilControlRetirement ..............................   Passed    0.05 sec
+        Start 326: dsp.PreparedPlan.CanonicalCallbacksKeepStableTasksDescriptorsAndInternalSamples
+326/354 Test #326: dsp.PreparedPlan.CanonicalCallbacksKeepStableTasksDescriptorsAndInternalSamples ...................................   Passed    0.04 sec
+        Start 327: dsp.PreparedPlan.ReferencesAreGenerationMembershipRatherThanDesiredGraphMembership
+327/354 Test #327: dsp.PreparedPlan.ReferencesAreGenerationMembershipRatherThanDesiredGraphMembership ................................   Passed    0.04 sec
+        Start 328: dsp.PreparedPlan.FailedAudioBudgetPreservesOldBuffersContextsAndExecutableGeneration
+328/354 Test #328: dsp.PreparedPlan.FailedAudioBudgetPreservesOldBuffersContextsAndExecutableGeneration ..............................   Passed    0.03 sec
+        Start 329: dsp.SilenceInputs.UndeclaredDependenciesBindEveryUnconnectedDeclaredInAndAuxToOneConstSlot
+329/354 Test #329: dsp.SilenceInputs.UndeclaredDependenciesBindEveryUnconnectedDeclaredInAndAuxToOneConstSlot ........................   Passed    0.03 sec
+        Start 330: dsp.SilenceInputs.EmptyGraphWithNoSourceSilencesOnlyTheRequestedPhysicalSamples
+330/354 Test #330: dsp.SilenceInputs.EmptyGraphWithNoSourceSilencesOnlyTheRequestedPhysicalSamples ...................................   Passed    0.06 sec
+        Start 331: dsp.SilenceInputs.ZeroCapacityAndEmptyLayoutsExecuteZeroFramesWithoutSampleAccess
+331/354 Test #331: dsp.SilenceInputs.ZeroCapacityAndEmptyLayoutsExecuteZeroFramesWithoutSampleAccess .................................   Passed    0.04 sec
+        Start 332: dsp.InternalBindings.FanOutAndAuxiliaryShareOnlyTheIntendedProducerStorage
+332/354 Test #332: dsp.InternalBindings.FanOutAndAuxiliaryShareOnlyTheIntendedProducerStorage ........................................   Passed    0.05 sec
+        Start 333: dsp.InternalBindings.DesiredGraphRewiringNeverChangesAnAlreadyPreparedBinding
+333/354 Test #333: dsp.InternalBindings.DesiredGraphRewiringNeverChangesAnAlreadyPreparedBinding .....................................   Passed    0.04 sec
+        Start 334: dsp.InternalBindings.DuplicateAndOccupiedDestinationsAreDistinctAndPreserveTheTarget
+334/354 Test #334: dsp.InternalBindings.DuplicateAndOccupiedDestinationsAreDistinctAndPreserveTheTarget ..............................   Passed    0.07 sec
+        Start 335: dsp.RealtimeExecution.CanonicalCallbacksFollowCompiledOrderAndPerSampleLastWriterWins
+335/354 Test #335: dsp.RealtimeExecution.CanonicalCallbacksFollowCompiledOrderAndPerSampleLastWriterWins .............................   Passed    0.03 sec
+        Start 336: dsp.RealtimeExecution.InvalidShapesSilenceOnlyAnnouncedWritableSamplesAndRunNoTask
+336/354 Test #336: dsp.RealtimeExecution.InvalidShapesSilenceOnlyAnnouncedWritableSamplesAndRunNoTask ................................   Passed    0.04 sec
+        Start 337: dsp.RealtimeExecution.UnpreparedPlansRejectWithBoundedSilenceAndDiagnostic
+337/354 Test #337: dsp.RealtimeExecution.UnpreparedPlansRejectWithBoundedSilenceAndDiagnostic ........................................   Passed    0.03 sec
+        Start 338: dsp.RealtimeExecution.DiagnosticCopiesMovesAndPreparationAreGenerationLocal
+338/354 Test #338: dsp.RealtimeExecution.DiagnosticCopiesMovesAndPreparationAreGenerationLocal .......................................   Passed    0.03 sec
+        Start 339: dsp.RealtimeExecution.ControlCanDrainAtomicDiagnosticsDuringRejectedAudioCallbacks
+339/354 Test #339: dsp.RealtimeExecution.ControlCanDrainAtomicDiagnosticsDuringRejectedAudioCallbacks ................................   Passed    0.04 sec
+        Start 340: dsp.LogicalOutputClearing.ReusedMultiOutputStorageHasZerosInEveryUnwrittenSampleAcrossCallbacks
+340/354 Test #340: dsp.LogicalOutputClearing.ReusedMultiOutputStorageHasZerosInEveryUnwrittenSampleAcrossCallbacks ...................   Passed    0.04 sec
+        Start 341: dsp.LogicalOutputClearing.NonSourceOutputsAreClearedWithoutDestroyingStillLivePredecessorFanOut
+341/354 Test #341: dsp.LogicalOutputClearing.NonSourceOutputsAreClearedWithoutDestroyingStillLivePredecessorFanOut ...................   Passed    0.03 sec
+        Start 342: dsp.OfflinePipeline.OneStructuralCompilationRendersStereoAcrossPreparedShapesAndFreshBackendBuffers
+342/354 Test #342: dsp.OfflinePipeline.OneStructuralCompilationRendersStereoAcrossPreparedShapesAndFreshBackendBuffers ...............   Passed    0.03 sec
+        Start 343: dsp.OfflinePipeline.CapacityFailureIsBoundedAndZeroFrameNullBuffersThenValidAudioRecover
+343/354 Test #343: dsp.OfflinePipeline.CapacityFailureIsBoundedAndZeroFrameNullBuffersThenValidAudioRecover ..........................   Passed    0.04 sec
+        Start 344: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/InToIn
+344/354 Test #344: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/InToIn ...........................   Passed    0.03 sec
+        Start 345: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/InToOut
+345/354 Test #345: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/InToOut ..........................   Passed    0.04 sec
+        Start 346: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/InToAux
+346/354 Test #346: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/InToAux ..........................   Passed    0.04 sec
+        Start 347: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/OutToIn
+347/354 Test #347: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/OutToIn ..........................   Passed    0.03 sec
+        Start 348: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/OutToOut
+348/354 Test #348: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/OutToOut .........................   Passed    0.06 sec
+        Start 349: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/OutToAux
+349/354 Test #349: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/OutToAux .........................   Passed    0.03 sec
+        Start 350: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/AuxToIn
+350/354 Test #350: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/AuxToIn ..........................   Passed    0.08 sec
+        Start 351: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/AuxToOut
+351/354 Test #351: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/AuxToOut .........................   Passed    0.07 sec
+        Start 352: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/AuxToAux
+352/354 Test #352: dsp.OfficialPairs/PortDirectionMatrix.AcceptsOnlyOutToInOrAuxWithoutPhantomEdges/AuxToAux .........................   Passed    0.05 sec
+        Start 353: dsp.FixedSeeds/ReproducibleDAGMutations.TenThousandOperationsMatchIndependentStateAndRetirementModel/3237998146
+353/354 Test #353: dsp.FixedSeeds/ReproducibleDAGMutations.TenThousandOperationsMatchIndependentStateAndRetirementModel/3237998146 ...   Passed    0.56 sec
+        Start 354: dsp.FixedSeeds/ReproducibleDAGMutations.TenThousandOperationsMatchIndependentStateAndRetirementModel/1592594996
+354/354 Test #354: dsp.FixedSeeds/ReproducibleDAGMutations.TenThousandOperationsMatchIndependentStateAndRetirementModel/1592594996 ...   Passed    0.61 sec
+
+100% tests passed, 0 tests failed out of 354
+
+Total Test time (real) =  45.65 sec

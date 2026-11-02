@@ -1,0 +1,13 @@
+Running main() from /workspace/.mka-build/s01-01/_deps/googletest-src/googletest/src/gtest_main.cc
+Note: Google Test filter = V1Stress.TenThousandLatencyEditsPublicationsAndRetirementsAcrossTwoThreads
+[==========] Running 1 test from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 1 test from V1Stress
+[ RUN      ] V1Stress.TenThousandLatencyEditsPublicationsAndRetirementsAcrossTwoThreads
+seed=0x10CAFE42 cycles=10000 callbacks=20000 generation=10001 created=12006 destroyed=12006
+[       OK ] V1Stress.TenThousandLatencyEditsPublicationsAndRetirementsAcrossTwoThreads (3943 ms)
+[----------] 1 test from V1Stress (3943 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test suite ran. (3943 ms total)
+[  PASSED  ] 1 test.

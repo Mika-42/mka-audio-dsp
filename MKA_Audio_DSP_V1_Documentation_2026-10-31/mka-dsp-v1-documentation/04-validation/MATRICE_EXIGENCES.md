@@ -59,6 +59,7 @@ Référence active : TESTS.md, API C++26 des modules et docs/API_V1.md. Les test
 | RT-01 | Zéro heap/libération/mutex dans callback | [S10-05](https://trello.com/c/YFAio1Qb) | `ExecutionPlan::exec`, `PlanSwitcher::exec` | `dsp.rt.DelayAudioPdcRealtime.CompleteStereoP01P02P03PlansUseNoHeapDeletesOrMutexes` |
 | RT-02 | Diagnostics numériques, silence borné, drain contrôle | [S10-03](https://trello.com/c/Lf8jjQ8g) | `takeCallbackDiagnostics`, `formatError` | `dsp.ControlDiagnostics.SwitcherFlagsSurviveRetirementAndDrainWithoutCallbackFormatting` |
 | RT-03 | Temps et mémoire observés, probes C/C++/attente/log directs | [S10-05](https://trello.com/c/YFAio1Qb) | `mka-v1-benchmark`, `validate-benchmark.py` | 120 scénarios/12000 durées dans docs/sprint-10/performance ; validation exécutable `python3 tools/validate-benchmark.py docs/sprint-10/performance` |
+| RT-04 | Recette stéréo, PDC, LWW, swap et refus ; zéro heap/libération/mutex/attente/log/exception directs | [S10-07](https://trello.com/c/8LB6Wm1X) | `PlanSwitcher::exec`, `ExecutionPlan::operationSchedule` | `dsp.V1Acceptance.StereoGainDelayMixHeadphonesSpeakersLastWriterAndSilenceMatchEveryImpulseSample`<br>`dsp.V1Acceptance.BoundarySwapAndPendingEditsPreserveAudibleAAndKeepNewHistoryPrivate`<br>`dsp.rt.V1AcceptanceRealtime.CompleteRoutingPDCAndFailedCandidateRemainHeapAndMutexFree` ; [rapport final](../../../docs/sprint-10/validation/REPORT.md) |
 
 ## Procédures, résultats et exclusions
 

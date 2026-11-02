@@ -12,7 +12,10 @@
 #include <thread>
 #include <vector>
 #ifdef MKA_WRAP_PTHREAD_MUTEX
+#include <cstdio>
+#include <fcntl.h>
 #include <pthread.h>
+#include <unistd.h>
 #endif
 
 #include <gtest/gtest.h>
@@ -32,6 +35,7 @@ import mka.audio.dsp.plan_switcher;
 #include "plan_switcher_stress.hpp"
 #include "pdc_render_fixture.hpp"
 #include "delay_audio_fixture.hpp"
+#include "v1_fixture.hpp"
 
 namespace {
     // Constant-initialized thread-local counters avoid allocation in the probe.
@@ -39,6 +43,9 @@ namespace {
     thread_local std::size_t allocations = 0;
     thread_local std::size_t deallocations = 0;
     thread_local std::size_t mutexAttempts = 0;
+    thread_local std::size_t waitAttempts = 0;
+    thread_local std::size_t logAttempts = 0;
+    thread_local std::size_t exceptionAttempts = 0;
     thread_local bool failing = false;
     thread_local std::size_t allocationsBeforeFailure = 0;
     thread_local unsigned injectedFailures = 0;
@@ -81,6 +88,7 @@ namespace {
             allocations = 0;
             deallocations = 0;
             mutexAttempts = 0;
+            waitAttempts = logAttempts = exceptionAttempts = 0;
             measuring = true;
         }
         ~AllocationWindow() { measuring = false; }
@@ -111,6 +119,31 @@ extern "C" int __wrap_pthread_mutex_trylock(pthread_mutex_t* mutex) {
 extern "C" int __wrap_pthread_mutex_timedlock(pthread_mutex_t* mutex,const struct timespec* until) {
     if (measuring) ++mutexAttempts;
     return __real_pthread_mutex_timedlock(mutex,until);
+}
+extern "C" int __real_pthread_cond_wait(pthread_cond_t*,pthread_mutex_t*);
+extern "C" int __wrap_pthread_cond_wait(pthread_cond_t* condition,pthread_mutex_t* mutex) {
+    if (measuring) ++waitAttempts;
+    return __real_pthread_cond_wait(condition,mutex);
+}
+extern "C" int __real_nanosleep(const timespec*,timespec*);
+extern "C" int __wrap_nanosleep(const timespec* requested,timespec* remaining) {
+    if (measuring) ++waitAttempts;
+    return __real_nanosleep(requested,remaining);
+}
+extern "C" ssize_t __real_write(int,const void*,std::size_t);
+extern "C" ssize_t __wrap_write(int fd,const void* bytes,std::size_t count) {
+    if (measuring) ++logAttempts;
+    return __real_write(fd,bytes,count);
+}
+extern "C" std::size_t __real_fwrite(const void*,std::size_t,std::size_t,FILE*);
+extern "C" std::size_t __wrap_fwrite(const void* bytes,std::size_t size,std::size_t count,FILE* stream) {
+    if (measuring) ++logAttempts;
+    return __real_fwrite(bytes,size,count,stream);
+}
+extern "C" [[noreturn]] void __real___cxa_throw(void*,void*,void (*)(void*));
+extern "C" [[noreturn]] void __wrap___cxa_throw(void* exception,void* type,void (*destroy)(void*)) {
+    if (measuring) ++exceptionAttempts;
+    __real___cxa_throw(exception,type,destroy);
 }
 #endif
 
@@ -1481,5 +1514,55 @@ namespace {
         }
         EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
         EXPECT_EQ(out,(std::array<float,4>{0,0,0,0})); EXPECT_EQ(sw.takeCallbackDiagnostics(),64U);
+    }
+}
+
+namespace {
+#ifdef MKA_WRAP_PTHREAD_MUTEX
+    TEST(RealtimeForbiddenOperationsProbe, DetectsExplicitWaitLogAndException) {
+        const int fd=::open("/dev/null",O_WRONLY); ASSERT_GE(fd,0);
+        const timespec zero{}; int slept=-1; ssize_t written=-1;
+        struct ProbeException {};
+        bool caught=false;
+        try {
+            const AllocationWindow measured;
+            slept=::nanosleep(&zero,nullptr);
+            written=::write(fd,"x",1);
+            throw ProbeException{};
+        } catch (const ProbeException&) { caught=true; }
+        EXPECT_EQ(::close(fd),0);EXPECT_EQ(slept,0);EXPECT_EQ(written,1);
+        EXPECT_TRUE(caught);EXPECT_EQ(waitAttempts,1U);EXPECT_EQ(logAttempts,1U);EXPECT_EQ(exceptionAttempts,1U);
+    }
+#endif
+
+    TEST(V1AcceptanceRealtime, CompleteRoutingPDCAndFailedCandidateRemainHeapAndMutexFree) {
+        using namespace mka::audio::dsp;
+        for(unsigned delay : {0U,64U,256U,512U}) for(unsigned outputs : {2U,6U}) {
+            v1_test::Graph g;ASSERT_TRUE(g.make(delay));PlanSwitcher sw;
+            const BackendConfig cfg{.maxFrames=128,.inputChannels=2,.outputChannels=outputs,.sampleRate=48000};
+            ASSERT_TRUE(sw.initialize(g.dag,cfg));v1_test::Bank bank;
+            constexpr std::array<FrameCount,4> sizes{0,1,7,128};std::uint64_t n=0;
+            for(unsigned block=0;block<64;++block) {
+                const auto frames=sizes[block%4];bank.fill(frames);
+                if(block==20) {
+                    Result rejected;
+                    { const FailureWindow fault(0); rejected=sw.prepareInactivePlan(g.dag,cfg); }
+                    ASSERT_FALSE(rejected);EXPECT_EQ(rejected.error().code,ErrorCode::MemoryBudgetExceeded);
+                }
+                {
+                    const AllocationWindow measured;
+                    v1_test::callback(sw,bank.io(frames,outputs));
+                }
+                EXPECT_EQ(allocations,0U);EXPECT_EQ(deallocations,0U);EXPECT_EQ(mutexAttempts,0U);
+                EXPECT_EQ(waitAttempts,0U);EXPECT_EQ(logAttempts,0U);EXPECT_EQ(exceptionAttempts,0U);
+                for(unsigned c=0;c<outputs;++c) for(FrameCount f=0;f<frames;++f) {
+                    float expected=0;
+                    if(n+f>=delay) { if(c==0||c==2) expected=1; if(c==1||c==3) expected=-2; if(c==0&&(n+f)%2==0) expected*=2; }
+                    EXPECT_EQ(bank.output[c][f+1],expected);
+                }
+                n+=frames;
+            }
+            EXPECT_EQ(g.trace.destroyedInAudio.load(),0U);EXPECT_EQ(sw.callbackDiagnostics(),0U);
+        }
     }
 }
