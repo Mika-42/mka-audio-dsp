@@ -109,6 +109,7 @@ if (MKA_BUILD_TESTS)
             test/test_physical_input_views.cpp
             test/test_physical_output_views.cpp
             test/test_hardware_silence.cpp
+            test/test_last_writer_wins.cpp
             test/test_buffer_pool.cpp
             test/test_signal_liveness.cpp
             test/test_fanout_liveness.cpp

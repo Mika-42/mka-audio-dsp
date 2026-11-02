@@ -19,6 +19,7 @@ import mka.audio.dsp.buffer_pool;
 #include "offline_pipeline.hpp"
 #include "pool_pipeline.hpp"
 #include "backend_routing_fixture.hpp"
+#include "last_writer_fixture.hpp"
 
 namespace {
     // Constant-initialized thread-local counters avoid allocation in the probe.
@@ -209,6 +210,26 @@ namespace {
             for (FrameCount f=0;f<128;++f)
                 EXPECT_EQ(backend->outputs[c][f],c==2 && (f==2 || f==4 || f==6) ? 42.F : 0.F);
         }
+    }
+
+    TEST(LastWriterRealtime, ThreeDirectWritersAndLogicalSuccessorRequireNoConflictSearchOrHeap) {
+        std::array<backend_test::Observation,5> seen;
+        std::array<backend_test::WritePolicy,4> policies;
+        std::array<NodeID,5> ids;
+        DAG graph; ASSERT_TRUE(backend_test::buildLastWriters(graph,ids,seen,policies));
+        auto plan=graph.compile(BackendConfig{.maxFrames=128,.inputChannels=2,.outputChannels=6}); ASSERT_TRUE(plan);
+        backend_test::FakeBackend a,b;
+        {
+            const AllocationWindow window;
+            for (unsigned block=0;block<32;++block) {
+                const auto io=(block%2 ? a : b).io(block%3 ? 128U : 0U,2,6);
+                const backend_test::IOScope scope(io); plan->exec(io);
+            }
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        EXPECT_TRUE(seen[4].inputSamplesIntact);
+        for (auto* backend : {&a,&b}) for (unsigned c=0;c<6;++c) for (FrameCount f=0;f<128;++f)
+            EXPECT_EQ(backend->outputs[c][f],backend_test::lastWriterSample(c,f,policies));
     }
 
     TEST(PoolRealtime, RecycledFanoutAndPersistentDelayNeedNoHeapOrMutexOnCallbacks) {
