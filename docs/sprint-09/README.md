@@ -31,3 +31,9 @@ La compilation conserve un `PlanOperationInfo` immutable pour chaque opération 
 Les DelayTasks positives sont insérées avant le consommateur, après leur producteur topologique. D=0 conserve la liaison directe. Les allocations du pool et des lignes finissent avant le binding ; les connexions et Nodes du DAG désiré restent inchangés. L'audio ne consulte que kind/index, sans construction de tâches ni résolution de ChannelID.
 
 Les tests vérifient l'ordre et les samples sur une chaîne D=1+3+512, un diamant avec Aux retardé, un même Out vers trois jonctions D=1/3/512 et un lecteur direct tardif, des blocs variables et des guards. Un refus de B conserve le planning et l'historique actif. Les tests RT directs incluent D=512.
+
+## S09-05 — LastUse incluant les retards
+
+Les lifetimes et slots sont toujours calculés sur la liste finale Node+Delay. Une vérification supplémentaire `validateDelayLifetimes`, sans allocation, confirme pour chaque Delay mono : source déjà produite et vivante à cet indice, nouvelle production à cet indice, sortie vivante et slot différent même lors de la dernière lecture de la source. Cette preuve intervient avant allocation du pool/historiques et avant binding ; un échec refuse le candidat sans publication.
+
+Un oracle indépendant reconstruit producedAt/lastUse depuis les connexions et le planning final, compare tous les SignalID et teste chaque paire de slots recyclés. Le graphe rendu combine diamant, Aux, quatre retards, fan-out avec lecteur direct tardif, sortie avec successeur et trois voies physiques. Deux graphes DSP indépendants en Reuse et Unique sont comparés à la même rampe mathématique, sur blocs variables avec sentinelles. Les historiques et le silence ne comptent jamais comme productions de la freelist. Un budget refusé à mi-flux ne change pas le rendu ni les adresses de A.

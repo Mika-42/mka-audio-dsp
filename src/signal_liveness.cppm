@@ -77,6 +77,37 @@ export namespace mka::audio::dsp {
     }
 
     /**
+     * @brief Cross-check every mono Delay against final lifetimes and physical slots.
+     * @details Control only, no allocation. A Delay has one already produced
+     * input and one new output. The source must remain live through this exact
+     * operation; the output starts here and has its own slot, even when this
+     * is the source's last reader. Other later fan-out readers are permitted.
+     * Global interval validation remains the responsibility of slot assignment.
+     * Histories and silence are not productions and cannot enter this table.
+     */
+    [[nodiscard]] std::expected<void,CompileError> validateDelayLifetimes(
+        const std::span<const SignalOperation> operations,
+        const std::span<const SignalLifetime> lifetimes,const SlotAssignment& slots) noexcept {
+        if (slots.slotOf.size()!=lifetimes.size())
+            return std::unexpected(CompileError{ErrorCode::InvalidParameter});
+        for (std::size_t i=0;i<operations.size();++i) {
+            const auto& operation=operations[i];
+            if (operation.kind!=OperationKind::Delay) continue;
+            if (operation.reads.size()!=1 || operation.writes.size()!=1)
+                return std::unexpected(CompileError{ErrorCode::InvalidParameter});
+            const auto source=operation.reads[0],output=operation.writes[0];
+            if (source>=lifetimes.size() || output>=lifetimes.size())
+                return std::unexpected(CompileError{ErrorCode::InvalidParameter});
+            if (lifetimes[source].producedAt>=i || lifetimes[source].lastUse<i ||
+                lifetimes[output].producedAt!=i || lifetimes[output].lastUse<i ||
+                slots.slotOf[source]>=slots.peakSlots || slots.slotOf[output]>=slots.peakSlots ||
+                slots.slotOf[source]==slots.slotOf[output])
+                return std::unexpected(CompileError{ErrorCode::InvalidParameter});
+        }
+        return {};
+    }
+
+    /**
      * @brief Verify the non-aliasing proof before binding any writable storage.
      * @details Includes logical outputs of marked backend writers: those are
      * ordinary productions, even with successors. Delay outputs are separate
