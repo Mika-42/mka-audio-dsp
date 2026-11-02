@@ -1,4 +1,5 @@
 #include <array>
+#include <expected>
 #include <gtest/gtest.h>
 import mka.audio.dsp.dag;
 #include "headphone_pipeline_fixture.hpp"

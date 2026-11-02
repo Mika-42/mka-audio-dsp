@@ -1,4 +1,5 @@
 #include <array>
+#include <expected>
 #include <vector>
 #include <gtest/gtest.h>
 import mka.audio.dsp.dag;
