@@ -22,7 +22,7 @@ export import mka.audio.dsp.connection;
 export import mka.audio.dsp.compile_config;
 export import mka.audio.process_context;
 export import mka.audio.dsp.signal_liveness;
-export import mka.audio.dsp.latency_snapshot;
+export import mka.audio.dsp.pdc_analysis;
 
 export namespace mka::audio::dsp {
     /// Sticky, numeric callback diagnostics; formatting/handling belongs to control.
@@ -144,6 +144,7 @@ export namespace mka::audio::dsp {
         struct AudioState {
             BackendConfig config;
             LatencySnapshot intrinsicLatencies;
+            PdcAnalysis pdc;
             BufferPool pool;
             std::vector<AudioTask> tasks;
             std::vector<InputChannel> backendInputs;
@@ -334,6 +335,10 @@ export namespace mka::audio::dsp {
         [[nodiscard]] const LatencySnapshot* latencySnapshot() const noexcept {
             return audio_ ? &audio_->intrinsicLatencies : nullptr;
         }
+        /// Generation-owned P/A/L tables, read-only on control; never read by exec.
+        [[nodiscard]] const PdcAnalysis* pdcAnalysis() const noexcept {
+            return audio_ ? &audio_->pdc : nullptr;
+        }
 
         /** Borrowed membership of this generation, including desired-graph removals. */
         [[nodiscard]] bool references(const NodeID id) const noexcept {
@@ -468,6 +473,21 @@ export namespace mka::audio::dsp {
                     bindInputs(plan_[i]->config().layoutInput, PortType::In, task.inputs, task.inputSlots);
                 bindInputs(plan_[i]->config().layoutAuxiliary, PortType::Aux, task.auxiliary, task.auxiliarySlots);
             }
+            std::vector<NodeID> order;
+            order.reserve(plan_.size());
+            for (const auto* node : plan_) order.push_back(node->id());
+            std::vector<Connection> audioEdges;
+            audioEdges.reserve(connections.size());
+            for (const auto& edge : connections) {
+                if (!outputSlots.contains(edge.from)) continue;
+                const auto& cfg=plan_[positions.find(decodeNode(edge.to))->second]->config();
+                const auto& layout=decodePort(edge.to)==PortType::Aux ? cfg.layoutAuxiliary : cfg.layoutInput;
+                if (std::find(layout.begin(),layout.end(),decodeChannel(edge.to))!=layout.end())
+                    audioEdges.push_back(edge);
+            }
+            auto pdc=analyzeLatencies(state->intrinsicLatencies,order,audioEdges);
+            if (!pdc) return std::unexpected(pdc.error());
+            state->pdc=std::move(*pdc);
             std::unordered_map<ChannelID, std::uint64_t> requestedDelays;
             for (const auto& delay : config.connectionDelays) {
                 const auto edge = incoming.find(delay.connection.to);
@@ -544,6 +564,7 @@ export namespace mka::audio::dsp {
             account(state->tasks); account(state->operations); account(state->delays);
             account(state->lifetimes); account(state->assignment.slotOf);
             account(state->intrinsicLatencies.nodes);
+            account(state->pdc.nodes);
             metadata.push_back({config.inputChannels, sizeof(InputChannel), alignof(InputChannel)});
             metadata.push_back({config.outputChannels, sizeof(OutputChannel), alignof(OutputChannel)});
             for (const auto& task : state->tasks) {
