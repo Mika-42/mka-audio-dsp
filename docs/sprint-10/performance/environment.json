@@ -1,0 +1,30 @@
+{
+  "os": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "cpu": "INTEL(R) XEON(R) PLATINUM 8573C",
+  "allowed_cpus": 5,
+  "cgroup_cpu_max": "400000 100000",
+  "compiler": "Debian clang version 19.1.7 (3+b1)",
+  "flags": [
+    "CMAKE_BUILD_TYPE:STRING=Release",
+    "CMAKE_CXX_FLAGS:STRING=-stdlib=libc++ -nostdinc++ -isystem /workspace/.mka-setup/sysroot/usr/lib/llvm-19/include/c++/v1",
+    "CMAKE_CXX_FLAGS_RELEASE:STRING=-O3 -DNDEBUG"
+  ],
+  "sample_rate": 48000,
+  "warmup_callbacks": 20,
+  "measured_callbacks_per_scenario": 100,
+  "timer": "std::chrono::steady_clock around exec, outside RT probe",
+  "quantiles": "nearest rank ceil(q*N)-1",
+  "load_before": [
+    0.15380859375,
+    0.07275390625,
+    0.01513671875
+  ],
+  "condition": "shared cloud container; tight loop; CSV between callbacks outside timing; no CPU pinning or realtime priority",
+  "core_base_commit": "3eb41ece083863fa729c5910f97be40301f695d4",
+  "harness_sha256": "ce0129d4d708e8fc51d1c28a36d542ad935d4c3273888ea547d42122218724fb",
+  "load_after": [
+    0.15380859375,
+    0.07275390625,
+    0.01513671875
+  ]
+}
