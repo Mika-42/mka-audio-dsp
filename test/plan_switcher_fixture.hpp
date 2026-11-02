@@ -39,6 +39,22 @@ namespace switcher_test {
                 for (const auto& out : ctx.backendOutputs) out.buffer[f]=ctx.inputs[0].buffer[f];
         }
     };
+    class GenerationNode final : public Node {
+    public:
+        GenerationNode(NodeID id,PlanSwitcher& switcher) : Node(id,Config{.layoutOutput={0}}),switcher_(switcher) {}
+        void process(const ProcessContext& ctx) noexcept override {
+            const auto generation=switcher_.audioGeneration();
+            noMidBlockSwap=noMidBlockSwap && !switcher_.trySwapAtBlockBoundary();
+            for (FrameCount f=0;f<ctx.frames;++f) {
+                ctx.outputs[0].buffer[f]=static_cast<float>(generation);
+                for (const auto& output : ctx.backendOutputs) output.buffer[f]=static_cast<float>(generation);
+            }
+            coherent=coherent && generation==switcher_.audioGeneration();
+        }
+        bool noMidBlockSwap=true,coherent=true;
+    private:
+        PlanSwitcher& switcher_;
+    };
     inline Result makeDelayedGraph(DAG& graph,std::array<NodeID,2>& ids,Connection& edge,LifetimeTrace* trace=nullptr) {
         const auto a=graph.add<SignalNode>(trace),b=graph.add<SinkNode>();
         if (!a) return std::unexpected(a.error());

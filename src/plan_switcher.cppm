@@ -165,6 +165,7 @@ export namespace mka::audio::dsp {
                 silenceRejected(io);
                 return;
             }
+            (void)adoptPending(); // Exactly once before selecting any processing task.
             slots_[audioActive_].plan.exec(io);
             gate_.store(CallbackGate::Ready,std::memory_order_release);
         }
