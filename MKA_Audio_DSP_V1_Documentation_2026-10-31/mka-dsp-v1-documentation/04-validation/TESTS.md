@@ -15,7 +15,7 @@
 | G-07 | Connexion vers canal absent du layout mais structurellement valide | Accepté |
 | G-08 | Réinsertion même arête | Rejet doublon |
 | G-09 | Boucle directe et cycle via 4 nœuds | Rejet `CycleDetected` |
-| G-10 | Suppression d'un nœud, arêtes incidentes | Nettoyage correct, sous condition Node non référencé |
+| G-10 | Suppression d'un nœud, arêtes incidentes | Retrait désiré immédiat ; destruction différée tant que des plans empruntent le Node |
 | G-11 | Modification de `outputsNodes` | Vues hardware sorties affectées à la bonne génération |
 
 Exécuter tous les DAG possibles à 4 nœuds et toutes les arêtes candidates, en comparant un oracle indépendant. Utiliser des mutations aléatoires reproductibles avec graine et traces d'opération ; vérifier les transitions invalides comme les permutations open→start→stop→close côté backend seulement si l'intégration le nécessite.
@@ -59,7 +59,7 @@ Exécuter tous les DAG possibles à 4 nœuds et toutes les arêtes candidates, e
 | SW-03 | Contrôle observe ACK | A nettoyé hors RT seulement |
 | SW-04 | Deux publish avant ACK | Deuxième refusé/fusionné, aucune perte |
 | SW-05 | Échec compilation B | A toujours actif |
-| SW-06 | Node référencé par A puis B | Suppression bloquée jusqu'à extinction de toutes refs |
+| SW-06 | Node référencé par A puis B | Retrait désiré immédiat ; destruction après extinction de toutes refs |
 | SW-07 | Callback absent à l'arrêt | Reclamation sous quiescence explicite |
 | SW-08 | Snapshot RT actif durant édition DAG | Aucune race de plan, de Node config ou de pool |
 

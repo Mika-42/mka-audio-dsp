@@ -1,3 +1,5 @@
+> Archive de conception : l'API active est décrite dans [API_V1](../../docs/API_V1.md) et la [matrice exécutée](04-validation/MATRICE_EXIGENCES.md). Les exemples historiques utilisant outputs pour le matériel sont remplacés par backendOutputs ; DoubleBuffer est devenu PlanSwitcher.
+
 # MKA Audio DSP — dossier de conception et d’implémentation V1
 
 **Édition :** 31 octobre 2026  

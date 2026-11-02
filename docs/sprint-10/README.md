@@ -29,3 +29,9 @@ PlanSwitcher agrège les bits atomiques relaxés après chaque callback et ajout
 ## S10-05 — Mesures reproductibles
 
 `mka-v1-benchmark` est un exécutable Linux Release optionnel, séparé de l'audio de production et de TSan. Il vérifie ses probes par contrôles positifs, mesure les scénarios chaîne/diamant/fan-out 2/8/64 et publications, avec/sans PDC, 2/6 sorties et frames 1/64/128/512/4096. Les sources, timers et CSV sont préparés hors de la fonction audio. Voir [rapport](performance/REPORT.md), données brutes, résumé et environnement. Le validateur recalcule moyenne/quantiles/max depuis les observations et vérifie RAM, diagnostics, publications et probes. Les dépassements observés sont publiés ; une mesure locale ne prouve pas une deadline universelle.
+
+## S10-06 — Doxygen et traçabilité active
+
+Le Doxyfile versionné et la cible optionnelle `doc` génèrent HTML/XML, avec warnings de documentation traités en erreur. `docs/API_V1.md` précise types/largeurs, polymorphisme, paramètres/retours/erreurs, ownership, thread, validité des pointeurs et préconditions de chaque famille d'API. Les archives signalent les signatures obsolètes ; TESTS.md distingue désormais retrait désiré et destruction différée.
+
+La matrice 04-validation/MATRICE_EXIGENCES.md relie 51 exigences G/B/IO/SW/P à une carte, des symboles et des noms CTest exacts, plus les preuves RT/performance. `tools/check-requirements.py --build <build>` contrôle découverte et réussite réelle des tests, préserve les logs CTest et vérifie les types dans XML si Doxygen a été généré. P-12 montre le mauvais alignement d'un plugin déclarant zéro mais retardant 64 samples ; aucune mesure automatique ne le répare. IO-03 vérifie qu'un oscillateur peut ignorer six entrées. Les procédures sur matériel réel et les fonctions hors V1 restent explicitement non exécutées/non implémentées.
