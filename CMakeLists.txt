@@ -64,6 +64,7 @@ target_sources(mka-audio-dsp
         src/buffer_pool.cppm
         src/memory_budget.cppm
         src/delay_line.cppm
+        src/delay_task.cppm
         src/signal_liveness.cppm
         src/structural_compile.cppm
         src/dag.cppm
@@ -138,6 +139,7 @@ if (MKA_BUILD_TESTS)
             test/test_node.cpp
             test/test_delay_line.cpp
             test/test_delay_line_oracle.cpp
+            test/test_delay_task.cpp
             test/test_latency_snapshot.cpp
             test/test_pdc_analysis.cpp
             test/test_pdc_edges.cpp

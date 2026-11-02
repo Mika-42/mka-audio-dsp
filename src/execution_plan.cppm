@@ -23,6 +23,7 @@ export import mka.audio.dsp.compile_config;
 export import mka.audio.process_context;
 export import mka.audio.dsp.signal_liveness;
 export import mka.audio.dsp.pdc_analysis;
+export import mka.audio.dsp.delay_task;
 
 export namespace mka::audio::dsp {
     /// Sticky, numeric callback diagnostics; formatting/handling belongs to control.
@@ -153,32 +154,17 @@ export namespace mka::audio::dsp {
                 OperationKind kind;
                 std::size_t index;
             };
-            struct DelayTask {
+            struct CompiledDelay {
                 std::size_t inputSlot = noBuffer, outputSlot = noBuffer;
-                std::size_t samples = 0, position = 0;
-                std::vector<float> history;
-                const float* input = nullptr;
-                float* output = nullptr;
-
-                void process(const FrameCount frames) noexcept {
-                    if (samples == 0) {
-                        if (frames) std::copy_n(input, frames, output);
-                        return;
-                    }
-                    for (FrameCount f = 0; f < frames; ++f) {
-                        output[f] = history[position];
-                        history[position] = input[f];
-                        if (++position == samples) position = 0;
-                    }
-                }
+                detail::DelayTask task;
             };
             std::vector<Operation> operations;
-            std::vector<DelayTask> delays;
+            std::vector<CompiledDelay> delays;
             std::vector<SignalLifetime> lifetimes;
             SlotAssignment assignment;
             PlanMemoryUsage memory;
 
-            void rebindInternal() noexcept {
+            [[nodiscard]] Result rebindInternal() noexcept {
                 for (auto& task : tasks) {
                     for (std::size_t i = 0; i < task.inputs.size(); ++i)
                         task.inputs[i].buffer = task.inputSlots[i] == noBuffer ? pool.silence() :
@@ -190,9 +176,12 @@ export namespace mka::audio::dsp {
                         task.outputs[i].buffer = pool.buffer(static_cast<BufferId>(task.outputSlots[i]));
                 }
                 for (auto& delay : delays) {
-                    delay.input = pool.buffer(static_cast<BufferId>(delay.inputSlot));
-                    delay.output = pool.buffer(static_cast<BufferId>(delay.outputSlot));
+                    if (const auto result=delay.task.bind(
+                        pool.buffer(static_cast<BufferId>(delay.inputSlot)),
+                        pool.buffer(static_cast<BufferId>(delay.outputSlot)),config.maxFrames); !result)
+                        return result;
                 }
+                return {};
             }
             void clearBackend(const std::size_t inputs, const std::size_t outputs) noexcept {
                 for (std::size_t i = 0; i < inputs; ++i) backendInputs[i].buffer = nullptr;
@@ -247,7 +236,8 @@ export namespace mka::audio::dsp {
             outputTasks_.reserve(plan_.size());
             if (audio_) {
                 // Raw descriptor pointers must address the copy's owned storage.
-                audio_->rebindInternal();
+                if (const auto result=audio_->rebindInternal(); !result)
+                    throw std::logic_error("invalid copied delay binding");
                 audio_->clearBackend(audio_->backendInputs.size(), audio_->backendOutputs.size());
                 bindTaskContexts();
             }
@@ -519,10 +509,10 @@ export namespace mka::audio::dsp {
                         if (signalCount == std::numeric_limits<std::size_t>::max())
                             throw std::length_error("signal capacity");
                         const auto input = bindings[c], output = signalCount++;
-                        typename AudioState::DelayTask delay;
+                        typename AudioState::CompiledDelay delay;
                         delay.inputSlot = input;
                         delay.outputSlot = output;
-                        delay.samples = static_cast<std::size_t>(found->second);
+                        delay.task.delaySamples = found->second;
                         state->operations.push_back({OperationKind::Delay, state->delays.size()});
                         state->delays.push_back(std::move(delay));
                         signals.push_back({OperationKind::Delay, {input}, {output}});
@@ -554,7 +544,7 @@ export namespace mka::audio::dsp {
             for (auto& delay : state->delays) {
                 delay.inputSlot = state->assignment.slotOf[delay.inputSlot];
                 delay.outputSlot = state->assignment.slotOf[delay.outputSlot];
-                histories.push_back(delay.samples);
+                histories.push_back(delay.task.delaySamples);
             }
             // Count actual retained array capacities + their owner objects. This
             // also includes structural plan metadata, not the borrowed Nodes.
@@ -584,10 +574,13 @@ export namespace mka::audio::dsp {
             state->memory = *memory;
             if (const auto prepared = state->pool.prepare(state->assignment.peakSlots, config.maxFrames); !prepared)
                 return std::unexpected(prepared.error());
-            for (auto& delay : state->delays) delay.history.resize(delay.samples, 0.F);
+            for (auto& delay : state->delays)
+                if (const auto prepared=delay.task.prepare(delay.task.delaySamples,
+                    DelayLineLimits{config.maxDelaySamples,config.memoryBudgetBytes}); !prepared)
+                    return prepared;
             state->backendInputs.resize(config.inputChannels);
             state->backendOutputs.resize(config.outputChannels);
-            state->rebindInternal();
+            if (const auto bound=state->rebindInternal(); !bound) return bound;
             for (std::size_t i = 0; i < state->tasks.size(); ++i) {
                 const auto& task = state->tasks[i];
                 const PreparedContextBindings bindings{.inputs = task.inputs, .auxiliary = task.auxiliary,
@@ -730,7 +723,7 @@ export namespace mka::audio::dsp {
             const auto physicalOutputs = std::span<const OutputChannel>{state.backendOutputs}.first(outputCount);
             for (const auto& compiled : state.operations) {
                 if (compiled.kind == OperationKind::Delay) {
-                    state.delays[compiled.index].process(frames);
+                    state.delays[compiled.index].task.execute(frames);
                     continue;
                 }
                 const auto i = compiled.index;
