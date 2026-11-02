@@ -142,6 +142,7 @@ if (MKA_BUILD_TESTS)
             test/test_delay_task.cpp
             test/test_delay_task_order.cpp
             test/test_delay_task_liveness.cpp
+            test/test_delay_bindings.cpp
             test/test_latency_snapshot.cpp
             test/test_pdc_analysis.cpp
             test/test_pdc_edges.cpp
