@@ -137,6 +137,7 @@ if (MKA_BUILD_TESTS)
             test/test_process_context.cpp
             test/test_node.cpp
             test/test_delay_line.cpp
+            test/test_delay_line_oracle.cpp
             test/test_latency_snapshot.cpp
             test/test_pdc_analysis.cpp
             test/test_pdc_edges.cpp
