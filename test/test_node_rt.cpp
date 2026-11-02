@@ -21,6 +21,7 @@ import mka.audio.dsp.buffer_pool;
 #include "backend_routing_fixture.hpp"
 #include "last_writer_fixture.hpp"
 #include "pair_routing_fixture.hpp"
+#include "headphone_pipeline_fixture.hpp"
 
 namespace {
     // Constant-initialized thread-local counters avoid allocation in the probe.
@@ -251,6 +252,32 @@ namespace {
             EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
             for (auto* backend : {&a,&b}) for (unsigned c=0;c<outputs;++c) for (FrameCount f=0;f<128;++f)
                 EXPECT_EQ(backend->outputs[c][f],backend_test::routedPairSample(outputs,c,f,*backend));
+        }
+    }
+
+    TEST(HeadphonePipelineRealtime, EndToEndGainTwoPairsAndLastWriterRemainHeapAndMutexFree) {
+        std::array<NodeID,4> ids;
+        std::array<backend_test::PairRouting,4> routing;
+        std::array<backend_test::Observation,4> seen;
+        DAG graph; ASSERT_TRUE(backend_test::buildHeadphonePipeline(graph,ids,routing,seen));
+        auto plan=graph.compile(BackendConfig{.maxFrames=128,.inputChannels=6,.outputChannels=6,.sampleRate=48000}); ASSERT_TRUE(plan);
+        backend_test::FakeBackend a(1.F),b(100.F);
+        {
+            const AllocationWindow window;
+            for (unsigned block=0;block<32;++block) {
+                const auto io=(block%2 ? a : b).io(block%3 ? 128U : 0U,6,6);
+                const backend_test::IOScope scope(io); plan->exec(io);
+            }
+            plan->exec(a.io(129,6,6));
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        EXPECT_EQ(plan->takeCallbackDiagnostics(),static_cast<std::uint32_t>(CallbackDiagnostic::FrameCapacityExceeded));
+        for (const auto& o : seen) {
+            EXPECT_EQ(o.calls,32U); EXPECT_TRUE(o.directInputs); EXPECT_TRUE(o.directOutputs); EXPECT_TRUE(o.separateStorage);
+        }
+        for (unsigned c=0;c<6;++c) for (FrameCount f=0;f<128;++f) {
+            EXPECT_EQ(a.outputs[c][f],0.F); // Rejected block: bounded fail-safe silence.
+            EXPECT_EQ(b.outputs[c][f],backend_test::headphoneSample(c,f,b));
         }
     }
 
