@@ -39,6 +39,11 @@ export namespace mka::audio::dsp {
      */
     using FrameCount = std::uint32_t;
 
+    /// Intrinsic algorithmic delay in whole samples at the plan's effective rate.
+    /// One scalar applies to every audio path of a Node in V1. Cumulative path
+    /// times and compensation use uint64_t instead of this bounded declaration.
+    using LatencySamples = std::uint32_t;
+
     /// Invalid/unassigned NodeID; never assigned to a live node.
     inline constexpr NodeID invalidNodeID = 0;
     /// Last representable live NodeID; allocating beyond it must fail, not wrap.
