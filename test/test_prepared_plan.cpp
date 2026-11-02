@@ -44,7 +44,7 @@ namespace {
         std::array<float,4> input{1,2,3,4}, first{}, second{};
         for (unsigned block=0;block<8;++block) {
             const std::array<const float*,1> inputs{input.data()};
-            const std::array outputs{block%2 ? first.data() : second.data()};
+            const std::array outputs{block%2 ? first.data() : second.data(),block%2 ? second.data() : first.data()};
             plan->exec(AudioProcessContext{inputs,outputs,static_cast<FrameCount>(block%5)});
             EXPECT_EQ(plan->executionTasks().data(),operations);
             EXPECT_EQ(operations[0].context.outputs.data(),descriptors);

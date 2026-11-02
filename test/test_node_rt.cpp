@@ -18,6 +18,7 @@ import mka.audio.dsp.dag;
 import mka.audio.dsp.buffer_pool;
 #include "offline_pipeline.hpp"
 #include "pool_pipeline.hpp"
+#include "backend_routing_fixture.hpp"
 
 namespace {
     // Constant-initialized thread-local counters avoid allocation in the probe.
@@ -140,6 +141,31 @@ void operator delete[](void* memory, std::align_val_t, const std::nothrow_t&) no
 
 namespace {
     using namespace mka::audio::dsp;
+
+    TEST(BackendCapacityRealtime, FixedPhysicalShapesAndRejectionsNeverAllocateOrLock) {
+        for (const std::uint32_t count : {0U,1U,2U,6U}) {
+            backend_test::Observation observation; observation.expectOutput=true;
+            DAG graph;
+            const auto id=graph.add<backend_test::ProbeNode>(observation,Config{.layoutOutput={0}}); ASSERT_TRUE(id);
+            ASSERT_TRUE(graph.markAsOutput(*id));
+            auto plan=graph.compile(BackendConfig{.maxFrames=128,.inputChannels=count,.outputChannels=count,.sampleRate=48000});
+            ASSERT_TRUE(plan);
+            backend_test::FakeBackend first(0.F),second(100.F);
+            {
+                const AllocationWindow window;
+                for (unsigned block=0;block<32;++block) {
+                    const auto io=(block%2 ? first : second).io(block%3 ? 128U : 0U,count,count);
+                    const backend_test::IOScope expected(io);
+                    plan->exec(io);
+                }
+                plan->exec(first.io(129,count,count));
+                if (count) plan->exec(first.io(1,count-1,count));
+            }
+            EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+            EXPECT_TRUE(observation.directInputs); EXPECT_TRUE(observation.directOutputs);
+            EXPECT_EQ(observation.calls,32U);
+        }
+    }
 
     TEST(PoolRealtime, RecycledFanoutAndPersistentDelayNeedNoHeapOrMutexOnCallbacks) {
         pool_test::Pipeline p;

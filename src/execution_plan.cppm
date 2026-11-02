@@ -66,11 +66,18 @@ export namespace mka::audio::dsp {
         std::uint64_t samples = 0;
     };
 
-    /** Control-side maximum callback shape; counts are physical, not ChannelIDs. */
+    /**
+     * @brief Immutable prepared backend shape: counts, Hz and maximum frames.
+     * @details Physical channel counts must match every callback exactly, even
+     * at zero frames. Rate zero means unspecified; positive rates are in Hz.
+     * The plan captures this value on control. Reconfiguration requires an
+     * independently prepared inactive generation, never an audio-side resize.
+     */
     struct BackendConfig {
         FrameCount maxFrames = 0;
-        std::size_t inputChannels = 0;
-        std::size_t outputChannels = 0;
+        std::uint32_t inputChannels = 0;
+        std::uint32_t outputChannels = 0;
+        std::uint32_t sampleRate = 0;
         /// All retained plan payload + alignment allowance; excludes allocator overhead/temporaries.
         std::size_t memoryBudgetBytes = std::numeric_limits<std::size_t>::max();
         SlotStrategy slotStrategy = SlotStrategy::Reuse;
@@ -78,6 +85,19 @@ export namespace mka::audio::dsp {
         /// Borrowed only during prepare; no Config span is retained in the prepared state.
         std::span<const ConnectionDelay> connectionDelays;
     };
+
+    /// Validate wide driver values on control BEFORE narrowing into BackendConfig.
+    [[nodiscard]] constexpr std::expected<BackendConfig, CompileError> makeBackendConfig(
+        const std::uint64_t inputs, const std::uint64_t outputs,
+        const std::uint64_t sampleRate, const std::uint64_t maxFrames) noexcept {
+        constexpr auto maximum = std::numeric_limits<std::uint32_t>::max();
+        if (inputs > maximum || outputs > maximum || sampleRate > maximum || maxFrames > maximum)
+            return std::unexpected(CompileError{ErrorCode::CapacityExceeded});
+        return BackendConfig{.maxFrames=static_cast<FrameCount>(maxFrames),
+            .inputChannels=static_cast<std::uint32_t>(inputs),
+            .outputChannels=static_cast<std::uint32_t>(outputs),
+            .sampleRate=static_cast<std::uint32_t>(sampleRate)};
+    }
 
     /**
      * @brief Borrowed driver buffers valid for this callback only.
@@ -289,6 +309,11 @@ export namespace mka::audio::dsp {
             return tasks().subspan(layerIndices_[index], layerIndices_[index + 1] - layerIndices_[index]);
         }
         [[nodiscard]] bool isBackendPrepared() const noexcept { return audio_ != nullptr; }
+        /// Value snapshot; changes to this copy never change the prepared plan.
+        [[nodiscard]] std::optional<BackendConfig> backendConfig() const noexcept {
+            if (!audio_) return std::nullopt;
+            return audio_->config;
+        }
         /// Immutable control-side diagnostics; these tables are never consulted in audio.
         [[nodiscard]] std::span<const SignalLifetime> signalLifetimes() const noexcept {
             return audio_ ? std::span<const SignalLifetime>{audio_->lifetimes} : std::span<const SignalLifetime>{};
@@ -644,7 +669,7 @@ export namespace mka::audio::dsp {
                 return rejectCallback(CallbackDiagnostic::PlanNotPrepared,outputCount,frames,outputAt,outputCapacity);
             if (frames > audio_->config.maxFrames)
                 return rejectCallback(CallbackDiagnostic::FrameCapacityExceeded,outputCount,frames,outputAt,outputCapacity);
-            if (inputCount > audio_->config.inputChannels || outputCount > audio_->config.outputChannels)
+            if (inputCount != audio_->config.inputChannels || outputCount != audio_->config.outputChannels)
                 return rejectCallback(CallbackDiagnostic::ChannelCapacityExceeded,outputCount,frames,outputAt,outputCapacity);
             if ((inputCount != 0 && frames > inputCapacity) || (outputCount != 0 && frames > outputCapacity))
                 return rejectCallback(CallbackDiagnostic::BufferCapacityExceeded,outputCount,frames,outputAt,outputCapacity);
