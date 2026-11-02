@@ -15,6 +15,7 @@ export import mka.audio.dsp.dag;
 
 export namespace mka::audio::dsp {
     using GenerationID = std::uint64_t;
+    enum class HandshakeState : std::uint8_t { Idle, Pending, Acknowledged };
     /// Control-side slot roles; separate from the publication handshake.
     enum class PlanSlotState : std::uint8_t { Free, Ready, Pending, Active, Retired };
 
@@ -30,6 +31,7 @@ export namespace mka::audio::dsp {
     class PlanSwitcher final {
         enum class CallbackGate : std::uint8_t { Stopped, Ready, Executing };
         static_assert(std::atomic<CallbackGate>::is_always_lock_free);
+        static_assert(std::atomic<HandshakeState>::is_always_lock_free);
         struct Slot {
             ExecutionPlan plan;
             GenerationID generation=0;
@@ -48,7 +50,7 @@ export namespace mka::audio::dsp {
         [[nodiscard]] Result initialize(const DAG& graph,const BackendConfig& backend,
                                         const CompileConfig& limits={}) {
             if (initialized_) return std::unexpected(Error{ErrorCode::PlanBusy});
-            if (!gate_.is_lock_free()) return std::unexpected(Error{ErrorCode::PrepareFailed});
+            if (!lockFreeAtomics()) return std::unexpected(Error{ErrorCode::PrepareFailed});
             if (auto result=prepareSlot(0,graph,backend,limits); !result) return result;
             controlActive_=audioActive_=0;
             slots_[0].role=PlanSlotState::Active;
@@ -61,6 +63,8 @@ export namespace mka::audio::dsp {
         [[nodiscard]] Result prepareInactivePlan(const DAG& graph,const BackendConfig& backend,
                                                 const CompileConfig& limits={}) {
             if (!initialized_) return std::unexpected(Error{ErrorCode::PrepareFailed});
+            if (state_.load(std::memory_order_acquire)!=HandshakeState::Idle)
+                return std::unexpected(Error{ErrorCode::PlanBusy});
             const auto index=static_cast<std::uint8_t>(1-controlActive_);
             if (slots_[index].role!=PlanSlotState::Free)
                 return std::unexpected(Error{ErrorCode::PlanBusy});
@@ -70,6 +74,8 @@ export namespace mka::audio::dsp {
         /// Abandon an unpublished Ready plan on control. Never touches the active plan.
         [[nodiscard]] Result discardReadyPlan() noexcept {
             if (!initialized_) return std::unexpected(Error{ErrorCode::PrepareFailed});
+            if (state_.load(std::memory_order_acquire)!=HandshakeState::Idle)
+                return std::unexpected(Error{ErrorCode::PlanBusy});
             auto& slot=slots_[1-controlActive_];
             if (slot.role!=PlanSlotState::Ready) return std::unexpected(Error{ErrorCode::PlanBusy});
             clearSlot(slot);
@@ -99,6 +105,58 @@ export namespace mka::audio::dsp {
             return slots_[1-controlActive_].generation;
         }
 
+        [[nodiscard]] bool lockFreeAtomics() const noexcept {
+            return gate_.is_lock_free() && state_.is_lock_free();
+        }
+        /// State alone is atomic; do not infer an independent active-index snapshot.
+        [[nodiscard]] HandshakeState handshakeState() const noexcept {
+            return state_.load(std::memory_order_acquire);
+        }
+        /** Coherent control observation. Pending deliberately has no active answer. */
+        [[nodiscard]] std::optional<GenerationID> controlGeneration() const noexcept {
+            if (!initialized_) return std::nullopt;
+            const auto state=state_.load(std::memory_order_acquire);
+            if (state==HandshakeState::Pending) return std::nullopt;
+            return slots_[state==HandshakeState::Acknowledged ? pendingIndex_ : controlActive_].generation;
+        }
+
+        /** Publish fully linked B. Single control writer; never overwrite a Pending. */
+        [[nodiscard]] Result publishReadyPlan() noexcept {
+            if (!initialized_) return std::unexpected(Error{ErrorCode::PrepareFailed});
+            if (state_.load(std::memory_order_acquire)!=HandshakeState::Idle)
+                return std::unexpected(Error{ErrorCode::PlanBusy});
+            const auto index=static_cast<std::uint8_t>(1-controlActive_);
+            if (slots_[index].role!=PlanSlotState::Ready || !slots_[index].plan.isBackendPrepared())
+                return std::unexpected(Error{ErrorCode::PrepareFailed});
+            pendingIndex_=index;
+            slots_[index].role=PlanSlotState::Pending;
+            state_.store(HandshakeState::Pending,std::memory_order_release);
+            return {};
+        }
+
+        /** Audio only, at a block boundary. A call from inside process returns false. */
+        [[nodiscard]] bool trySwapAtBlockBoundary() noexcept {
+            auto expected=CallbackGate::Ready;
+            if (!gate_.compare_exchange_strong(expected,CallbackGate::Executing,
+                    std::memory_order_acquire,std::memory_order_relaxed)) return false;
+            const bool swapped=adoptPending();
+            gate_.store(CallbackGate::Ready,std::memory_order_release);
+            return swapped;
+        }
+
+        /** Acquire ACK before reclaiming A. This and all destruction run on control. */
+        [[nodiscard]] Result retireAcknowledgedPlan() noexcept {
+            if (state_.load(std::memory_order_acquire)!=HandshakeState::Acknowledged)
+                return std::unexpected(Error{ErrorCode::PlanBusy});
+            const auto old=controlActive_;
+            slots_[old].role=PlanSlotState::Retired;
+            controlActive_=pendingIndex_;
+            slots_[controlActive_].role=PlanSlotState::Active;
+            clearSlot(slots_[old]);
+            state_.store(HandshakeState::Idle,std::memory_order_release);
+            return {};
+        }
+
         /** One bounded admission attempt; callbacks never acquire ownership or wait. */
         void exec(const mka::audio::AudioProcessContext& io) noexcept {
             auto expected=CallbackGate::Ready;
@@ -112,6 +170,14 @@ export namespace mka::audio::dsp {
         }
 
     private:
+        bool adoptPending() noexcept {
+            if (state_.load(std::memory_order_acquire)!=HandshakeState::Pending) return false;
+            audioActive_=pendingIndex_;
+            // No reference to the old slot survives this store. Control may
+            // immediately reclaim it while audio executes the new generation.
+            state_.store(HandshakeState::Acknowledged,std::memory_order_release);
+            return true;
+        }
         [[nodiscard]] Result prepareSlot(const std::uint8_t index,const DAG& graph,
                                          const BackendConfig& backend,const CompileConfig& limits) {
             if (generationCounter_==std::numeric_limits<GenerationID>::max())
@@ -137,8 +203,11 @@ export namespace mka::audio::dsp {
 
         std::array<Slot,2> slots_;
         std::atomic<CallbackGate> gate_{CallbackGate::Stopped};
+        std::atomic<HandshakeState> state_{HandshakeState::Idle};
         // Each index has one writer. No control method reads audioActive_ while audio runs.
         std::uint8_t controlActive_=0,audioActive_=0;
+        // Published via Pending release; read by audio only before its ACK release.
+        std::uint8_t pendingIndex_=1;
         GenerationID generationCounter_=0;
         bool initialized_=false;
     };
