@@ -38,7 +38,16 @@ export namespace mka::audio::dsp {
         bool operator==(const NodeLatency&) const noexcept = default;
     };
 
-    /// Owned control-side analysis, in the generation's topological task order.
+    /**
+     * @brief Owned control-side analysis, in topological task order.
+     * @details V1 aligns known logical In/Aux edges before the consumer runs.
+     * Output markers do not identify physical lanes: each marked Node can
+     * freely write every backendOutputs buffer. No global per-hardware-channel
+     * alignment or final Node's arbitrary internal timing can be inferred.
+     * To align signals routed to different physical lanes, join them through
+     * a common logical Mix/router first. Physical Last Writer Wins and separate
+     * logical storage for output Nodes with successors remain unchanged.
+     */
     struct PdcAnalysis {
         std::vector<NodeLatency> nodes;
         /// Complete materialized audio-edge table, including D=0 direct links.
