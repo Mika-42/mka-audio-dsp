@@ -1369,11 +1369,11 @@ namespace {
         for (const std::uint64_t delay : {0U,1U,3U,256U}) {
             DelayLine line; ASSERT_TRUE(line.prepare(delay));
             std::array<float,130> input{},output{}; input.fill(1.F); output.fill(-999.F);
-            const std::array<FrameCount,4> frames{0,1,7,128};
+            const std::array<FrameCount,5> frames{0,1,2,7,128};
             {
                 const AllocationWindow measured;
                 for (unsigned block=0;block<64;++block)
-                    line.process(input.data()+1,output.data()+1,frames[block%4]);
+                    line.process(input.data()+1,output.data()+1,frames[block%frames.size()]);
                 line.process(nullptr,nullptr,0);
             }
             EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
@@ -1395,5 +1395,24 @@ namespace {
         EXPECT_EQ(injectedFailures,1U); EXPECT_EQ(line.delaySamples(),3U);
         line.process(second.data(),output.data(),4);
         EXPECT_EQ(output,(std::array<float,4>{2,3,4,5}));
+    }
+}
+
+namespace {
+    TEST(DelayLineAllocation, PreparingZeroNeedsNoAllocationEvenWhenAnAllocationFailureIsArmed) {
+        using namespace mka::audio::dsp;
+        DelayLine line; ASSERT_TRUE(line.prepare(256));
+        Result result;
+        {
+            const FailureWindow failed(0);
+            result=line.prepare(0,DelayLineLimits{.memoryBudgetBytes=0});
+        }
+        ASSERT_TRUE(result); EXPECT_EQ(injectedFailures,0U); EXPECT_EQ(line.historyBytes(),0U);
+        std::array<float,2> input{3,-7},output{};
+        {
+            const AllocationWindow measured;
+            line.process(input.data(),output.data(),2);
+        }
+        EXPECT_EQ(output,input); EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
     }
 }
