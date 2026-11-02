@@ -61,12 +61,6 @@ export namespace mka::audio::dsp {
         ProcessContext context{};
     };
 
-    /** Explicit mono delay on a logical edge, supplied by control-side PDC analysis. */
-    struct ConnectionDelay {
-        Connection connection;
-        std::uint64_t samples = 0;
-    };
-
     /**
      * @brief Immutable prepared backend shape: counts, Hz and maximum frames.
      * @details Physical channel counts must match every callback exactly, even
@@ -83,7 +77,9 @@ export namespace mka::audio::dsp {
         std::size_t memoryBudgetBytes = std::numeric_limits<std::size_t>::max();
         SlotStrategy slotStrategy = SlotStrategy::Reuse;
         std::uint32_t maxBufferSlots = std::numeric_limits<std::uint32_t>::max();
-        /// Borrowed only during prepare; no Config span is retained in the prepared state.
+        /// Optional complete explicit schedule, overriding automatic PDC insertion
+        /// when nonempty (legacy integration). Empty selects computed edge D.
+        /// Borrowed only during prepare; never retained in the prepared state.
         std::span<const ConnectionDelay> connectionDelays;
     };
 
@@ -339,6 +335,10 @@ export namespace mka::audio::dsp {
         [[nodiscard]] const PdcAnalysis* pdcAnalysis() const noexcept {
             return audio_ ? &audio_->pdc : nullptr;
         }
+        /// Retained internal delays; D=0 always uses a direct input pointer.
+        [[nodiscard]] std::size_t delayTaskCount() const noexcept {
+            return audio_ ? audio_->delays.size() : 0;
+        }
 
         /** Borrowed membership of this generation, including desired-graph removals. */
         [[nodiscard]] bool references(const NodeID id) const noexcept {
@@ -488,8 +488,12 @@ export namespace mka::audio::dsp {
             auto pdc=analyzeLatencies(state->intrinsicLatencies,order,audioEdges);
             if (!pdc) return std::unexpected(pdc.error());
             state->pdc=std::move(*pdc);
+            // An explicit legacy schedule is authoritative when provided.
+            // Otherwise every exact audio edge uses this generation's D table.
+            const auto schedule=config.connectionDelays.empty() ?
+                std::span<const ConnectionDelay>{state->pdc.edges} : config.connectionDelays;
             std::unordered_map<ChannelID, std::uint64_t> requestedDelays;
-            for (const auto& delay : config.connectionDelays) {
+            for (const auto& delay : schedule) {
                 const auto edge = incoming.find(delay.connection.to);
                 if (edge == incoming.end() || edge->second != delay.connection.from ||
                     !requestedDelays.emplace(delay.connection.to, delay.samples).second)
@@ -509,7 +513,7 @@ export namespace mka::audio::dsp {
                     for (std::size_t c = 0; c < descriptors.size(); ++c) {
                         const auto found = requestedDelays.find(descriptors[c].channel);
                         // Absent source/destination layouts remain silent, never index an unprepared slot.
-                        if (found == requestedDelays.end() || bindings[c] == noBuffer) continue;
+                        if (found == requestedDelays.end() || found->second == 0 || bindings[c] == noBuffer) continue;
                         if (signalCount == std::numeric_limits<std::size_t>::max())
                             throw std::length_error("signal capacity");
                         const auto input = bindings[c], output = signalCount++;
@@ -565,6 +569,7 @@ export namespace mka::audio::dsp {
             account(state->lifetimes); account(state->assignment.slotOf);
             account(state->intrinsicLatencies.nodes);
             account(state->pdc.nodes);
+            account(state->pdc.edges);
             metadata.push_back({config.inputChannels, sizeof(InputChannel), alignof(InputChannel)});
             metadata.push_back({config.outputChannels, sizeof(OutputChannel), alignof(OutputChannel)});
             for (const auto& task : state->tasks) {

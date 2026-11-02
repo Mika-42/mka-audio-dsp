@@ -29,6 +29,7 @@ import mka.audio.dsp.plan_switcher;
 #include "headphone_pipeline_fixture.hpp"
 #include "plan_switcher_fixture.hpp"
 #include "plan_switcher_stress.hpp"
+#include "pdc_render_fixture.hpp"
 
 namespace {
     // Constant-initialized thread-local counters avoid allocation in the probe.
@@ -1270,5 +1271,34 @@ namespace {
         EXPECT_EQ(first,103);
         EXPECT_EQ(second,103);
         EXPECT_TRUE(graph.outputNodes().empty());
+    }
+}
+
+namespace {
+    TEST(PdcRealtime, AutomaticCompensationBeyondBlockSizeUsesNoHeapDeletesOrMutexes) {
+        using namespace mka::audio::dsp;
+        DAG graph;
+        const auto fast=graph.add<pdc_test::UniformDelayNode>(0U);
+        const auto slow=graph.add<pdc_test::UniformDelayNode>(256U);
+        const auto join=graph.add<pdc_test::UniformDelayNode>(0U,pdc_test::ports(),0U);
+        ASSERT_TRUE(fast); ASSERT_TRUE(slow); ASSERT_TRUE(join);
+        ASSERT_TRUE(pdc_test::connect(graph,pdc_test::edge(*fast,*join)));
+        ASSERT_TRUE(pdc_test::connect(graph,pdc_test::edge(*slow,*join,PortType::Aux)));
+        ASSERT_TRUE(graph.markAsOutput(*join));
+        auto plan=graph.compile(BackendConfig{.maxFrames=128,.inputChannels=1,.outputChannels=1}); ASSERT_TRUE(plan);
+        ASSERT_EQ(plan->delayTaskCount(),1U);
+        ASSERT_EQ(plan->preparedMemoryUsage().historyBytes,256U*sizeof(float));
+        std::array<float,130> input{},output{}; input.fill(1.F); output.fill(-999.F);
+        const std::array<const float*,1> inputs{input.data()+1};
+        const std::array outputs{output.data()+1};
+        const std::array<FrameCount,3> sizes{0,1,128};
+        {
+            const AllocationWindow measured;
+            for (unsigned block=0;block<64;++block)
+                plan->exec(mka::audio::AudioProcessContext{inputs,outputs,sizes[block%3],128,128});
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        EXPECT_EQ(output.front(),-999.F); EXPECT_EQ(output.back(),-999.F);
+        EXPECT_EQ(plan->callbackDiagnostics(),0U);
     }
 }
