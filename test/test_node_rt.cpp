@@ -31,6 +31,7 @@ import mka.audio.dsp.plan_switcher;
 #include "plan_switcher_fixture.hpp"
 #include "plan_switcher_stress.hpp"
 #include "pdc_render_fixture.hpp"
+#include "delay_audio_fixture.hpp"
 
 namespace {
     // Constant-initialized thread-local counters avoid allocation in the probe.
@@ -1432,5 +1433,40 @@ namespace {
             EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
             EXPECT_EQ(output.front(),-999.F); EXPECT_EQ(output.back(),-999.F);
         }
+    }
+}
+
+namespace {
+    TEST(DelayAudioPdcRealtime, CompleteStereoP01P02P03PlansUseNoHeapDeletesOrMutexes) {
+        using namespace mka::audio::dsp;
+        using namespace audio_pdc_test;
+        for (const auto scenario : {Scenario::Zero,Scenario::Parallel,Scenario::Chain})
+            for (const auto strategy : {SlotStrategy::Reuse,SlotStrategy::Unique}) {
+                Matrix model; ASSERT_TRUE(model.make(scenario));
+                auto plan=model.graph.compile(BackendConfig{.maxFrames=128,.inputChannels=2,.outputChannels=2,
+                    .sampleRate=48000,.slotStrategy=strategy}); ASSERT_TRUE(plan);
+                using Samples=std::array<std::array<float,130>,2>;
+                std::array<Samples,2> input{},output{};
+                for (auto& bank : input) for (auto& lane : bank) lane.fill(-999.F);
+                for (auto& bank : output) for (auto& lane : bank) lane.fill(-999.F);
+                const std::array<FrameCount,5> sizes{0,1,2,7,128}; std::size_t n=0;
+                {
+                    const AllocationWindow measured;
+                    for (unsigned block=0;block<64;++block) {
+                        const auto bank=block%2,frames=sizes[block%sizes.size()];
+                        for (unsigned lane=0;lane<2;++lane)
+                            for (FrameCount f=0;f<frames;++f) input[bank][lane][f+1]=inputSample(lane,n+f);
+                        const std::array<const float*,2> inputs{input[bank][0].data()+1,input[bank][1].data()+1};
+                        const std::array outputs{output[bank][0].data()+1,output[bank][1].data()+1};
+                        plan->exec(mka::audio::AudioProcessContext{inputs,outputs,frames,128,128}); n+=frames;
+                    }
+                }
+                EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+                EXPECT_EQ(plan->callbackDiagnostics(),0U);
+                for (const auto& bank : output) for (const auto& lane : bank) {
+                    EXPECT_EQ(lane.front(),-999.F); EXPECT_EQ(lane.back(),-999.F);
+                }
+                for (const auto& ref : model.references) EXPECT_EQ(model.processor(ref.id).queries,1U);
+            }
     }
 }
