@@ -43,3 +43,18 @@ Un oracle indépendant reconstruit producedAt/lastUse depuis les connexions et l
 Les descripteurs In/Aux gardent leur ChannelID de destination et lisent des `const float*`. Pour D>0 ils pointent vers la production retardée ; D=0 garde directement le buffer Out du producteur. Ces spans et pointeurs sont stabilisés après allocations/assignation, avant publication ; exec ne cherche aucun ChannelID. Les sorties logiques restent dans le pool, même pour un Node marqué output avec un successeur. Les backendOutputs restent des vues physiques distinctes, à ChannelID nul, renouvelées et effacées à chaque callback.
 
 Les tests couvrent In=3/Aux=8 avec D=5/0, un fan-out direct tardif, un routeur output avec successeur et des écritures physiques différentes de son signal logique. Deux banques backend alternent, avec blocs 0/1/2/3/4/7 ; les spans internes restent fixes, les anciennes adresses matérielles ne sont pas réutilisées et le dernier writer gagne par sample. Les tests vérifient aussi l'indépendance des buffers de Ready et le refus de B sans rebinding de A. Callback rejeté ou vide ne fait avancer ni historique PDC ni plugin. Aucun mapping matériel implicite n'est ajouté.
+
+## S09-07 — Oracle audio intégré et publication
+
+Le graphe de test utilise de vrais processeurs DSP mono dont les latences intrinsèques sont implémentées par registres à décalage, indépendamment du ring de production. Deux chemins mono sélectionnent deux entrées physiques différentes. Un oracle absolu d'impulsions calcule séparément chaque sortie de Node, chaque In/Aux observé et les deux voies physiques :
+
+- P-01 : branches 0/0, zéro DelayTask.
+- P-02 : branches 64/256, D=192/0 avant Mix.
+- P-03 : A=128 puis C=64 face à B=512, D(C,Mix)=320/0. Un second fan-out de A reçoit D=384 ; un moniteur direct conserve sa latence 128.
+- P-04/05 : D=3 dans un vrai plan, [1..4] → [0,0,0,1], puis [5..8] → [2,3,4,5].
+
+Les samples internes sont capturés par les processeurs au moment de leur production, sans supposer qu'un slot scratch reste lisible après son dernier lecteur. Les rendus Reuse/Unique, blocs fixes et partitions 0/1/2/7/128 sont identiques. Les buffers backend alternent et les sentinelles sont vérifiées à chaque bloc. Les sorties physiques sont écrites par les routeurs marqués, sans correspondance hardware inventée par le moteur.
+
+Un candidat refusé pour overflow/budget laisse A actif ; un B Ready n'affecte pas le rendu de A. Une publication à la frontière démarre B avec son historique PDC propre, nul, puis cet historique persiste. La discontinuité est explicite en V1 ; ni migration d'historique ni crossfade ne sont promis. Les injections bad_alloc des fiches précédentes et du sprint 8 continuent de vérifier chaque allocation de préparation.
+
+Un test concurrent prépare/publie 1 000 plans stéréo P-03, vérifie les tables et historiques privés, les générations monotones, les guards, les bornes audio et une seule capture de latence par Node partagé. L'exécutable RT instrumente tous les graphes P-01/P-02/P-03 en Reuse et Unique : zéro allocation/libération/mutex en callback.
