@@ -63,6 +63,28 @@ export namespace mka::audio::dsp {
     };
 
     /**
+     * @brief Immutable diagnostic of the final Node+Delay operation sequence.
+     * @details index addresses the corresponding Node or internal Delay table.
+     * Node operations carry their public identity; a Delay has node=0 and its
+     * exact logical edge and selected delay (including explicit schedules).
+     * outputSignal/outputCount describes the operation's contiguous production
+     * IDs, before physical slot assignment; sourceSignal is meaningful only for
+     * Delay. No signal denotes a history, silence or backend buffer. These
+     * numeric records never change in audio and contain no DSP-state pointer.
+     */
+    struct PlanOperationInfo {
+        OperationKind kind=OperationKind::Node;
+        std::size_t index=0;
+        NodeID node=invalidNodeID;
+        Connection connection{};
+        SignalID sourceSignal=std::numeric_limits<SignalID>::max();
+        SignalID outputSignal=std::numeric_limits<SignalID>::max();
+        std::size_t outputCount=0;
+        std::uint64_t delaySamples=0;
+        bool operator==(const PlanOperationInfo&) const noexcept=default;
+    };
+
+    /**
      * @brief Immutable prepared backend shape: counts, Hz and maximum frames.
      * @details Physical channel counts must match every callback exactly, even
      * at zero frames. Rate zero means unspecified; positive rates are in Hz.
@@ -150,15 +172,11 @@ export namespace mka::audio::dsp {
             std::vector<InputChannel> backendInputs;
             std::vector<OutputChannel> backendOutputs;
 
-            struct Operation {
-                OperationKind kind;
-                std::size_t index;
-            };
             struct CompiledDelay {
                 std::size_t inputSlot = noBuffer, outputSlot = noBuffer;
                 detail::DelayTask task;
             };
-            std::vector<Operation> operations;
+            std::vector<PlanOperationInfo> operations;
             std::vector<CompiledDelay> delays;
             std::vector<SignalLifetime> lifetimes;
             SlotAssignment assignment;
@@ -331,6 +349,11 @@ export namespace mka::audio::dsp {
         /// Retained internal delays; D=0 always uses a direct input pointer.
         [[nodiscard]] std::size_t delayTaskCount() const noexcept {
             return audio_ ? audio_->delays.size() : 0;
+        }
+        /// Read-only final schedule. Control-side view expires on replacement/retirement.
+        [[nodiscard]] std::span<const PlanOperationInfo> operationSchedule() const noexcept {
+            return audio_ ? std::span<const PlanOperationInfo>{audio_->operations} :
+                std::span<const PlanOperationInfo>{};
         }
 
         /** Borrowed membership of this generation, including desired-graph removals. */
@@ -513,7 +536,9 @@ export namespace mka::audio::dsp {
                         delay.inputSlot = input;
                         delay.outputSlot = output;
                         delay.task.delaySamples = found->second;
-                        state->operations.push_back({OperationKind::Delay, state->delays.size()});
+                        const Connection edge{incoming.find(descriptors[c].channel)->second,descriptors[c].channel};
+                        state->operations.push_back({OperationKind::Delay,state->delays.size(),invalidNodeID,
+                            edge,input,output,1,found->second});
                         state->delays.push_back(std::move(delay));
                         signals.push_back({OperationKind::Delay, {input}, {output}});
                         bindings[c] = output;
@@ -525,7 +550,9 @@ export namespace mka::audio::dsp {
                 for (const auto s : task.inputSlots) if (s != noBuffer) operation.reads.push_back(s);
                 for (const auto s : task.auxiliarySlots) if (s != noBuffer) operation.reads.push_back(s);
                 signals.push_back(std::move(operation));
-                state->operations.push_back({OperationKind::Node, i});
+                state->operations.push_back({.kind=OperationKind::Node,.index=i,.node=plan_[i]->id(),
+                    .outputSignal=task.outputSlots.empty() ? noBuffer : task.outputSlots.front(),
+                    .outputCount=task.outputSlots.size()});
             }
             auto lifetimes = calculateLifetimes(signals, signalCount);
             if (!lifetimes) return std::unexpected(lifetimes.error());
