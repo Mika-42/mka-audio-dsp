@@ -1,4 +1,5 @@
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -16,12 +17,14 @@
 import mka.audio.dsp.node;
 import mka.audio.dsp.dag;
 import mka.audio.dsp.buffer_pool;
+import mka.audio.dsp.plan_switcher;
 #include "offline_pipeline.hpp"
 #include "pool_pipeline.hpp"
 #include "backend_routing_fixture.hpp"
 #include "last_writer_fixture.hpp"
 #include "pair_routing_fixture.hpp"
 #include "headphone_pipeline_fixture.hpp"
+#include "plan_switcher_fixture.hpp"
 
 namespace {
     // Constant-initialized thread-local counters avoid allocation in the probe.
@@ -144,6 +147,20 @@ void operator delete[](void* memory, std::align_val_t, const std::nothrow_t&) no
 
 namespace {
     using namespace mka::audio::dsp;
+
+    TEST(PlanSwitcherRealtime, PersistentActiveAndReadyPlansHaveNoCallbackHeapOperations) {
+        DAG graph; PlanSwitcher switcher;
+        const auto id=graph.add<switcher_test::SignalNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
+        const BackendConfig cfg{.maxFrames=4,.inputChannels=1,.outputChannels=1};
+        ASSERT_TRUE(switcher.initialize(graph,cfg)); ASSERT_TRUE(switcher.prepareInactivePlan(graph,cfg));
+        switcher_test::IO io;
+        {
+            const AllocationWindow window;
+            for (unsigned callback=0;callback<64;++callback) switcher.exec(io.block(callback%3 ? 4 : 0));
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        EXPECT_EQ(switcher.audioGeneration(),1U);
+    }
 
     TEST(BackendCapacityRealtime, FixedPhysicalShapesAndRejectionsNeverAllocateOrLock) {
         for (const std::uint32_t count : {0U,1U,2U,6U}) {

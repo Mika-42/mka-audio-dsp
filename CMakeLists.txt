@@ -65,6 +65,7 @@ target_sources(mka-audio-dsp
         src/structural_compile.cppm
         src/dag.cppm
         src/execution_plan.cppm
+        src/plan_switcher.cppm
 )
 
 target_compile_features(
@@ -104,6 +105,7 @@ if (MKA_BUILD_TESTS)
 
     add_executable(mka-audio-dsp-tests
             test/test_types.cpp
+            test/test_plan_switcher_storage.cpp
             test/test_backend_capacities.cpp
             test/test_backend_sources.cpp
             test/test_physical_input_views.cpp
