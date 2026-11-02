@@ -167,6 +167,26 @@ namespace {
         }
     }
 
+    TEST(PhysicalInputsRealtime, TwoSourcesShareSixReadOnlyPointersWithNoHeapOrMutex) {
+        std::array<backend_test::Observation,2> seen;
+        seen[1].expectOutput=true;
+        DAG graph;
+        const auto a=graph.add<backend_test::ProbeNode>(seen[0],Config{.layoutOutput={0}});
+        const auto b=graph.add<backend_test::ProbeNode>(seen[1],Config{.layoutInput={65535},.layoutOutput={0}});
+        ASSERT_TRUE(a); ASSERT_TRUE(b); ASSERT_TRUE(graph.markAsOutput(*b));
+        auto plan=graph.compile(BackendConfig{.maxFrames=128,.inputChannels=6,.outputChannels=6}); ASSERT_TRUE(plan);
+        backend_test::FakeBackend first,second(100.F);
+        {
+            const AllocationWindow window;
+            for (unsigned block=0;block<32;++block) {
+                const auto io=(block%2 ? first : second).io(block%3 ? 128U : 0U,6,6);
+                const backend_test::IOScope expected(io); plan->exec(io);
+            }
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        for (const auto& o : seen) { EXPECT_EQ(o.calls,32U); EXPECT_TRUE(o.directInputs); EXPECT_TRUE(o.directOutputs); }
+    }
+
     TEST(PoolRealtime, RecycledFanoutAndPersistentDelayNeedNoHeapOrMutexOnCallbacks) {
         pool_test::Pipeline p;
         const auto a=p.add(), b=p.add(), c=p.add(), d=p.add();
