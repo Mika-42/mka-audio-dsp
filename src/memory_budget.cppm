@@ -25,6 +25,22 @@ export namespace mka::audio::dsp {
         return a + b;
     }
 
+    /**
+     * @brief Check a mono history's configured sample limit and size_t byte size.
+     * @details The inclusive limit defaults to unlimited; there is no arbitrary
+     * memory ceiling. MemoryBudgetExceeded denotes the configured sample quota,
+     * ArithmeticOverflow an unrepresentable count/product. The containing plan
+     * still checks its aggregate memory budget and container addressability
+     * before allocating any PCM or history. No allocation or state mutation.
+     */
+    [[nodiscard]] constexpr std::expected<std::size_t, CompileError> checkedDelayBytes(
+        const std::uint64_t samples,
+        const std::uint64_t maxSamples=std::numeric_limits<std::uint64_t>::max()) noexcept {
+        if (samples>maxSamples)
+            return std::unexpected(CompileError{ErrorCode::MemoryBudgetExceeded});
+        return checkedSizeMultiply(samples,sizeof(float));
+    }
+
     /// Requested retained array payload and deterministic alignment allowance.
     struct MemoryArray {
         std::uint64_t count = 0;
@@ -81,7 +97,7 @@ export namespace mka::audio::dsp {
         if (auto status = append(*slots); !status) return std::unexpected(status.error());
         if (auto status = append(*silence); !status) return std::unexpected(status.error());
         for (const auto count : request.delaySamples) {
-            const auto bytes = checkedSizeMultiply(count, sizeof(float));
+            const auto bytes = checkedDelayBytes(count);
             if (!bytes) return std::unexpected(bytes.error());
             if (auto status = append(*bytes); !status) return std::unexpected(status.error());
             // historyBytes <= totalBytes, so the checked total proves this sum fits.

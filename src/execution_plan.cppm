@@ -81,6 +81,9 @@ export namespace mka::audio::dsp {
         /// when nonempty (legacy integration). Empty selects computed edge D.
         /// Borrowed only during prepare; never retained in the prepared state.
         std::span<const ConnectionDelay> connectionDelays;
+        /// Inclusive per-edge history quota, independent of maxFrames. Unlimited
+        /// by default; exceeding it returns MemoryBudgetExceeded on control.
+        std::uint64_t maxDelaySamples = std::numeric_limits<std::uint64_t>::max();
     };
 
     /// Validate wide driver values on control BEFORE narrowing into BackendConfig.
@@ -498,12 +501,11 @@ export namespace mka::audio::dsp {
                 if (edge == incoming.end() || edge->second != delay.connection.from ||
                     !requestedDelays.emplace(delay.connection.to, delay.samples).second)
                     return std::unexpected(Error{ErrorCode::InvalidParameter});
-                if (delay.samples > std::numeric_limits<std::size_t>::max())
-                    return std::unexpected(Error{ErrorCode::ArithmeticOverflow});
-                if (const auto bytes = checkedSizeMultiply(delay.samples, sizeof(float)); !bytes)
-                    return std::unexpected(bytes.error());
+                if (const auto bytes = checkedDelayBytes(delay.samples,config.maxDelaySamples); !bytes)
+                    return std::unexpected(Error{bytes.error().code,decodeNode(delay.connection.to),delay.connection.to});
                 if (delay.samples > std::vector<float>{}.max_size())
-                    return std::unexpected(Error{ErrorCode::CapacityExceeded});
+                    return std::unexpected(Error{ErrorCode::ArithmeticOverflow,
+                        decodeNode(delay.connection.to),delay.connection.to});
             }
             // Establish the COMPLETE Node+Delay sequence before computing liveness.
             std::vector<SignalOperation> signals;
