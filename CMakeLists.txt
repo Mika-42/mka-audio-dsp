@@ -60,6 +60,7 @@ target_sources(mka-audio-dsp
         src/topology.cppm
         src/compile_config.cppm
         src/buffer_pool.cppm
+        src/memory_budget.cppm
         src/signal_liveness.cppm
         src/structural_compile.cppm
         src/dag.cppm
@@ -106,6 +107,7 @@ if (MKA_BUILD_TESTS)
             test/test_buffer_pool.cpp
             test/test_signal_liveness.cpp
             test/test_fanout_liveness.cpp
+            test/test_memory_budget.cpp
             test/test_ports.cpp
             test/test_channel_id.cpp
             test/test_audio_channels.cpp

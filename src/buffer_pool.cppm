@@ -10,6 +10,7 @@ module;
 
 export module mka.audio.dsp.buffer_pool;
 export import mka.audio.dsp.types;
+export import mka.audio.dsp.memory_budget;
 
 export namespace mka::audio::dsp {
     /// A mono temporary slot, unrelated to logical channels or backend identity.
@@ -31,19 +32,12 @@ export namespace mka::audio::dsp {
         BufferPool(BufferPool&&) = delete;
         BufferPool& operator=(BufferPool&&) = delete;
 
-        /// Requested sample bytes, excluding allocator bookkeeping/owner object.
+        /// Requested slots + silence bytes, excluding allocator bookkeeping/owner object.
         [[nodiscard]] static std::expected<std::size_t, CompileError>
         storageBytes(const std::uint32_t slots, const FrameCount frames) noexcept {
-            constexpr auto maximum = std::numeric_limits<std::size_t>::max();
-            if (frames != 0 && slots > maximum / frames)
-                return std::unexpected(CompileError{ErrorCode::ArithmeticOverflow});
-            const auto samples = static_cast<std::size_t>(slots) * frames;
-            if (samples > maximum / sizeof(float))
-                return std::unexpected(CompileError{ErrorCode::ArithmeticOverflow});
-            const auto bytes = samples * sizeof(float);
-            if (frames > (maximum - bytes) / sizeof(float))
-                return std::unexpected(CompileError{ErrorCode::ArithmeticOverflow});
-            return bytes + static_cast<std::size_t>(frames) * sizeof(float);
+            const auto usage = measurePlanMemory({.slotCount = slots, .maxFrames = frames});
+            if (!usage) return std::unexpected(usage.error());
+            return usage->totalBytes;
         }
 
         /** Prepare exact slot storage with a strong failure guarantee, off RT. */
