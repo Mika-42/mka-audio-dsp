@@ -105,6 +105,7 @@ if (MKA_BUILD_TESTS)
     add_executable(mka-audio-dsp-tests
             test/test_types.cpp
             test/test_backend_capacities.cpp
+            test/test_backend_sources.cpp
             test/test_buffer_pool.cpp
             test/test_signal_liveness.cpp
             test/test_fanout_liveness.cpp
