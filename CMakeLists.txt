@@ -141,6 +141,7 @@ if (MKA_BUILD_TESTS)
             test/test_pdc_fanout.cpp
             test/test_pdc_outputs.cpp
             test/test_pdc_budget.cpp
+            test/test_pdc_oracle.cpp
             test/test_node_lifetime.cpp
             test/test_backend_io.cpp
             test/test_dag_storage.cpp
