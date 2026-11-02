@@ -53,6 +53,8 @@ namespace backend_test {
         FrameCount frames=0;
         bool expectSource=true,expectOutput=false;
         bool directInputs=true,directOutputs=true,separateStorage=true,physicalIDsZero=true;
+        bool checkConstantInput=false,inputSamplesIntact=true;
+        float constantInput=0.F;
     };
 
     class ProbeNode final : public Node {
@@ -62,6 +64,9 @@ namespace backend_test {
             auto& o=observed_; ++o.calls;
             o.inputs=ctx.inputs.size(); o.auxiliary=ctx.auxiliary.size();
             o.physicalOutputs=ctx.backendOutputs.size(); o.frames=ctx.frames;
+            if (o.checkConstantInput && !ctx.inputs.empty())
+                for (FrameCount f=0;f<ctx.frames;++f)
+                    o.inputSamplesIntact=o.inputSamplesIntact && ctx.inputs[0].buffer[f]==o.constantInput;
             if (currentIO) {
                 if (o.expectSource) {
                     o.directInputs=o.directInputs && ctx.inputs.size()==currentIO->inputs.size();
@@ -84,5 +89,41 @@ namespace backend_test {
         }
     private:
         Observation& observed_;
+    };
+
+    /** Control-set test policy. Logical and physical values intentionally differ. */
+    struct WritePolicy {
+        std::uint32_t lanes=0;
+        FrameCount begin=0,end=UINT32_MAX,stride=1;
+        float physicalValue=100.F,logicalValue=10.F;
+    };
+
+    class PhysicalWriter final : public Node {
+    public:
+        PhysicalWriter(NodeID id,Observation& seen,WritePolicy& policy,Config cfg={.layoutOutput={0}})
+            : Node(id,cfg),seen_(seen),policy_(policy) {}
+        void process(const ProcessContext& ctx) noexcept override {
+            ++seen_.calls; seen_.inputs=ctx.inputs.size(); seen_.frames=ctx.frames;
+            seen_.physicalOutputs=ctx.backendOutputs.size();
+            if (currentIO) {
+                seen_.directOutputs=seen_.directOutputs && ctx.backendOutputs.size()==
+                    (seen_.expectOutput ? currentIO->outputs.size() : 0);
+                for (std::size_t c=0;c<ctx.backendOutputs.size();++c) {
+                    seen_.directOutputs=seen_.directOutputs && ctx.backendOutputs[c].buffer==currentIO->outputs[c];
+                    seen_.physicalIDsZero=seen_.physicalIDsZero && ctx.backendOutputs[c].channel==0;
+                    for (const auto& out : ctx.outputs) if (ctx.frames)
+                        seen_.separateStorage=seen_.separateStorage && out.buffer!=ctx.backendOutputs[c].buffer;
+                }
+            }
+            for (const auto& out : ctx.outputs) for (FrameCount f=0;f<ctx.frames;++f) out.buffer[f]=policy_.logicalValue;
+            if (policy_.stride==0) return;
+            for (std::size_t c=0;c<ctx.backendOutputs.size() && c<32;++c) if (policy_.lanes&(1U<<c))
+                for (FrameCount f=0;f<ctx.frames;++f)
+                    if (f>=policy_.begin && f<policy_.end && (f-policy_.begin)%policy_.stride==0)
+                        ctx.backendOutputs[c].buffer[f]=policy_.physicalValue+static_cast<float>(c);
+        }
+    private:
+        Observation& seen_;
+        WritePolicy& policy_;
     };
 }
