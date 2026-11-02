@@ -48,6 +48,7 @@ target_sources(mka-audio-dsp
         src
         FILES
         src/error.cppm
+        src/diagnostics.cppm
         src/identifiers.cppm
         src/types.cppm
         src/config.cppm
@@ -111,6 +112,7 @@ if (MKA_BUILD_TESTS)
             test/test_types.cpp
             test/test_latency_recompile.cpp
             test/test_pdc_warmup.cpp
+            test/test_control_diagnostics.cpp
             test/test_plan_switcher_storage.cpp
             test/test_plan_switcher_handshake.cpp
             test/test_plan_switcher_boundary.cpp

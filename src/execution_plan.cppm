@@ -30,7 +30,7 @@ export namespace mka::audio::dsp {
     enum class CallbackDiagnostic : std::uint32_t {
         None=0, PlanNotPrepared=1U, FrameCapacityExceeded=2U,
         ChannelCapacityExceeded=4U, NullBuffer=8U, BufferCapacityExceeded=16U,
-        InvalidContext=32U
+        InvalidContext=32U, CallbackAdmissionRejected=64U
     };
     static_assert(std::atomic<std::uint32_t>::is_always_lock_free);
     /**

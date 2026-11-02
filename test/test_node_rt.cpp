@@ -1470,3 +1470,16 @@ namespace {
             }
     }
 }
+
+namespace {
+    TEST(ControlDiagnosticsRealtime, InvalidCallbacksAndAdmissionRejectionUseNoHeapOrMutex) {
+        using namespace mka::audio::dsp;
+        PlanSwitcher sw; std::array<float,4> out{1,2,3,4}; const std::array outputs{out.data()};
+        {
+            const AllocationWindow measured;
+            for (unsigned i=0;i<64;++i) sw.exec(mka::audio::AudioProcessContext{{},outputs,4,4,4});
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        EXPECT_EQ(out,(std::array<float,4>{0,0,0,0})); EXPECT_EQ(sw.takeCallbackDiagnostics(),64U);
+    }
+}

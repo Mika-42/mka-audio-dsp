@@ -13,20 +13,20 @@ export namespace mka::audio::dsp {
      * public vocabulary; legacy names below map to one of these categories.
      */
     enum class ErrorCode : std::uint16_t {
-        InvalidParameter,
-        NodeNotFound,
-        InvalidPort,
-        InvalidDirection,
-        ConnectionExists,
-        InputOccupied,
-        CycleDetected,
-        NodeInUse,
-        CapacityExceeded,
-        ArithmeticOverflow,
-        MemoryBudgetExceeded,
-        PrepareFailed,
-        LatencyOverflow,
-        PlanBusy
+        InvalidParameter = 0,
+        NodeNotFound = 1,
+        InvalidPort = 2,
+        InvalidDirection = 3,
+        ConnectionExists = 4,
+        InputOccupied = 5,
+        CycleDetected = 6,
+        NodeInUse = 7,
+        CapacityExceeded = 8,
+        ArithmeticOverflow = 9,
+        MemoryBudgetExceeded = 10,
+        PrepareFailed = 11,
+        LatencyOverflow = 12,
+        PlanBusy = 13
     };
 
     /**

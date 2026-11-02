@@ -106,7 +106,15 @@ export namespace mka::audio::dsp {
         }
 
         [[nodiscard]] bool lockFreeAtomics() const noexcept {
-            return gate_.is_lock_free() && state_.is_lock_free();
+            return gate_.is_lock_free() && state_.is_lock_free() && diagnostics_.is_lock_free();
+        }
+        /// Sticky aggregate survives slot retirement; safe control observation during callbacks.
+        [[nodiscard]] std::uint32_t callbackDiagnostics() const noexcept {
+            return diagnostics_.load(std::memory_order_relaxed);
+        }
+        /// Drain numeric events on control. Concurrent later events remain for the next drain.
+        [[nodiscard]] std::uint32_t takeCallbackDiagnostics() noexcept {
+            return diagnostics_.exchange(0,std::memory_order_relaxed);
         }
         /// State alone is atomic; do not infer an independent active-index snapshot.
         [[nodiscard]] HandshakeState handshakeState() const noexcept {
@@ -235,11 +243,14 @@ export namespace mka::audio::dsp {
             auto expected=CallbackGate::Ready;
             if (!gate_.compare_exchange_strong(expected,CallbackGate::Executing,
                     std::memory_order_acquire,std::memory_order_relaxed)) {
+                diagnostics_.fetch_or(static_cast<std::uint32_t>(CallbackDiagnostic::CallbackAdmissionRejected),std::memory_order_relaxed);
                 silenceRejected(io);
                 return;
             }
             (void)adoptPending(); // Exactly once before selecting any processing task.
             slots_[audioActive_].plan.exec(io);
+            const auto flags=slots_[audioActive_].plan.takeCallbackDiagnostics();
+            if (flags) diagnostics_.fetch_or(flags,std::memory_order_relaxed);
             gate_.store(CallbackGate::Ready,std::memory_order_release);
         }
 
@@ -278,6 +289,7 @@ export namespace mka::audio::dsp {
         std::array<Slot,2> slots_;
         std::atomic<CallbackGate> gate_{CallbackGate::Stopped};
         std::atomic<HandshakeState> state_{HandshakeState::Idle};
+        std::atomic<std::uint32_t> diagnostics_{0};
         // Each index has one writer. No control method reads audioActive_ while audio runs.
         std::uint8_t controlActive_=0,audioActive_=0;
         // Published via Pending release; read by audio only before its ACK release.
