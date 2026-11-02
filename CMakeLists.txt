@@ -132,6 +132,7 @@ if (MKA_BUILD_TESTS)
             test/test_pdc_warmup.cpp
             test/test_control_diagnostics.cpp
             test/test_v1_stress.cpp
+            test/test_declared_latency.cpp
             test/test_plan_switcher_storage.cpp
             test/test_plan_switcher_handshake.cpp
             test/test_plan_switcher_boundary.cpp
@@ -252,4 +253,11 @@ if(MKA_BUILD_BENCHMARKS)
     foreach(symbol malloc free calloc realloc pthread_mutex_lock pthread_mutex_trylock pthread_mutex_timedlock pthread_cond_wait nanosleep write fwrite)
         target_link_options(mka-v1-benchmark PRIVATE "-Wl,--wrap=${symbol}")
     endforeach()
+endif()
+
+option(MKA_BUILD_DOCS "Enable the Doxygen documentation target" OFF)
+if(MKA_BUILD_DOCS)
+    find_program(MKA_DOXYGEN doxygen REQUIRED)
+    add_custom_target(doc COMMAND ${MKA_DOXYGEN} ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} VERBATIM)
 endif()
