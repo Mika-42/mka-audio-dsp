@@ -1,12 +1,15 @@
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <expected>
 #include <limits>
 #include <new>
+#include <optional>
 #include <span>
+#include <thread>
 #include <vector>
 #ifdef MKA_WRAP_PTHREAD_MUTEX
 #include <pthread.h>
@@ -25,6 +28,7 @@ import mka.audio.dsp.plan_switcher;
 #include "pair_routing_fixture.hpp"
 #include "headphone_pipeline_fixture.hpp"
 #include "plan_switcher_fixture.hpp"
+#include "plan_switcher_stress.hpp"
 
 namespace {
     // Constant-initialized thread-local counters avoid allocation in the probe.
@@ -229,6 +233,21 @@ namespace {
             EXPECT_EQ(switcher.controlGeneration(),1U); EXPECT_NE(graph.node(*id),nullptr);
             switcher.exec(io.block()); EXPECT_EQ(io.input,io.output);
         }
+    }
+
+    TEST(PlanSwitcherRealtime, TenThousandThreadedSwapsHaveZeroAudioAllocationsDeletesOrMutexes) {
+        const switcher_test::StressHooks hooks{
+            .before=[]() noexcept { allocations=deallocations=mutexAttempts=0; measuring=true; },
+            .after=[](switcher_test::HeapTotals& totals) noexcept {
+                measuring=false;
+                totals.allocations+=allocations; totals.deallocations+=deallocations; totals.mutexAttempts+=mutexAttempts;
+            }};
+        const auto result=switcher_test::runSwitcherStress(10000,hooks);
+        EXPECT_EQ(result.failures,0U) << "control step=" << result.errorStep;
+        EXPECT_EQ(result.swaps,10000U);
+        for (const auto plans : result.delayPlans) EXPECT_GT(plans,0U);
+        EXPECT_EQ(result.heap.allocations,0U); EXPECT_EQ(result.heap.deallocations,0U); EXPECT_EQ(result.heap.mutexAttempts,0U);
+        EXPECT_EQ(result.created,result.destroyed); EXPECT_EQ(result.destroyedOnAudio,0U);
     }
 
     TEST(BackendCapacityRealtime, FixedPhysicalShapesAndRejectionsNeverAllocateOrLock) {
