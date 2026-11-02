@@ -1416,3 +1416,21 @@ namespace {
         EXPECT_EQ(output,input); EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
     }
 }
+
+namespace {
+    TEST(DelayTaskRealtime, CompiledConcreteTaskExecutesWithoutHeapDeletesOrMutexes) {
+        using namespace mka::audio::dsp;
+        for (const std::uint64_t delay : {1U,3U,256U}) {
+            detail::DelayTask task; ASSERT_TRUE(task.prepare(delay));
+            std::array<float,130> input{},output{}; input.fill(1.F); output.fill(-999.F);
+            ASSERT_TRUE(task.bind(input.data()+1,output.data()+1,128));
+            const std::array<FrameCount,5> frames{0,1,2,7,128};
+            {
+                const AllocationWindow measured;
+                for (unsigned block=0;block<64;++block) task.execute(frames[block%frames.size()]);
+            }
+            EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+            EXPECT_EQ(output.front(),-999.F); EXPECT_EQ(output.back(),-999.F);
+        }
+    }
+}
