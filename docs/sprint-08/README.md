@@ -47,3 +47,11 @@ Le PDC V1 compense uniquement les arêtes logiques connues, avant le process con
 Pour synchroniser deux destinations matérielles, réunir d'abord les branches dans une jonction Mix/routeur dont les In/Aux sont compensés, puis router son signal commun vers les voies souhaitées. Deux Nodes output indépendants à 3 et 8 samples gardent leurs propres temps physiques. Le moteur n'en déduit pas un alignement automatique par canal.
 
 Les tests rendent la jonction 3/8 vers les voies libres 2 et 5, les deux outputs indépendants sans retard artificiel, un routeur output avec successeur (échantillons logiques distincts de ses écritures physiques) et plusieurs writers dont les plages d'écriture se recouvrent. Le dernier writer gagne par échantillon, sans sommation implicite.
+
+## S08-07 — Limites, budget et transaction
+
+`BackendConfig::maxDelaySamples` limite chaque historique en samples, indépendamment de `maxFrames` ; `memoryBudgetBytes` limite le total du plan. Les deux quotas sont inclusifs et illimités par défaut, sans plafond arbitraire. `checkedDelayBytes` vérifie le quota, la conversion en `size_t` et le produit par `sizeof(float)` avant allocation. La préparation vérifie aussi la capacité adressable du conteneur ; l'addition des historiques, slots temporaires, silence, tables P/A/L/D, autres métadonnées et padding utilise l'arithmétique contrôlée du budget total.
+
+Un dépassement de quota retourne `MemoryBudgetExceeded`, une taille/arithmétique non représentable `ArithmeticOverflow`, un cumul temporel non représentable `LatencyOverflow`, et un `bad_alloc` de préparation `PrepareFailed`. Les erreurs de retard portent le NodeID et ChannelID destination. Toutes surviennent sur contrôle, avant publication ; la transaction ne remplace jamais A par un état partiel.
+
+Tests : D=0/1/256 avec maxFrames=4, plusieurs historiques, budget exact et un octet en dessous, limite de retard exacte et trop courte, limites `size_t`/`uint64_t` sans allocation gigantesque. Deux refus de B pendant un rendu continu doivent laisser A à sa génération et poursuivre exactement son historique. L'exécutable d'injection échoue à chaque point d'allocation d'une préparation PDC automatique, puis vérifie les tables/pointeurs et les échantillons de A contre une rampe retardée indépendante. Il ne rend pas une copie de plan partageant les mêmes historiques DSP de Node.

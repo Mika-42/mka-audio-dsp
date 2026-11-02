@@ -1302,3 +1302,62 @@ namespace {
         EXPECT_EQ(plan->callbackDiagnostics(),0U);
     }
 }
+
+namespace {
+    TEST(PdcAllocation, EveryAutomaticPreparationFailurePreservesActiveHistoryAndTables) {
+        using namespace mka::audio::dsp;
+        DAG graph;
+        const auto a=graph.add<pdc_test::UniformDelayNode>(0U),b=graph.add<pdc_test::UniformDelayNode>(255U);
+        const auto c=graph.add<pdc_test::UniformDelayNode>(256U);
+        const auto join=graph.add<pdc_test::UniformDelayNode>(0U,
+            Config{.layoutInput={0,1},.layoutAuxiliary={0},.layoutOutput={0}},0U);
+        ASSERT_TRUE(a); ASSERT_TRUE(b); ASSERT_TRUE(c); ASSERT_TRUE(join);
+        for (const auto edge : {pdc_test::edge(*a,*join),pdc_test::edge(*b,*join,PortType::In,1),
+                               pdc_test::edge(*c,*join,PortType::Aux)})
+            ASSERT_TRUE(pdc_test::connect(graph,edge));
+        ASSERT_TRUE(graph.markAsOutput(*join));
+        const BackendConfig cfg{.maxFrames=4,.inputChannels=1,.outputChannels=1};
+        auto target=graph.compile(cfg); ASSERT_TRUE(target);
+        std::size_t points=0;
+        {
+            const AllocationWindow measured;
+            const auto result=target->prepareBackend(cfg,graph.connections(),graph.outputNodes());
+            if (!result) std::abort();
+            points=allocations;
+        }
+        ASSERT_GT(points,0U);
+        const auto* table=target->pdcAnalysis()->nodes.data();
+        const auto* snapshot=target->latencySnapshot()->nodes.data();
+        const auto* samples=pdc_test::context(*target,*a).outputs[0].buffer;
+        const auto total=target->preparedMemoryUsage().totalBytes;
+        std::array<float,4> input{},output{};
+        const std::array<const float*,1> inputs{input.data()}; const std::array outputs{output.data()};
+        unsigned t=0;
+        const auto renderNext=[&] {
+            for (unsigned f=0;f<4;++f) input[f]=static_cast<float>(t+f+1);
+            target->exec(mka::audio::AudioProcessContext{inputs,outputs,4,4,4});
+            for (unsigned f=0;f<4;++f)
+                EXPECT_EQ(output[f],t+f<256 ? 0.F : 3.F*static_cast<float>(t+f-256+1));
+            t+=4;
+        };
+        for (unsigned block=0;block<80;++block) renderNext();
+        for (std::size_t point=0;point<points;++point) {
+            SCOPED_TRACE(point);
+            Result result;
+            {
+                const FailureWindow fault(point);
+                result=target->prepareBackend(cfg,graph.connections(),graph.outputNodes());
+            }
+            ASSERT_FALSE(result); EXPECT_EQ(result.error().code,ErrorCode::PrepareFailed);
+            EXPECT_EQ(injectedFailures,1U);
+            EXPECT_EQ(target->pdcAnalysis()->nodes.data(),table);
+            EXPECT_EQ(target->latencySnapshot()->nodes.data(),snapshot);
+            EXPECT_EQ(pdc_test::context(*target,*a).outputs[0].buffer,samples);
+            EXPECT_EQ(target->preparedMemoryUsage().totalBytes,total);
+            EXPECT_EQ(target->preparedMemoryUsage().historyBytes,257U*sizeof(float));
+            // Independent time-domain oracle; do not execute a copy sharing the
+            // same mutable plugin histories, which would advance the DSP twice.
+            renderNext();
+        }
+    }
+}
