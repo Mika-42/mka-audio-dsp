@@ -330,7 +330,7 @@ namespace {
         ASSERT_TRUE(addedNode);
         auto& node = *static_cast<EmptyProcessor*>(graph.node(*addedNode));
         ASSERT_TRUE(graph.markAsOutput(node.id()));
-        auto plan = graph.compile(BackendConfig{.maxFrames = 2, .inputChannels = 2, .outputChannels = 2});
+        auto plan = graph.compile(BackendConfig{.maxFrames = 2, .inputChannels = 1, .outputChannels = 1});
         ASSERT_TRUE(plan);
         const std::array<float, 2> firstInput{1, 2};
         std::array<float, 2> firstOutput{};
@@ -343,6 +343,8 @@ namespace {
             EXPECT_TRUE(node.directViews);
         }
         const auto previous = firstOutput;
+        ASSERT_TRUE(plan->prepareBackend(BackendConfig{.maxFrames=2,.inputChannels=2,.outputChannels=1},
+            graph.connections(),graph.outputNodes()));
         {
             const std::array<float, 2> secondInput{7, 11};
             std::array<float, 2> secondOutput{};
@@ -357,6 +359,7 @@ namespace {
             EXPECT_EQ(secondOutput, secondInput);
             EXPECT_EQ(firstOutput, previous);
         }
+        ASSERT_TRUE(plan->prepareBackend(BackendConfig{.maxFrames=2},graph.connections(),graph.outputNodes()));
         ASSERT_TRUE(plan->exec(BackendBlock{.frames = 2}));
         EXPECT_EQ(node.inputCount, 0U);
         EXPECT_EQ(node.backendOutputCount, 0U);
@@ -681,8 +684,8 @@ namespace {
         const auto connection = detail::PlanConnection{a.channel(PortType::Out, 0), b.channel(PortType::In, 0)};
         const std::array duplicates{connection, connection};
         expectError(plan->prepareBackend(BackendConfig{}, duplicates, {}), ErrorType::ConnectionExists);
-        const BackendConfig excessive{.inputChannels = std::numeric_limits<std::size_t>::max()};
-        expectError(plan->prepareBackend(excessive, {}, {}), ErrorType::PreparationCapacityExceeded);
+        const auto excessive=makeBackendConfig(std::numeric_limits<std::uint64_t>::max(),0,0,0);
+        ASSERT_FALSE(excessive); EXPECT_EQ(excessive.error().code,ErrorCode::CapacityExceeded);
         EXPECT_TRUE(plan->isBackendPrepared());
         float output = 0;
         const std::array outputs{&output};

@@ -49,7 +49,9 @@ namespace {
         std::array<std::array<float,5>,6> outputA{},outputB{};
         for (auto& lane : inputA) lane.fill(3.F);
         for (auto& lane : inputB) lane.fill(7.F);
-        for (std::size_t count : {0U,2U,6U})
+        for (std::uint32_t count : {0U,2U,6U}) {
+            ASSERT_TRUE(plan->prepareBackend(BackendConfig{.maxFrames=4,.inputChannels=count,.outputChannels=count},
+                graph.connections(),graph.outputNodes()));
             for (FrameCount frames : {0U,1U,4U})
                 for (unsigned block=0;block<2;++block) {
                     std::array<const float*,6> inputs{}; std::array<float*,6> outputs{};
@@ -77,6 +79,7 @@ namespace {
                     for (const auto& lane : block ? outputA : outputB)
                         for (const auto sample : lane) EXPECT_EQ(sample,-77.F);
                 }
+        }
         EXPECT_EQ(static_cast<RealtimeNode*>(graph.node(*source))->calls,18U);
         EXPECT_EQ(plan->callbackDiagnostics(),0U);
     }
@@ -93,7 +96,7 @@ namespace {
         const auto normalOutputs=std::span{outputs}.first(2);
         plan->exec(AudioProcessContext{normalInputs,normalOutputs,3});
         const auto* logical=plan->executionTasks()[0].context.outputs[0].buffer;
-        const std::array<const float*,1> nullInput{nullptr};
+        const std::array<const float*,2> nullInput{nullptr,nullptr};
         const std::array<float*,2> nullOutput{outputs[0],nullptr};
         struct Case { AudioProcessContext io; CallbackDiagnostic diagnostic; FrameCount cleared; };
         const std::array cases{

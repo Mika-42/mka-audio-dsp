@@ -13,17 +13,19 @@ namespace {
     using namespace mka::audio::dsp;
     using namespace offline_test;
 
-    TEST(OfflinePipeline, OneCompilationRendersExactStereoHalfGainOnVariableBlocksAndFreshBackendBuffers) {
+    TEST(OfflinePipeline, OneStructuralCompilationRendersStereoAcrossPreparedShapesAndFreshBackendBuffers) {
         DAG graph;
         std::array<NodeID,3> ids{}; ASSERT_TRUE(buildPipeline(graph,ids));
         ASSERT_EQ(graph.connections().size(),4U);
         auto plan=graph.compile(BackendConfig{.maxFrames=FakeBackend::maximum,.inputChannels=2,.outputChannels=3}); ASSERT_TRUE(plan);
-        const auto* tasks=plan->executionTasks().data();
-        const auto* sourceSamples=tasks[0].context.outputs[0].buffer;
         for (auto id : ids) EXPECT_EQ(static_cast<PipelineNode*>(graph.node(id))->calls,0U);
         FakeBackend first{1.F},second{-3.F};
         const auto inputFirst=first.inputStorage, inputSecond=second.inputStorage;
-        for (std::size_t channels : {2U,3U})
+        for (std::uint32_t channels : {2U,3U}) {
+            ASSERT_TRUE(plan->prepareBackend(BackendConfig{.maxFrames=FakeBackend::maximum,
+                .inputChannels=2,.outputChannels=channels},graph.connections(),graph.outputNodes()));
+            const auto* tasks=plan->executionTasks().data();
+            const auto* sourceSamples=tasks[0].context.outputs[0].buffer;
             for (FrameCount frames : {0U,1U,128U,FakeBackend::maximum})
                 for (unsigned block=0;block<2;++block) {
                     auto& current=block ? second : first;
@@ -43,6 +45,7 @@ namespace {
                     EXPECT_EQ(plan->executionTasks().data(),tasks);
                     EXPECT_EQ(tasks[0].context.outputs[0].buffer,sourceSamples);
                 }
+        }
         for (auto id : ids) EXPECT_EQ(static_cast<PipelineNode*>(graph.node(id))->calls,16U);
         EXPECT_EQ(first.inputStorage,inputFirst); EXPECT_EQ(second.inputStorage,inputSecond);
         EXPECT_EQ(plan->callbackDiagnostics(),0U);

@@ -193,9 +193,8 @@ namespace {
         const std::array missingMarker{maxNodeID};
         ASSERT_NO_FATAL_FAILURE(expectError(plan->prepareBackend(config, {}, missingMarker),
             Error{ErrorCode::NodeNotFound, maxNodeID}));
-        const BackendConfig excessive{.outputChannels = std::numeric_limits<std::size_t>::max()};
-        ASSERT_NO_FATAL_FAILURE(expectError(plan->prepareBackend(excessive, {}, {}),
-            Error{ErrorCode::CapacityExceeded}));
+        const auto excessive=makeBackendConfig(0,std::numeric_limits<std::uint64_t>::max(),0,0);
+        ASSERT_FALSE(excessive); EXPECT_EQ(excessive.error(),Error{ErrorCode::CapacityExceeded});
         EXPECT_TRUE(plan->isBackendPrepared());
         ASSERT_EQ(plan->tasks().size(), 2U);
         float sample = 99;

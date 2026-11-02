@@ -191,10 +191,10 @@ namespace {
         std::optional<ExecutionPlan> pending{*active};
         std::optional<ExecutionPlan> retired{*active};
         ASSERT_TRUE(graph.remove(*id));
-        const BackendConfig impossible{.outputChannels = std::numeric_limits<std::size_t>::max()};
+        const BackendConfig impossible{.memoryBudgetBytes=0};
         auto failedReplacement = graph.compile(impossible);
         ASSERT_FALSE(failedReplacement);
-        EXPECT_EQ(failedReplacement.error(), GraphError::PreparationCapacityExceeded);
+        EXPECT_EQ(failedReplacement.error(), GraphError::MemoryBudgetExceeded);
         EXPECT_EQ(graph.collectRetiredNodes(), 0U);
         EXPECT_EQ(trace.destructions, 0U);
         const float input = 5;
