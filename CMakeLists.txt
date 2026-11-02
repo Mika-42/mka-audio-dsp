@@ -107,6 +107,7 @@ if (MKA_BUILD_TESTS)
             test/test_types.cpp
             test/test_plan_switcher_storage.cpp
             test/test_plan_switcher_handshake.cpp
+            test/test_plan_switcher_boundary.cpp
             test/test_backend_capacities.cpp
             test/test_backend_sources.cpp
             test/test_physical_input_views.cpp

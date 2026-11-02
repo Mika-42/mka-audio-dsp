@@ -162,6 +162,23 @@ namespace {
         EXPECT_EQ(switcher.audioGeneration(),1U);
     }
 
+    TEST(PlanSwitcherRealtime, BoundarySwapAndAcknowledgmentNeverAllocateDeleteOrLock) {
+        DAG graph; PlanSwitcher switcher;
+        const auto id=graph.add<switcher_test::GenerationNode>(switcher); ASSERT_TRUE(id);
+        ASSERT_TRUE(graph.markAsOutput(*id));
+        const BackendConfig cfg{.maxFrames=4,.inputChannels=1,.outputChannels=1};
+        ASSERT_TRUE(switcher.initialize(graph,cfg)); switcher_test::IO io;
+        for (unsigned cycle=0;cycle<256;++cycle) {
+            ASSERT_TRUE(switcher.prepareInactivePlan(graph,cfg)); ASSERT_TRUE(switcher.publishReadyPlan());
+            {
+                const AllocationWindow window;
+                switcher.exec(io.block());
+            }
+            EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+            ASSERT_TRUE(switcher.retireAcknowledgedPlan());
+        }
+    }
+
     TEST(BackendCapacityRealtime, FixedPhysicalShapesAndRejectionsNeverAllocateOrLock) {
         for (const std::uint32_t count : {0U,1U,2U,6U}) {
             backend_test::Observation observation; observation.expectOutput=true;
