@@ -558,6 +558,8 @@ export namespace mka::audio::dsp {
             if (!lifetimes) return std::unexpected(lifetimes.error());
             auto assignment = assignBufferSlots(*lifetimes, signals.size(), config.slotStrategy, config.maxBufferSlots);
             if (!assignment) return std::unexpected(assignment.error());
+            if (const auto proof=validateDelayLifetimes(signals,*lifetimes,*assignment); !proof)
+                return std::unexpected(proof.error());
             state->lifetimes = std::move(*lifetimes);
             state->assignment = std::move(*assignment);
             // Replace all compile-only SignalIDs by validated physical BufferIds.
