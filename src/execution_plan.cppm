@@ -1,6 +1,7 @@
 module;
 #include <algorithm>
 #include <atomic>
+#include <array>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -11,6 +12,7 @@ module;
 #include <optional>
 #include <span>
 #include <stdexcept>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -19,6 +21,7 @@ export import mka.audio.dsp.node;
 export import mka.audio.dsp.connection;
 export import mka.audio.dsp.compile_config;
 export import mka.audio.process_context;
+export import mka.audio.dsp.signal_liveness;
 
 export namespace mka::audio::dsp {
     /// Sticky, numeric callback diagnostics; formatting/handling belongs to control.
@@ -57,13 +60,23 @@ export namespace mka::audio::dsp {
         ProcessContext context{};
     };
 
+    /** Explicit mono delay on a logical edge, supplied by control-side PDC analysis. */
+    struct ConnectionDelay {
+        Connection connection;
+        std::uint64_t samples = 0;
+    };
+
     /** Control-side maximum callback shape; counts are physical, not ChannelIDs. */
     struct BackendConfig {
         FrameCount maxFrames = 0;
         std::size_t inputChannels = 0;
         std::size_t outputChannels = 0;
-        /// Requested audio storage bytes; excludes structural arrays and temporaries.
+        /// All retained plan payload + alignment allowance; excludes allocator overhead/temporaries.
         std::size_t memoryBudgetBytes = std::numeric_limits<std::size_t>::max();
+        SlotStrategy slotStrategy = SlotStrategy::Reuse;
+        std::uint32_t maxBufferSlots = std::numeric_limits<std::uint32_t>::max();
+        /// Borrowed only during prepare; no Config span is retained in the prepared state.
+        std::span<const ConnectionDelay> connectionDelays;
     };
 
     /**
@@ -95,31 +108,7 @@ export namespace mka::audio::dsp {
      * expected-returning preparation/compilation boundaries translate them to Error.
      */
     class ExecutionPlan final {
-        // Fixed baseline pool: one silence slot plus distinct logical outputs.
-        // Recycling and delay operations are introduced by their later sprints.
-        class BufferPool {
-        public:
-            static std::size_t maxSamples() noexcept { return std::vector<float>{}.max_size(); }
-            void prepare(const std::size_t slots, const FrameCount frames) {
-                maxFrames_ = frames;
-                samples_.resize(slots * static_cast<std::size_t>(frames), 0.F);
-            }
-            const float* inputBuffer(const std::size_t slot) const noexcept {
-                assert(slot != 0);
-                return maxFrames_ == 0 ? nullptr : samples_.data() + slot * maxFrames_;
-            }
-            /// Shared read-only mono silence; never an output or recyclable slot.
-            const float* silenceBuffer() const noexcept {
-                return maxFrames_ == 0 ? nullptr : samples_.data();
-            }
-            float* outputBuffer(const std::size_t slot) noexcept {
-                assert(slot != 0); // The silence slot never has a writable view.
-                return maxFrames_ == 0 ? nullptr : samples_.data() + slot * maxFrames_;
-            }
-        private:
-            std::vector<float> samples_;
-            FrameCount maxFrames_ = 0;
-        };
+        static constexpr auto noBuffer = std::numeric_limits<std::size_t>::max();
         struct AudioTask {
             std::vector<InputChannel> inputs;
             std::vector<InputChannel> auxiliary;
@@ -133,22 +122,54 @@ export namespace mka::audio::dsp {
 
         struct AudioState {
             BackendConfig config;
-            // Slot zero is read-only silence. Outputs each get their own slot.
             BufferPool pool;
             std::vector<AudioTask> tasks;
             std::vector<InputChannel> backendInputs;
             std::vector<OutputChannel> backendOutputs;
 
+            struct Operation {
+                OperationKind kind;
+                std::size_t index;
+            };
+            struct DelayTask {
+                std::size_t inputSlot = noBuffer, outputSlot = noBuffer;
+                std::size_t samples = 0, position = 0;
+                std::vector<float> history;
+                const float* input = nullptr;
+                float* output = nullptr;
+
+                void process(const FrameCount frames) noexcept {
+                    if (samples == 0) {
+                        if (frames) std::copy_n(input, frames, output);
+                        return;
+                    }
+                    for (FrameCount f = 0; f < frames; ++f) {
+                        output[f] = history[position];
+                        history[position] = input[f];
+                        if (++position == samples) position = 0;
+                    }
+                }
+            };
+            std::vector<Operation> operations;
+            std::vector<DelayTask> delays;
+            std::vector<SignalLifetime> lifetimes;
+            SlotAssignment assignment;
+            PlanMemoryUsage memory;
+
             void rebindInternal() noexcept {
                 for (auto& task : tasks) {
                     for (std::size_t i = 0; i < task.inputs.size(); ++i)
-                        task.inputs[i].buffer = task.inputSlots[i] == 0 ? pool.silenceBuffer() :
-                            pool.inputBuffer(task.inputSlots[i]);
+                        task.inputs[i].buffer = task.inputSlots[i] == noBuffer ? pool.silence() :
+                            pool.buffer(static_cast<BufferId>(task.inputSlots[i]));
                     for (std::size_t i = 0; i < task.auxiliary.size(); ++i)
-                        task.auxiliary[i].buffer = task.auxiliarySlots[i] == 0 ? pool.silenceBuffer() :
-                            pool.inputBuffer(task.auxiliarySlots[i]);
+                        task.auxiliary[i].buffer = task.auxiliarySlots[i] == noBuffer ? pool.silence() :
+                            pool.buffer(static_cast<BufferId>(task.auxiliarySlots[i]));
                     for (std::size_t i = 0; i < task.outputs.size(); ++i)
-                        task.outputs[i].buffer = pool.outputBuffer(task.outputSlots[i]);
+                        task.outputs[i].buffer = pool.buffer(static_cast<BufferId>(task.outputSlots[i]));
+                }
+                for (auto& delay : delays) {
+                    delay.input = pool.buffer(static_cast<BufferId>(delay.inputSlot));
+                    delay.output = pool.buffer(static_cast<BufferId>(delay.outputSlot));
                 }
             }
             void clearBackend(const std::size_t inputs, const std::size_t outputs) noexcept {
@@ -268,6 +289,19 @@ export namespace mka::audio::dsp {
             return tasks().subspan(layerIndices_[index], layerIndices_[index + 1] - layerIndices_[index]);
         }
         [[nodiscard]] bool isBackendPrepared() const noexcept { return audio_ != nullptr; }
+        /// Immutable control-side diagnostics; these tables are never consulted in audio.
+        [[nodiscard]] std::span<const SignalLifetime> signalLifetimes() const noexcept {
+            return audio_ ? std::span<const SignalLifetime>{audio_->lifetimes} : std::span<const SignalLifetime>{};
+        }
+        [[nodiscard]] std::span<const BufferId> signalSlots() const noexcept {
+            return audio_ ? std::span<const BufferId>{audio_->assignment.slotOf} : std::span<const BufferId>{};
+        }
+        [[nodiscard]] std::uint32_t bufferSlotCount() const noexcept {
+            return audio_ ? audio_->pool.slotCapacity() : 0;
+        }
+        [[nodiscard]] PlanMemoryUsage preparedMemoryUsage() const noexcept {
+            return audio_ ? audio_->memory : PlanMemoryUsage{};
+        }
 
         /** Borrowed membership of this generation, including desired-graph removals. */
         [[nodiscard]] bool references(const NodeID id) const noexcept {
@@ -300,13 +334,16 @@ export namespace mka::audio::dsp {
          * @brief Prepare owned descriptors/storage on control, without editing Nodes.
          * @details Logical edges and roles are snapshotted. Capacity/semantic
          * and resource errors return expected, without publishing partial state.
-         * Failure leaves existing prepared state unchanged. No slot recycling.
+         * Finalize Node/Delay order, prove lifetimes, assign slots, check total
+         * budget, prepare samples/history, then bind in stable heap storage.
+         * Failure leaves existing prepared state unchanged. No publication here.
          */
         [[nodiscard]] Result prepareBackend(const BackendConfig& config,
             const std::span<const Connection> connections,
             const std::span<const NodeID> outputNodes) try {
             auto state = std::make_unique<AudioState>();
             state->config = config;
+            state->config.connectionDelays = {};
             if (config.inputChannels > state->backendInputs.max_size() ||
                 config.outputChannels > state->backendOutputs.max_size()) {
                 return std::unexpected(Error{ErrorCode::CapacityExceeded});
@@ -314,10 +351,7 @@ export namespace mka::audio::dsp {
             std::unordered_map<NodeID, std::size_t> positions;
             positions.reserve(plan_.size());
             state->tasks.resize(plan_.size());
-            const auto stride = static_cast<std::size_t>(config.maxFrames);
-            const auto maxSlots = stride == 0 ? BufferPool::maxSamples() : BufferPool::maxSamples() / stride;
-            std::size_t slots = 1; // Silence, even for a graph without outputs.
-            if (maxSlots < slots) return std::unexpected(Error{ErrorCode::CapacityExceeded});
+            std::size_t signalCount = 0;
             for (std::size_t i = 0; i < plan_.size(); ++i) {
                 if (!positions.emplace(plan_[i]->id(), i).second)
                     return std::unexpected(Error{ErrorCode::InvalidParameter, plan_[i]->id()});
@@ -327,9 +361,9 @@ export namespace mka::audio::dsp {
                     error.node = plan_[i]->id();
                     return std::unexpected(error);
                 }
-                if (cfg.layoutOutput.size() > maxSlots - slots)
+                if (cfg.layoutOutput.size() > std::numeric_limits<std::size_t>::max() - signalCount)
                     return std::unexpected(Error{ErrorCode::CapacityExceeded, plan_[i]->id()});
-                slots += cfg.layoutOutput.size();
+                signalCount += cfg.layoutOutput.size();
             }
             for (const auto id : outputNodes) {
                 const auto found = positions.find(id);
@@ -365,8 +399,8 @@ export namespace mka::audio::dsp {
                 state->tasks[to->second].isSource = false;
             }
             std::unordered_map<ChannelID, std::size_t> outputSlots;
-            outputSlots.reserve(slots - 1);
-            std::size_t slot = 1;
+            outputSlots.reserve(signalCount);
+            std::size_t slot = 0;
             for (std::size_t i = 0; i < plan_.size(); ++i) {
                 auto& task = state->tasks[i];
                 task.outputs.reserve(plan_[i]->config().layoutOutput.size());
@@ -392,37 +426,101 @@ export namespace mka::audio::dsp {
                         const auto source = edge == incoming.end() ? outputSlots.end() : outputSlots.find(edge->second);
                         // Missing/unproduced logical channels read dedicated silence.
                         descriptors.push_back(InputChannel{channel, nullptr});
-                        bindings.push_back(source == outputSlots.end() ? std::size_t{0} : source->second);
+                        bindings.push_back(source == outputSlots.end() ? noBuffer : source->second);
                     }
                 };
                 if (!task.isSource)
                     bindInputs(plan_[i]->config().layoutInput, PortType::In, task.inputs, task.inputSlots);
                 bindInputs(plan_[i]->config().layoutAuxiliary, PortType::Aux, task.auxiliary, task.auxiliarySlots);
             }
-            // Count requested owned audio storage before acquiring sample memory.
-            // Allocator overhead and validation maps are outside this budget.
-            std::size_t bytes = sizeof(AudioState);
-            const auto account = [&](const std::size_t count, const std::size_t width) noexcept {
-                if (count > (std::numeric_limits<std::size_t>::max() - bytes) / width) return false;
-                bytes += count * width;
-                return true;
-            };
-            if (!account(plan_.size(),sizeof(AudioTask)) || !account(slots*stride,sizeof(float)) ||
-                !account(config.inputChannels,sizeof(InputChannel)) ||
-                !account(config.outputChannels,sizeof(OutputChannel)))
-                return std::unexpected(Error{ErrorCode::ArithmeticOverflow});
-            for (const auto& task : state->tasks) {
-                if (!account(task.inputs.size(),sizeof(InputChannel)) ||
-                    !account(task.auxiliary.size(),sizeof(InputChannel)) ||
-                    !account(task.outputs.size(),sizeof(OutputChannel)) ||
-                    !account(task.inputSlots.size(),sizeof(std::size_t)) ||
-                    !account(task.auxiliarySlots.size(),sizeof(std::size_t)) ||
-                    !account(task.outputSlots.size(),sizeof(std::size_t)))
+            std::unordered_map<ChannelID, std::uint64_t> requestedDelays;
+            for (const auto& delay : config.connectionDelays) {
+                const auto edge = incoming.find(delay.connection.to);
+                if (edge == incoming.end() || edge->second != delay.connection.from ||
+                    !requestedDelays.emplace(delay.connection.to, delay.samples).second)
+                    return std::unexpected(Error{ErrorCode::InvalidParameter});
+                if (delay.samples > std::numeric_limits<std::size_t>::max())
                     return std::unexpected(Error{ErrorCode::ArithmeticOverflow});
+                if (const auto bytes = checkedSizeMultiply(delay.samples, sizeof(float)); !bytes)
+                    return std::unexpected(bytes.error());
+                if (delay.samples > std::vector<float>{}.max_size())
+                    return std::unexpected(Error{ErrorCode::CapacityExceeded});
             }
-            if (bytes > config.memoryBudgetBytes)
-                return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded});
-            state->pool.prepare(slots,config.maxFrames);
+            // Establish the COMPLETE Node+Delay sequence before computing liveness.
+            std::vector<SignalOperation> signals;
+            for (std::size_t i = 0; i < state->tasks.size(); ++i) {
+                auto& task = state->tasks[i];
+                const auto insertDelays = [&](const auto& descriptors, auto& bindings) {
+                    for (std::size_t c = 0; c < descriptors.size(); ++c) {
+                        const auto found = requestedDelays.find(descriptors[c].channel);
+                        // Absent source/destination layouts remain silent, never index an unprepared slot.
+                        if (found == requestedDelays.end() || bindings[c] == noBuffer) continue;
+                        if (signalCount == std::numeric_limits<std::size_t>::max())
+                            throw std::length_error("signal capacity");
+                        const auto input = bindings[c], output = signalCount++;
+                        typename AudioState::DelayTask delay;
+                        delay.inputSlot = input;
+                        delay.outputSlot = output;
+                        delay.samples = static_cast<std::size_t>(found->second);
+                        state->operations.push_back({OperationKind::Delay, state->delays.size()});
+                        state->delays.push_back(std::move(delay));
+                        signals.push_back({OperationKind::Delay, {input}, {output}});
+                        bindings[c] = output;
+                    }
+                };
+                insertDelays(task.inputs, task.inputSlots);
+                insertDelays(task.auxiliary, task.auxiliarySlots);
+                SignalOperation operation{OperationKind::Node, {}, task.outputSlots};
+                for (const auto s : task.inputSlots) if (s != noBuffer) operation.reads.push_back(s);
+                for (const auto s : task.auxiliarySlots) if (s != noBuffer) operation.reads.push_back(s);
+                signals.push_back(std::move(operation));
+                state->operations.push_back({OperationKind::Node, i});
+            }
+            auto lifetimes = calculateLifetimes(signals, signalCount);
+            if (!lifetimes) return std::unexpected(lifetimes.error());
+            auto assignment = assignBufferSlots(*lifetimes, signals.size(), config.slotStrategy, config.maxBufferSlots);
+            if (!assignment) return std::unexpected(assignment.error());
+            state->lifetimes = std::move(*lifetimes);
+            state->assignment = std::move(*assignment);
+            // Replace all compile-only SignalIDs by validated physical BufferIds.
+            for (auto& task : state->tasks) {
+                for (auto& s : task.inputSlots) if (s != noBuffer) s = state->assignment.slotOf[s];
+                for (auto& s : task.auxiliarySlots) if (s != noBuffer) s = state->assignment.slotOf[s];
+                for (auto& s : task.outputSlots) s = state->assignment.slotOf[s];
+            }
+            std::vector<std::uint64_t> histories;
+            histories.reserve(state->delays.size());
+            for (auto& delay : state->delays) {
+                delay.inputSlot = state->assignment.slotOf[delay.inputSlot];
+                delay.outputSlot = state->assignment.slotOf[delay.outputSlot];
+                histories.push_back(delay.samples);
+            }
+            // Count actual retained array capacities + their owner objects. This
+            // also includes structural plan metadata, not the borrowed Nodes.
+            std::vector<MemoryArray> metadata;
+            const auto account = [&](const auto& values) {
+                using T = typename std::remove_cvref_t<decltype(values)>::value_type;
+                metadata.push_back({values.capacity(), sizeof(T), alignof(T)});
+            };
+            metadata.push_back({1, sizeof(ExecutionPlan), alignof(ExecutionPlan)});
+            metadata.push_back({1, sizeof(AudioState), alignof(AudioState)});
+            account(plan_); account(layerIndices_); account(borrows_); account(taskInfos_);
+            account(executionTasks_); account(taskIndices_); account(sourceTasks_); account(outputTasks_);
+            account(state->tasks); account(state->operations); account(state->delays);
+            account(state->lifetimes); account(state->assignment.slotOf);
+            metadata.push_back({config.inputChannels, sizeof(InputChannel), alignof(InputChannel)});
+            metadata.push_back({config.outputChannels, sizeof(OutputChannel), alignof(OutputChannel)});
+            for (const auto& task : state->tasks) {
+                account(task.inputs); account(task.auxiliary); account(task.outputs);
+                account(task.inputSlots); account(task.auxiliarySlots); account(task.outputSlots);
+            }
+            const auto memory = measurePlanMemory({state->assignment.peakSlots, config.maxFrames, histories, metadata},
+                                                  config.memoryBudgetBytes);
+            if (!memory) return std::unexpected(memory.error());
+            state->memory = *memory;
+            if (const auto prepared = state->pool.prepare(state->assignment.peakSlots, config.maxFrames); !prepared)
+                return std::unexpected(prepared.error());
+            for (auto& delay : state->delays) delay.history.resize(delay.samples, 0.F);
             state->backendInputs.resize(config.inputChannels);
             state->backendOutputs.resize(config.outputChannels);
             state->rebindInternal();
@@ -442,7 +540,7 @@ export namespace mka::audio::dsp {
             diagnostics_.store(0,std::memory_order_relaxed);
             return {};
         } catch (const std::bad_alloc&) {
-            return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded});
+            return std::unexpected(Error{ErrorCode::PrepareFailed});
         } catch (const std::length_error&) {
             return std::unexpected(Error{ErrorCode::CapacityExceeded});
         }
@@ -566,7 +664,12 @@ export namespace mka::audio::dsp {
             }
             const auto physicalInputs = std::span<const InputChannel>{state.backendInputs}.first(inputCount);
             const auto physicalOutputs = std::span<const OutputChannel>{state.backendOutputs}.first(outputCount);
-            for (std::size_t i = 0; i < executionTasks_.size(); ++i) {
+            for (const auto& compiled : state.operations) {
+                if (compiled.kind == OperationKind::Delay) {
+                    state.delays[compiled.index].process(frames);
+                    continue;
+                }
+                const auto i = compiled.index;
                 auto& operation = executionTasks_[i];
                 if (state.tasks[i].isSource) operation.context.inputs = physicalInputs;
                 if (state.tasks[i].isOutput) operation.context.backendOutputs = physicalOutputs;

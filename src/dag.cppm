@@ -442,19 +442,25 @@ namespace mka::audio::dsp {
 
         /**
          * @brief Compile and prepare direct backend I/O on control, before RT.
-         * @details Each logical output has distinct plan-owned storage. This
-         * baseline does not recycle slots or implement PDC/publication.
+         * @details Final Node/explicit-delay operations receive statically recycled
+         * plan-owned slots. PDC latency analysis and publication are separate.
          */
         [[nodiscard]] std::expected<ExecutionPlan, ErrorType>
         compile(const BackendConfig& config) const try {
             auto plan = compile();
-            if (!plan) return std::unexpected(plan.error());
+            if (!plan) {
+                // Structural compile uses its unlimited default budget here;
+                // its legacy allocation category denotes an allocation refusal.
+                auto error = plan.error();
+                if (error.code == ErrorCode::MemoryBudgetExceeded) error.code = ErrorCode::PrepareFailed;
+                return std::unexpected(error);
+            }
             if (const auto result = plan->prepareBackend(config, connections_, outputsNodes_); !result) {
                 return std::unexpected(result.error());
             }
             return plan;
         } catch (const std::bad_alloc&) {
-            return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded});
+            return std::unexpected(Error{ErrorCode::PrepareFailed});
         } catch (const std::length_error&) {
             return std::unexpected(Error{ErrorCode::CapacityExceeded});
         }

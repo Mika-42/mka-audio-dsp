@@ -108,6 +108,7 @@ if (MKA_BUILD_TESTS)
             test/test_signal_liveness.cpp
             test/test_fanout_liveness.cpp
             test/test_memory_budget.cpp
+            test/test_pool_integration.cpp
             test/test_ports.cpp
             test/test_channel_id.cpp
             test/test_audio_channels.cpp
