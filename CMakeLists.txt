@@ -133,6 +133,7 @@ if (MKA_BUILD_TESTS)
             test/test_control_diagnostics.cpp
             test/test_v1_stress.cpp
             test/test_declared_latency.cpp
+            test/test_v1_acceptance.cpp
             test/test_plan_switcher_storage.cpp
             test/test_plan_switcher_handshake.cpp
             test/test_plan_switcher_boundary.cpp
@@ -228,12 +229,11 @@ if (MKA_BUILD_TESTS)
     target_link_libraries(mka-node-rt-tests PRIVATE mka-audio-dsp GTest::gtest_main)
     target_compile_features(mka-node-rt-tests PRIVATE cxx_std_26)
     if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
-        # Observe direct pthread mutex calls only inside measured RT windows.
+        # Observe direct forbidden calls only inside measured RT windows.
         target_compile_definitions(mka-node-rt-tests PRIVATE MKA_WRAP_PTHREAD_MUTEX=1)
-        target_link_options(mka-node-rt-tests PRIVATE
-                "-Wl,--wrap=pthread_mutex_lock"
-                "-Wl,--wrap=pthread_mutex_trylock"
-                "-Wl,--wrap=pthread_mutex_timedlock")
+        foreach(symbol pthread_mutex_lock pthread_mutex_trylock pthread_mutex_timedlock pthread_cond_wait nanosleep write fwrite __cxa_throw)
+            target_link_options(mka-node-rt-tests PRIVATE "-Wl,--wrap=${symbol}")
+        endforeach()
     endif ()
     gtest_discover_tests(mka-node-rt-tests TEST_PREFIX "dsp.rt.")
     endif()

@@ -1,0 +1,16 @@
+[0/1] Re-running CMake...
+-- Configuring done (0.9s)
+-- Generating done (0.3s)
+-- Build files have been written to: /workspace/.mka-build/sprint07-tsan
+[1/108] Generating CXX dyndep file CMakeFiles/mka-audio-dsp.dir/CXX.dd
+[2/83] Scanning /workspace/mka-audio-dsp/test/test_declared_latency.cpp for CXX dependencies
+warning: argument unused during compilation: '-stdlib=libc++'
+[3/83] Scanning /workspace/mka-audio-dsp/test/test_v1_acceptance.cpp for CXX dependencies
+warning: argument unused during compilation: '-stdlib=libc++'
+[4/83] Generating CXX dyndep file CMakeFiles/mka_audio_dsp.dir/CXX.dd
+[5/81] Generating CXX dyndep file CMakeFiles/mka-audio-dsp-tests.dir/CXX.dd
+[6/9] Building CXX object CMakeFiles/mka-audio-dsp-tests.dir/test/test_declared_latency.cpp.o
+clang++-19: warning: argument unused during compilation: '-stdlib=libc++' [-Wunused-command-line-argument]
+[7/9] Building CXX object CMakeFiles/mka-audio-dsp-tests.dir/test/test_v1_acceptance.cpp.o
+clang++-19: warning: argument unused during compilation: '-stdlib=libc++' [-Wunused-command-line-argument]
+[8/9] Linking CXX executable mka-audio-dsp-tests

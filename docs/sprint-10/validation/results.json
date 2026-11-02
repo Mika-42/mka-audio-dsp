@@ -1,0 +1,119 @@
+{
+  "clang": {
+    "tests": 398,
+    "passed": 398,
+    "failed": 0,
+    "skipped": 0,
+    "main_suite_tests": 354,
+    "rt_probe_tests": 44,
+    "elapsed_seconds": 54.73,
+    "compiler": "Debian clang version 19.1.7 (3+b1)",
+    "cmake_cache": [
+      "CMAKE_BUILD_TYPE:STRING=Debug",
+      "CMAKE_CXX_FLAGS:STRING=-stdlib=libc++ -nostdinc++ -isystem /workspace/.mka-setup/sysroot/usr/lib/llvm-19/include/c++/v1",
+      "CMAKE_CXX_FLAGS_DEBUG:STRING=-g",
+      "CMAKE_EXE_LINKER_FLAGS:STRING=-L/workspace/.mka-setup/sysroot/usr/lib/llvm-19/lib -Wl,-rpath,/workspace/.mka-setup/sysroot/usr/lib/llvm-19/lib",
+      "MKA_BUILD_RT_TESTS:BOOL=ON",
+      "MKA_ENABLE_ASAN_UBSAN:BOOL=OFF",
+      "MKA_ENABLE_TSAN:BOOL=OFF"
+    ],
+    "stress": {
+      "seed": "0x10CAFE42",
+      "cycles": 10000,
+      "callbacks": 20000,
+      "generation": 10001,
+      "created_nodes": 12006,
+      "destroyed_nodes": 12006
+    },
+    "runtime_environment": {}
+  },
+  "gcc": {
+    "tests": 398,
+    "passed": 398,
+    "failed": 0,
+    "skipped": 0,
+    "main_suite_tests": 354,
+    "rt_probe_tests": 44,
+    "elapsed_seconds": 35.97,
+    "compiler": "g++-16 (Debian 16.2.0-4) 16.2.0",
+    "cmake_cache": [
+      "CMAKE_BUILD_TYPE:STRING=Debug",
+      "CMAKE_CXX_FLAGS:STRING=",
+      "CMAKE_CXX_FLAGS_DEBUG:STRING=-g",
+      "CMAKE_EXE_LINKER_FLAGS:STRING=-Wl,-rpath,/workspace/.mka-setup/gcc16/usr/lib/x86_64-linux-gnu",
+      "MKA_BUILD_RT_TESTS:BOOL=ON",
+      "MKA_ENABLE_ASAN_UBSAN:BOOL=OFF",
+      "MKA_ENABLE_TSAN:BOOL=OFF"
+    ],
+    "stress": {
+      "seed": "0x10CAFE42",
+      "cycles": 10000,
+      "callbacks": 20000,
+      "generation": 10001,
+      "created_nodes": 12006,
+      "destroyed_nodes": 12006
+    },
+    "runtime_environment": {}
+  },
+  "asan": {
+    "tests": 398,
+    "passed": 398,
+    "failed": 0,
+    "skipped": 0,
+    "main_suite_tests": 354,
+    "rt_probe_tests": 44,
+    "elapsed_seconds": 174.66,
+    "compiler": "Debian clang version 19.1.7 (3+b1)",
+    "cmake_cache": [
+      "CMAKE_BUILD_TYPE:STRING=Debug",
+      "CMAKE_CXX_FLAGS:STRING=-stdlib=libc++ -nostdinc++ -isystem /workspace/.mka-setup/sysroot/usr/lib/llvm-19/include/c++/v1",
+      "CMAKE_CXX_FLAGS_DEBUG:STRING=-g -fsanitize=address,undefined -fno-omit-frame-pointer",
+      "CMAKE_EXE_LINKER_FLAGS:STRING=-L/workspace/.mka-setup/sysroot/usr/lib/llvm-19/lib -Wl,-rpath,/workspace/.mka-setup/sysroot/usr/lib/llvm-19/lib",
+      "MKA_BUILD_RT_TESTS:BOOL=ON",
+      "MKA_ENABLE_ASAN_UBSAN:BOOL=ON",
+      "MKA_ENABLE_TSAN:BOOL=OFF"
+    ],
+    "stress": {
+      "seed": "0x10CAFE42",
+      "cycles": 10000,
+      "callbacks": 20000,
+      "generation": 10001,
+      "created_nodes": 12006,
+      "destroyed_nodes": 12006
+    },
+    "runtime_environment": {
+      "ASAN_OPTIONS": "detect_leaks=1:halt_on_error=1",
+      "UBSAN_OPTIONS": "halt_on_error=1"
+    }
+  },
+  "tsan": {
+    "tests": 354,
+    "passed": 354,
+    "failed": 0,
+    "skipped": 0,
+    "main_suite_tests": 354,
+    "rt_probe_tests": 0,
+    "elapsed_seconds": 45.65,
+    "compiler": "Debian clang version 19.1.7 (3+b1)",
+    "cmake_cache": [
+      "CMAKE_BUILD_TYPE:STRING=Debug",
+      "CMAKE_CXX_FLAGS:STRING=-stdlib=libc++ -nostdinc++ -isystem /workspace/.mka-setup/sysroot/usr/lib/llvm-19/include/c++/v1",
+      "CMAKE_CXX_FLAGS_DEBUG:STRING=-g -O1 -fsanitize=thread -fno-omit-frame-pointer",
+      "CMAKE_EXE_LINKER_FLAGS:STRING=-L/workspace/.mka-setup/sysroot/usr/lib/llvm-19/lib -Wl,-rpath,/workspace/.mka-setup/sysroot/usr/lib/llvm-19/lib",
+      "MKA_BUILD_RT_TESTS:BOOL=ON",
+      "MKA_ENABLE_ASAN_UBSAN:BOOL=OFF",
+      "MKA_ENABLE_TSAN:BOOL=ON"
+    ],
+    "stress": {
+      "seed": "0x10CAFE42",
+      "cycles": 10000,
+      "callbacks": 20000,
+      "generation": 10001,
+      "created_nodes": 12006,
+      "destroyed_nodes": 12006
+    },
+    "runtime_environment": {
+      "TSAN_OPTIONS": "halt_on_error=1"
+    }
+  }
+}
