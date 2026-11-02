@@ -1,0 +1,13 @@
+[0/1] Re-running CMake...
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /workspace/.mka-build/sprint05
+[1/110] Generating CXX dyndep file CMakeFiles/mka-audio-dsp.dir/CXX.dd
+[2/85] Generating CXX dyndep file CMakeFiles/mka_audio_dsp.dir/CXX.dd
+[3/83] Generating CXX dyndep file CMakeFiles/mka-audio-dsp-tests.dir/CXX.dd
+[4/8] Scanning /workspace/mka-audio-dsp/test/test_node_rt.cpp for CXX dependencies
+warning: argument unused during compilation: '-stdlib=libc++'
+[5/8] Generating CXX dyndep file CMakeFiles/mka-node-rt-tests.dir/CXX.dd
+[6/8] Building CXX object CMakeFiles/mka-node-rt-tests.dir/test/test_node_rt.cpp.o
+clang++-19: warning: argument unused during compilation: '-stdlib=libc++' [-Wunused-command-line-argument]
+[7/8] Linking CXX executable mka-node-rt-tests

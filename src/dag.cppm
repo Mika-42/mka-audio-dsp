@@ -1,123 +1,393 @@
 module;
 
 #include <algorithm>
+#include <concepts>
+#include <cstddef>
 #include <cstdint>
 #include <expected>
-#include <iostream>
 #include <memory>
-#include <string>
+#include <new>
+#include <span>
+#include <stdexcept>
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 export module mka.audio.dsp.dag;
 export import mka.audio.dsp.error;
 export import mka.audio.dsp.node;
-import mka.audio.dsp.channel;
-import mka.audio.dsp.execution_plan;
+export import mka.audio.dsp.connection;
+export import mka.audio.dsp.execution_plan;
+export import mka.audio.dsp.topology;
+export import mka.audio.dsp.structural_compile;
+
+export namespace mka::audio::dsp::detail {
+    /**
+     * @brief Control-only, two-phase monotonic identity sequence used by DAG.
+     * @details The wide cursor represents UINT32_MAX + 1 without wrapping.
+     * candidate() never consumes an identity; commit() follows successful
+     * insertion only. No allocation, Node ownership or synchronization.
+     * The initial cursor permits direct tests of the real 32-bit boundary;
+     * every DAG starts its private sequence at one.
+     */
+    class NodeIDSequence {
+    public:
+        explicit NodeIDSequence(const std::uint64_t first = 1) noexcept : next_(first) {}
+
+        [[nodiscard]] std::expected<NodeID, GraphError> candidate() const noexcept {
+            if (next_ == invalidNodeID || next_ > maxNodeID)
+                return std::unexpected(Error{ErrorCode::CapacityExceeded});
+            return static_cast<NodeID>(next_);
+        }
+
+        void commit() noexcept {
+            if (next_ != invalidNodeID && next_ <= maxNodeID) ++next_;
+        }
+
+    private:
+        std::uint64_t next_; ///< Control-owned next candidate, never narrowed unchecked.
+    };
+}
 
 // non-RT graph
 namespace mka::audio::dsp {
-    struct Connexion {
-        Channel from;
-        Channel to;
-    };
+    export class DAG;
 
-    [[nodiscard]]
-    static bool connexionExists(
-        const std::vector<Connexion> &connexions,
-        const Channel &from,
-        const Channel &to
-    ) {
-        return std::ranges::any_of(
-            connexions,
-            [&from, &to](const Connexion &connexion) {
-                return connexion.from == from &&
-                       connexion.to == to;
-            }
-        );
-    }
+    /** Control-only total order; no graph mutation or audio processing. */
+    export [[nodiscard]] std::expected<std::vector<NodeID>, GraphError>
+    topologicalOrder(const DAG& graph);
 
-    export class DAG {
+    /**
+     * @brief Final control-side owner of stable-address Node objects.
+     * @details All edits, compilation, retirement collection and destruction
+     * are externally serialized on control. The owner outlives every plan and
+     * borrowed pointer. Growing/reordering unique_ptr storage never moves a Node.
+     * Plans hold raw Node pointers and borrow tokens, not Node ownership.
+     */
+    export class DAG final {
     public:
-        template<std::derived_from<Node> T>
-        [[nodiscard]]
-        T &add() {
-            auto node = std::make_unique<T>(nextId);
-            auto &reference = *node;
+        DAG() = default;
+        /** Maximum simultaneously owned Nodes, including deferred retirements. */
+        explicit DAG(const std::size_t maxOwnedNodes) noexcept : maxOwnedNodes_(maxOwnedNodes) {}
+        DAG(const DAG&) = delete;
+        DAG& operator=(const DAG&) = delete;
+        // Keep ownership stable while plans or external pointers borrow Nodes.
+        DAG(DAG&&) = delete;
+        DAG& operator=(DAG&&) = delete;
 
-            nodes_.push_back(std::move(node));
-            ++nextId;
+        /**
+         * @brief Construct T(assigned NodeID, forwarded args...) transactionally.
+         * @return A unique, nonzero 32-bit ID, or a structured control-side error.
+         * @details Construction/allocation failures leave Nodes, plans and the
+         * identity sequence unchanged. IDs are never reused during this DAG's
+         * lifetime, including after removal. The quota includes retired Nodes.
+         * @pre T obeys Node's configuration/lifetime contract. Its constructor
+         * must not reenter this DAG, publish a provisional ID/pointer, or mutate
+         * an active Node. Arbitrary constructor side effects cannot be rolled back.
+         */
+        template<class T, class... Args>
+            requires std::derived_from<T, Node> && (!std::is_abstract_v<T>) &&
+                     std::constructible_from<T, NodeID, Args...>
+        [[nodiscard]] std::expected<NodeID, GraphError> add(Args&&... args) noexcept {
+            const auto id = identities_.candidate();
+            if (!id) return std::unexpected(id.error());
+            if (nodes_.size() >= maxOwnedNodes_ ||
+                retiredNodes_.size() >= maxOwnedNodes_ - nodes_.size() ||
+                nodes_.size() == nodes_.max_size())
+                return std::unexpected(Error{ErrorCode::CapacityExceeded, *id});
 
-            return reference;
+            std::unique_ptr<Node> created;
+            try {
+                created = std::make_unique<T>(static_cast<NodeID>(*id), std::forward<Args>(args)...);
+            } catch (const std::bad_alloc&) {
+                return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded, *id});
+            } catch (...) {
+                return std::unexpected(Error{ErrorCode::PrepareFailed, *id});
+            }
+            if (!created) return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded, *id});
+            if (created->id() != *id) return std::unexpected(Error{ErrorCode::InvalidParameter, *id});
+            try {
+                nodes_.push_back(std::move(created));
+            } catch (const std::bad_alloc&) {
+                return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded, *id});
+            } catch (const std::length_error&) {
+                return std::unexpected(Error{ErrorCode::CapacityExceeded, *id});
+            }
+            identities_.commit();
+            return *id;
         }
 
-        [[nodiscard]] Result remove(const std::uint64_t nodeId) {
+        /**
+         * @brief Transactionally replace an unborrowed Node's processed layouts.
+         * @return NodeNotFound for an absent identity, NodeInUse while any plan
+         * borrows the Node, intrinsic Config validation errors, AllocationFailed
+         * for candidate-copy failure or LayoutCapacityExceeded for a size error.
+         * @details Control only, externally serialized with graph edits and all
+         * configuration readers. Validate and copy before installing by noexcept
+         * move. Failure preserves the old Config, edges, roles and existing plans.
+         * Logical connections never depend on membership in these layouts, so a
+         * successful replacement preserves every Connection and the Node's ID,
+         * address and DSP state. No constructor/process or backend call occurs.
+         * @pre External views of old layout contents must no longer be used on
+         * success. Retire all prepared/structural plans after callback quiescence
+         * before retrying NodeInUse; no active-plan configuration is mutated.
+         * The caller separately prepares the derived DSP for its new layouts.
+         */
+        [[nodiscard]] Result setConfig(const NodeID id, const Config& config) try {
+            auto* const target = node(id);
+            if (target == nullptr) return std::unexpected(Error{ErrorCode::NodeNotFound, id});
+            if (detail::NodeBorrowAccess::inUse(*target))
+                return std::unexpected(Error{ErrorCode::NodeInUse, id});
+            if (const auto valid = validateConfig(config); !valid) {
+                auto error = valid.error();
+                error.node = id;
+                return std::unexpected(error);
+            }
+            Config candidate = config;
+            detail::NodeConfigAccess::replaceConfig(*target, std::move(candidate));
+            return {};
+        } catch (const std::bad_alloc&) {
+            return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded, id});
+        } catch (const std::length_error&) {
+            return std::unexpected(Error{ErrorCode::CapacityExceeded, id});
+        }
+
+        /**
+         * @brief Remove from the desired graph, deferring destruction if borrowed.
+         * @details Secure retirement ownership before changing graph membership,
+         * edges or output markers. An old plan can still process the same Node.
+         * Allocation failure leaves the desired graph and existing plans intact.
+         * Destruction and collection occur only on control, never in a callback.
+         * All Ready/Pending/Active/Retired plan owners retain the same borrow
+         * protection; one callback ACK cannot retire another generation's borrow.
+         * @pre Stop external raw-pointer uses before immediate destruction when
+         * no plan borrows the Node, or before collecting its deferred retirement.
+         */
+        [[nodiscard]] std::expected<void, GraphError> remove(const NodeID nodeId) {
             const auto nodeIt = std::ranges::find(nodes_, nodeId, &Node::id);
 
             if (nodeIt == nodes_.end()) {
-                return std::unexpected(ErrorType::NodeNotFound);
+                return std::unexpected(Error{ErrorCode::NodeNotFound, nodeId});
+            }
+
+            if (detail::NodeBorrowAccess::inUse(**nodeIt)) {
+                if (retiredNodes_.size() == retiredNodes_.max_size())
+                    return std::unexpected(Error{ErrorCode::CapacityExceeded, nodeId});
+                try {
+                    // unique_ptr moves are noexcept; vector allocation failure
+                    // preserves the original owner before any graph edit.
+                    retiredNodes_.push_back(std::move(*nodeIt));
+                } catch (const std::bad_alloc&) {
+                    return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded, nodeId});
+                } catch (const std::length_error&) {
+                    return std::unexpected(Error{ErrorCode::CapacityExceeded, nodeId});
+                }
             }
 
             nodes_.erase(nodeIt);
 
-            std::erase_if(connexions_, [nodeId](const Connexion &conn) {
-                return conn.from.nodeID == nodeId || conn.to.nodeID == nodeId;
+            std::erase_if(connections_, [nodeId](const Connection &conn) {
+                return decodeNode(conn.from) == nodeId || decodeNode(conn.to) == nodeId;
             });
+            std::erase(outputsNodes_, nodeId);
 
             return {};
         }
 
-        //TODO reject connexion on undeclared ports
-        [[nodiscard]] Result connect(const Channel &from, const Channel &to) {
-            if (!nodeExists(from.nodeID) || !nodeExists(to.nodeID)) {
-                return std::unexpected(ErrorType::NodeNotFound);
-            }
+        /**
+         * @brief Destroy retired Nodes no longer borrowed by any plan, on control.
+         * @return Number of polymorphic destructions performed by this call.
+         * @pre Release external raw-pointer uses and retire plans only after
+         * their callbacks quiesce. Untracked external references cannot extend
+         * ownership. The DAG must still outlive every remaining plan.
+         * Control must retain the active plan until a replacement is installed
+         * and its old callback is acknowledged; this is not a publication protocol.
+         */
+        [[nodiscard]] std::size_t collectRetiredNodes() noexcept {
+            return std::erase_if(retiredNodes_, [](const auto& retired) noexcept {
+                return !detail::NodeBorrowAccess::inUse(*retired);
+            });
+        }
 
-            if (connexionExists(connexions_, from, to)) {
-                return std::unexpected(ErrorType::ConnexionAlreadyExists);
-            }
+        /**
+         * @brief Mark an existing Node for direct access to all backend outputs.
+         * @details Control-side, idempotent and independent of source status,
+         * logical layouts and outgoing edges. Existing plans retain their role
+         * snapshot; compile a new plan to apply this edit. IDs are stored once
+         * in increasing order. Allocation failure leaves the marker set intact.
+         */
+        [[nodiscard]] std::expected<void, GraphError> markAsOutput(const NodeID id) try {
+            if (!nodeExists(id)) return std::unexpected(Error{ErrorCode::NodeNotFound, id});
+            const auto position = std::ranges::lower_bound(outputsNodes_, id);
+            if (position != outputsNodes_.end() && *position == id) return {};
+            outputsNodes_.insert(position, id);
+            return {};
+        } catch (const std::bad_alloc&) {
+            return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded, id});
+        } catch (const std::length_error&) {
+            return std::unexpected(Error{ErrorCode::CapacityExceeded, id});
+        }
 
-            if (pathExists(to.nodeID, from.nodeID)) {
-                return std::unexpected(ErrorType::CycleDetected);
-            }
-
-            const bool occupied = std::ranges::any_of(
-                connexions_,
-                [&to](const Connexion &connexion) {
-                    return connexion.to == to;
-                }
-            );
-
-            if (occupied) {
-                return std::unexpected(ErrorType::ChannelAlreadyConnected);
-            }
-
-            if (from.port != PortType::Out || (to.port != PortType::In && to.port != PortType::Aux)) {
-                return std::unexpected(ErrorType::InvalidPort);
-            }
-
-            connexions_.emplace_back(from, to);
+        /**
+         * @brief Idempotently remove an existing Node's desired output role.
+         * @return NodeNotFound for an absent Node; success even if already unmarked.
+         * @details Control only. No allocation, graph edge, channel reservation
+         * or change to the roles/buffers of any existing prepared plan.
+         */
+        [[nodiscard]] std::expected<void, GraphError> unmarkAsOutput(const NodeID id) noexcept {
+            if (!nodeExists(id)) return std::unexpected(Error{ErrorCode::NodeNotFound, id});
+            std::erase(outputsNodes_, id);
             return {};
         }
 
-        [[nodiscard]] Result disconnect(const std::uint64_t inNodeId, const std::uint64_t outNodeId) {
-            const auto edgeIt = std::ranges::find_if(
-                connexions_,
-                [inNodeId, outNodeId](const Connexion &edge) {
-                    return edge.from.nodeID == inNodeId &&
-                           edge.to.nodeID == outNodeId;
-                }
-            );
-
-            if (edgeIt == connexions_.end()) {
-                return std::unexpected(ErrorType::ConnexionNotFound);
-            }
-
-            connexions_.erase(edgeIt);
-            return {};
+        /**
+         * @brief Read-only desired output identities in increasing NodeID order.
+         * @details Control-owned values, not hardware channels. Like connections(),
+         * any edit may invalidate this borrowed view. No concurrent edit/read;
+         * copy values for an independent snapshot. No Node/buffer ownership.
+         */
+        [[nodiscard]] std::span<const NodeID> outputNodes() const noexcept {
+            return outputsNodes_;
         }
 
-        [[nodiscard]] const Node *node(const std::uint64_t id) const noexcept {
+        /**
+         * @brief Connect a logical destination In/Aux to a producer Out, on control.
+         * @param destination Complete consuming ChannelID (first argument).
+         * @param source Complete producing ChannelID (second argument).
+         * @details Decode all fields without normalization. Validate ports,
+         * direction, Node existence, exact duplicate, input occupancy, then
+         * acyclicity in that order. Store Connection{source,destination} only
+         * after every check succeeds. Indices need not appear in Config.
+         * Fan-out is allowed; this operation never selects backend lanes.
+         * @return InvalidPort, InvalidDirection, NodeNotFound, ConnectionExists,
+         * InputOccupied, CycleDetected, AllocationFailed or ConnectionCapacityExceeded.
+         * @note Control only, externally serialized with graph edits. Rejection
+         * leaves desired edges and prepared plans intact. Success edits only
+         * the desired graph, not Node DSP state or an existing plan snapshot.
+         * Errors identify the faulty endpoint, or the destination for duplicate,
+         * occupancy and cycle failures. Unknown context fields remain zero.
+         */
+        [[nodiscard]] std::expected<void, GraphError>
+        connect(const ChannelID destination, const ChannelID source) try {
+            const auto sourcePort = decodePort(source);
+            const auto destinationPort = decodePort(destination);
+            if (!isValidPort(sourcePort) || !isValidPort(destinationPort)) {
+                const auto channel = !isValidPort(sourcePort) ? source : destination;
+                return std::unexpected(Error{ErrorCode::InvalidPort, decodeNode(channel), channel});
+            }
+            if (!isOutputPort(sourcePort) || !isInputPort(destinationPort)) {
+                const auto channel = !isOutputPort(sourcePort) ? source : destination;
+                return std::unexpected(Error{ErrorCode::InvalidDirection, decodeNode(channel), channel});
+            }
+
+            const auto sourceNode = decodeNode(source);
+            const auto destinationNode = decodeNode(destination);
+            if (!nodeExists(sourceNode))
+                return std::unexpected(Error{ErrorCode::NodeNotFound, sourceNode, source});
+            if (!nodeExists(destinationNode))
+                return std::unexpected(Error{ErrorCode::NodeNotFound, destinationNode, destination});
+
+            if (std::ranges::find(connections_, Connection{source, destination}) != connections_.end()) {
+                return std::unexpected(Error{ErrorCode::ConnectionExists, destinationNode, destination});
+            }
+
+            if (inputOccupied(destination)) {
+                return std::unexpected(Error{ErrorCode::InputOccupied, destinationNode, destination});
+            }
+
+            // A path destination -> source would close a cycle; includes self-loops.
+            if (pathExists(destinationNode, sourceNode)) {
+                return std::unexpected(Error{ErrorCode::CycleDetected, destinationNode, destination});
+            }
+
+            connections_.emplace_back(source, destination);
+            return {};
+        } catch (const std::bad_alloc&) {
+            return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded, decodeNode(destination), destination});
+        } catch (const std::length_error&) {
+            return std::unexpected(Error{ErrorCode::CapacityExceeded, decodeNode(destination), destination});
+        }
+
+        /**
+         * @brief Checked adapter for legacy wide Channel fields, on control.
+         * @details Uses the same destination,source convention and port/error
+         * precedence. Check full-width NodeIDs and indices outside [0,65535]
+         * before encoding; no wide value may alias an existing identity.
+         */
+        [[nodiscard]] std::expected<void, GraphError>
+        connect(const Channel& destination, const Channel& source) {
+            if (!isValidPort(source.port) || !isValidPort(destination.port))
+                return std::unexpected(legacyChannelError(ErrorCode::InvalidPort,
+                    !isValidPort(source.port) ? source : destination));
+            if (!isOutputPort(source.port) || !isInputPort(destination.port))
+                return std::unexpected(legacyChannelError(ErrorCode::InvalidDirection,
+                    !isOutputPort(source.port) ? source : destination));
+            if (!nodeExists(source.nodeID))
+                return std::unexpected(legacyChannelError(ErrorCode::NodeNotFound, source));
+            if (!nodeExists(destination.nodeID))
+                return std::unexpected(legacyChannelError(ErrorCode::NodeNotFound, destination));
+            const auto sourceIndex = toChannelIndex(source.channel);
+            if (!sourceIndex) return std::unexpected(Error{ErrorCode::InvalidParameter,
+                static_cast<NodeID>(source.nodeID)});
+            const auto destinationIndex = toChannelIndex(destination.channel);
+            if (!destinationIndex) return std::unexpected(Error{ErrorCode::InvalidParameter,
+                static_cast<NodeID>(destination.nodeID)});
+            // Existence was checked on the full-width values before narrowing.
+            return connect(encode(static_cast<NodeID>(destination.nodeID), destination.port, *destinationIndex),
+                           encode(static_cast<NodeID>(source.nodeID), source.port, *sourceIndex));
+        }
+
+        /**
+         * @brief Read-only view of desired logical edge values, on control.
+         * @details DAG owns the descriptors. Any graph edit may invalidate the
+         * span/element references; copy values to retain an independent snapshot.
+         * This view owns no Nodes or samples, is not stored by a prepared plan,
+         * and must not be read concurrently with edits. No allocation or lock.
+         */
+        [[nodiscard]] std::span<const Connection> connections() const noexcept {
+            return connections_;
+        }
+
+        /**
+         * @brief Remove exactly source Out -> destination In/Aux, on control.
+         * @return true if erased, false if already absent; InvalidDirection for
+         * malformed/forbidden port pairs, NodeNotFound for missing endpoints.
+         * @details Idempotent for valid live endpoints. Both complete ChannelIDs
+         * identify the edge; other channels/ports of the same Nodes are untouched.
+         * No Config lookup, allocation, Node mutation or prepared-plan change.
+         * @pre Serialize desired-graph edits externally. Any old connections()
+         * view may be invalidated; plans own their prepared binding snapshot.
+         */
+        [[nodiscard]] std::expected<bool, GraphError>
+        disconnect(const ChannelID destination, const ChannelID source) {
+            if (!isOutputPort(decodePort(source)) || !isInputPort(decodePort(destination))) {
+                const auto channel = !isOutputPort(decodePort(source)) ? source : destination;
+                return std::unexpected(Error{ErrorCode::InvalidDirection, decodeNode(channel), channel});
+            }
+            if (!nodeExists(decodeNode(source)))
+                return std::unexpected(Error{ErrorCode::NodeNotFound, decodeNode(source), source});
+            if (!nodeExists(decodeNode(destination)))
+                return std::unexpected(Error{ErrorCode::NodeNotFound, decodeNode(destination), destination});
+            const auto edgeIt = std::ranges::find(connections_, Connection{source, destination});
+            if (edgeIt == connections_.end()) return false;
+            connections_.erase(edgeIt);
+            return true;
+        }
+
+        /**
+         * @brief Borrow a desired Node, or nullptr for absent/retired identities.
+         * @details Look up on control; no allocation/lock. The address survives
+         * insertions and unrelated removals. Mutable DSP access requires
+         * quiescence if a plan processes this Node. No lifetime is transferred.
+         */
+        [[nodiscard]] Node* node(const NodeID id) noexcept {
+            const auto it = std::ranges::find(nodes_, id, &Node::id);
+            return it == nodes_.end() ? nullptr : it->get();
+        }
+
+        /// Read-only borrowed lookup, with the same lifetime contract as node().
+        [[nodiscard]] const Node *node(const NodeID id) const noexcept {
             const auto it = std::ranges::find(nodes_, id, &Node::id);
 
             if (it == nodes_.end()) {
@@ -127,169 +397,178 @@ namespace mka::audio::dsp {
             return it->get();
         }
 
+        /**
+         * @brief Compile desired structure into stable, borrowed Node tasks on control.
+         * @details No Node::process, backend access or audio buffer preparation.
+         * Validates the full desired graph and snapshots immutable roles and
+         * global lexicographic task order. Resource errors return on control.
+         * The owner must outlive the plan; retire task/layer views with it. Use the
+         * BackendConfig overload to prepare an executable audio snapshot.
+         */
         [[nodiscard]] std::expected<ExecutionPlan, ErrorType> compile() const {
-            std::vector<std::size_t> layerIndices;
+            ExecutionPlan target;
+            if (const auto result = compile(target, CompileConfig{}); !result)
+                return std::unexpected(result.error());
+            return target;
+        }
 
-            auto sortedNodes = topologicalSort(layerIndices);
+        /**
+         * @brief Compile a structural generation, replacing target only on success.
+         * @details Control only. Checks desired structure, intrinsic Configs,
+         * roles and metadata capacities, then installs a complete candidate by
+         * noexcept move. Failure preserves target's tasks, roles, prepared audio
+         * and Node borrows. Success produces a structural, unprepared plan; use
+         * prepareBackend separately before audio execution. Never calls process.
+         * @pre target is inactive and quiescent, all graph access is externally
+         * serialized, and this DAG outlives the resulting plan and its views.
+         */
+        [[nodiscard]] Result compile(ExecutionPlan& target, const CompileConfig& config) const try {
+            if (nodes_.size() > config.maxNodes || connections_.size() > config.maxConnections)
+                return std::unexpected(Error{ErrorCode::CapacityExceeded});
+            const auto bytes = detail::structuralStorageBytes(nodes_.size());
+            if (!bytes) return std::unexpected(bytes.error());
+            if (*bytes > config.memoryBudgetBytes)
+                return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded});
+            auto snapshot = structuralSnapshot();
+            std::vector<Node*> owners;
+            owners.reserve(nodes_.size());
+            for (const auto& node : nodes_) owners.push_back(node.get());
+            return detail::compileSnapshot(owners, snapshot, target, config);
+        } catch (const std::bad_alloc&) {
+            return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded});
+        } catch (const std::length_error&) {
+            return std::unexpected(Error{ErrorCode::CapacityExceeded});
+        }
 
-            if (!sortedNodes) {
-                return std::unexpected(sortedNodes.error());
+        /**
+         * @brief Compile and prepare direct backend I/O on control, before RT.
+         * @details Capture coherent intrinsic latencies, analyze logical In/Aux
+         * paths and insert positive per-edge compensation delays. Final Node
+         * and Delay operations receive statically recycled plan-owned slots.
+         * A nonempty explicit delay schedule overrides automatic insertion.
+         * Publication remains separate; errors leave existing plans intact.
+         */
+        [[nodiscard]] std::expected<ExecutionPlan, ErrorType>
+        compile(const BackendConfig& config) const try {
+            auto plan = compile();
+            if (!plan) {
+                // Structural compile uses its unlimited default budget here;
+                // its legacy allocation category denotes an allocation refusal.
+                auto error = plan.error();
+                if (error.code == ErrorCode::MemoryBudgetExceeded) error.code = ErrorCode::PrepareFailed;
+                return std::unexpected(error);
             }
-
-            return ExecutionPlan {
-                std::move(*sortedNodes),
-                std::move(layerIndices)
-            };
+            if (const auto result = plan->prepareBackend(config, connections_, outputsNodes_); !result) {
+                return std::unexpected(result.error());
+            }
+            return plan;
+        } catch (const std::bad_alloc&) {
+            return std::unexpected(Error{ErrorCode::PrepareFailed});
+        } catch (const std::length_error&) {
+            return std::unexpected(Error{ErrorCode::CapacityExceeded});
         }
 
     private:
+        friend std::expected<std::vector<NodeID>, GraphError> topologicalOrder(const DAG& graph);
+
+        /**
+         * @brief Preserve representable diagnostic fields without narrowing aliases.
+         * @details This packs an error context, never a graph/hardware identity.
+         * A wide NodeID leaves both optional fields zero; a wide index leaves
+         * only the checked NodeID. Invalid port codes retain their exact bits.
+         */
+        [[nodiscard]] static Error legacyChannelError(const ErrorCode code, const Channel& channel) noexcept {
+            if (channel.nodeID > maxNodeID) return Error{code};
+            const auto node = static_cast<NodeID>(channel.nodeID);
+            if (channel.channel > maxChannelIndex) return Error{code, node};
+            const auto identity = (static_cast<ChannelID>(node) << 32U) |
+                (static_cast<ChannelID>(static_cast<std::uint16_t>(channel.port)) << 16U) |
+                static_cast<ChannelID>(channel.channel);
+            return Error{code, node, identity};
+        }
+
+        /** Owned control snapshot; no Node addresses escape through its values. */
+        [[nodiscard]] detail::GraphSnapshot structuralSnapshot() const {
+            detail::GraphSnapshot snapshot;
+            snapshot.nodes.reserve(nodes_.size());
+            for (const auto& node : nodes_) snapshot.nodes.push_back(node->id());
+            snapshot.connections = connections_;
+            snapshot.outputs = outputsNodes_;
+            return snapshot;
+        }
+
+        /**
+         * @brief Full-ChannelID occupancy, derived from desired edges on control.
+         * @details In/Aux and indices are independent, including outside Config.
+         * No separate index can become stale after disconnect/remove. Scan only;
+         * no allocation, ownership, callback access or implicit fan-in/mixing.
+         */
+        [[nodiscard]] bool inputOccupied(const ChannelID destination) const noexcept {
+            return std::ranges::any_of(connections_, [destination](const Connection& edge) {
+                return edge.to == destination;
+            });
+
+        }
+
         [[nodiscard]] bool nodeExists(const std::uint64_t id) const {
             const auto nodeIt = std::ranges::find(nodes_, id, &Node::id);
             return nodeIt != nodes_.end();
         }
 
-        [[nodiscard]] bool pathExists(const std::uint64_t src, const std::uint64_t dst) const {
+        /**
+         * @brief Iterative reachability on control, including all In/Aux edges.
+         * @details Build adjacency once, then visit each reachable Node/edge at
+         * most once: O(V+E) average with integer hash tables, O(V+E) temporary
+         * memory. No recursive call stack or Config filtering. Parallel channel
+         * edges are harmless; discovered Nodes are queued only once. Allocation
+         * and length failures propagate to connect's structured error boundary.
+         * Graph/Nodes/plans are read-only; all temporary storage dies on control.
+         */
+        [[nodiscard]] bool pathExists(const NodeID src, const NodeID dst) const {
             if (src == dst)
                 return true;
 
-            std::vector<std::uint64_t> stack;
-            std::unordered_set<std::uint64_t> visited;
-
+            std::unordered_map<NodeID, std::vector<NodeID>> successors;
+            successors.reserve(nodes_.size());
+            for (const auto& edge : connections_)
+                successors[decodeNode(edge.from)].push_back(decodeNode(edge.to));
+            std::vector<NodeID> stack;
+            stack.reserve(nodes_.size());
+            std::unordered_set<NodeID> visited;
+            visited.reserve(nodes_.size());
+            visited.insert(src);
             stack.push_back(src);
 
             while (!stack.empty()) {
-                const std::uint64_t current = stack.back();
+                const NodeID current = stack.back();
                 stack.pop_back();
-
-                if (!visited.insert(current).second)
-                    continue;
-
-                for (const auto &[from, to]: connexions_) {
-                    if (from.nodeID != current)
-                        continue;
-
-                    if (to.nodeID == dst)
-                        return true;
-
-                    stack.push_back(to.nodeID);
+                const auto found = successors.find(current);
+                if (found == successors.end()) continue;
+                for (const auto next : found->second) {
+                    if (next == dst) return true;
+                    if (visited.insert(next).second) stack.push_back(next);
                 }
             }
 
             return false;
         }
 
-        /**
-         * @brief Trie les nœuds par couches topologiques.
-         *
-         * @param[out] layerIndices Limites des couches dans le vecteur retourné.
-         *             Modifié uniquement en cas de succès.
-         *
-         * @return Les pointeurs vers les nœuds triés, ou une erreur.
-         *
-         * @note Un graphe vide produit un vecteur vide et les indices {0}.
-         * @note Alloue de la mémoire : à appeler hors du thread audio.
-         * @pre Le DAG ne doit pas être modifié pendant le tri.
-         */
-        [[nodiscard]]
-        std::expected<std::vector<Node *>, ErrorType> topologicalSort(
-            std::vector<std::size_t> &layerIndices
-        ) const {
-            const auto count = nodes_.size();
-
-            // Associer chaque ID à sa position dans nodes_.
-            std::unordered_map<std::uint64_t, std::size_t> indices;
-            indices.reserve(count);
-
-            for (std::size_t i = 0; i < count; ++i) {
-                indices.emplace(nodes_[i]->id(), i);
-            }
-
-            // Construire les dépendances dans le sens du signal : Out → In/Aux.
-            std::vector<std::vector<std::size_t> > successors(count);
-
-            for (const auto &connexion: connexions_) {
-                const auto source = indices.find(connexion.to.nodeID);
-                const auto destination = indices.find(connexion.from.nodeID);
-
-                if (source == indices.end() || destination == indices.end()) {
-                    return std::unexpected(ErrorType::NodeNotFound);
-                }
-
-                successors[source->second].push_back(destination->second);
-            }
-
-            // Dédupliquer les dépendances et compter les prédécesseurs.
-            std::vector<std::size_t> remaining(count, 0);
-
-            for (auto &list: successors) {
-                std::ranges::sort(list);
-
-                const auto duplicates = std::ranges::unique(list);
-                list.erase(duplicates.begin(), duplicates.end());
-
-                for (const auto destination: list) {
-                    ++remaining[destination];
-                }
-            }
-
-            std::vector<std::size_t> ready;
-            std::vector<std::size_t> next;
-
-            ready.reserve(count);
-            next.reserve(count);
-
-            // Première couche : les nœuds sans prédécesseur.
-            for (std::size_t i = 0; i < count; ++i) {
-                if (remaining[i] == 0) {
-                    ready.push_back(i);
-                }
-            }
-
-            std::vector<Node *> result;
-            result.reserve(count);
-
-            std::vector<std::size_t> offsets{0};
-            offsets.reserve(count + 1);
-
-            while (!ready.empty()) {
-                // Garantir un ordre reproductible dans chaque couche.
-                std::ranges::sort(
-                    ready,
-                    [this](const std::size_t left, const std::size_t right) {
-                        return nodes_[left]->id() < nodes_[right]->id();
-                    }
-                );
-
-                next.clear();
-
-                for (const auto index: ready) {
-                    result.push_back(nodes_[index].get());
-
-                    for (const auto successor: successors[index]) {
-                        --remaining[successor];
-
-                        if (remaining[successor] == 0) {
-                            next.push_back(successor);
-                        }
-                    }
-                }
-
-                // Marquer la fin de la couche qui vient d'être ajoutée.
-                offsets.push_back(result.size());
-
-                ready.swap(next);
-            }
-
-            if (result.size() != count) {
-                return std::unexpected(ErrorType::CycleDetected);
-            }
-
-            layerIndices = std::move(offsets);
-            return result;
-        }
-
+        // Sole control-owned storage; only unique_ptr handles move, never Nodes.
         std::vector<std::unique_ptr<Node> > nodes_;
-        std::vector<Connexion> connexions_;
-        std::uint64_t nextId = 1;
+        // Removed Nodes remain owned until every plan borrow retires on control.
+        std::vector<std::unique_ptr<Node>> retiredNodes_;
+        std::vector<Connection> connections_; ///< Control-owned logical values, no sample pointers.
+        std::vector<NodeID> outputsNodes_;
+        detail::NodeIDSequence identities_; ///< Committed IDs never become available again.
+        std::size_t maxOwnedNodes_ = maxNodeID; ///< Live + retired quota; immutable after construction.
     };
+
+    [[nodiscard]] std::expected<std::vector<NodeID>, GraphError>
+    topologicalOrder(const DAG& graph) try {
+        return detail::topologicalOrder(graph.structuralSnapshot());
+    } catch (const std::bad_alloc&) {
+        return std::unexpected(Error{ErrorCode::MemoryBudgetExceeded});
+    } catch (const std::length_error&) {
+        return std::unexpected(Error{ErrorCode::CapacityExceeded});
+    }
 }

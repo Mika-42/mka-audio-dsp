@@ -1,0 +1,1568 @@
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <cstdlib>
+#include <expected>
+#include <limits>
+#include <new>
+#include <optional>
+#include <span>
+#include <thread>
+#include <vector>
+#ifdef MKA_WRAP_PTHREAD_MUTEX
+#include <cstdio>
+#include <fcntl.h>
+#include <pthread.h>
+#include <unistd.h>
+#endif
+
+#include <gtest/gtest.h>
+
+import mka.audio.dsp.node;
+import mka.audio.dsp.dag;
+import mka.audio.dsp.buffer_pool;
+import mka.audio.dsp.delay_line;
+import mka.audio.dsp.plan_switcher;
+#include "offline_pipeline.hpp"
+#include "pool_pipeline.hpp"
+#include "backend_routing_fixture.hpp"
+#include "last_writer_fixture.hpp"
+#include "pair_routing_fixture.hpp"
+#include "headphone_pipeline_fixture.hpp"
+#include "plan_switcher_fixture.hpp"
+#include "plan_switcher_stress.hpp"
+#include "pdc_render_fixture.hpp"
+#include "delay_audio_fixture.hpp"
+#include "v1_fixture.hpp"
+
+namespace {
+    // Constant-initialized thread-local counters avoid allocation in the probe.
+    thread_local bool measuring = false;
+    thread_local std::size_t allocations = 0;
+    thread_local std::size_t deallocations = 0;
+    thread_local std::size_t mutexAttempts = 0;
+    thread_local std::size_t waitAttempts = 0;
+    thread_local std::size_t logAttempts = 0;
+    thread_local std::size_t exceptionAttempts = 0;
+    thread_local bool failing = false;
+    thread_local std::size_t allocationsBeforeFailure = 0;
+    thread_local unsigned injectedFailures = 0;
+
+    void checkAllocationFailure() {
+        if (!failing) return;
+        if (allocationsBeforeFailure == 0) {
+            ++injectedFailures;
+            throw std::bad_alloc{};
+        }
+        --allocationsBeforeFailure;
+    }
+
+    void* allocate(std::size_t bytes) {
+        if (measuring) ++allocations;
+        checkAllocationFailure();
+        if (void* memory = std::malloc(bytes == 0 ? 1 : bytes)) return memory;
+        throw std::bad_alloc{};
+    }
+
+    void* allocateAligned(std::size_t bytes, const std::size_t alignment) {
+        if (measuring) ++allocations;
+        checkAllocationFailure();
+        if (bytes == 0) bytes = 1;
+        if (bytes > std::numeric_limits<std::size_t>::max() - (alignment - 1)) {
+            throw std::bad_alloc{};
+        }
+        const auto rounded = ((bytes + alignment - 1) / alignment) * alignment;
+        if (void* memory = std::aligned_alloc(alignment, rounded)) return memory;
+        throw std::bad_alloc{};
+    }
+
+    void release(void* memory) noexcept {
+        if (measuring && memory != nullptr) ++deallocations;
+        std::free(memory);
+    }
+
+    struct AllocationWindow {
+        AllocationWindow() noexcept {
+            allocations = 0;
+            deallocations = 0;
+            mutexAttempts = 0;
+            waitAttempts = logAttempts = exceptionAttempts = 0;
+            measuring = true;
+        }
+        ~AllocationWindow() { measuring = false; }
+    };
+
+    struct FailureWindow {
+        explicit FailureWindow(const std::size_t failAfter) noexcept {
+            allocationsBeforeFailure = failAfter;
+            injectedFailures = 0;
+            failing = true;
+        }
+        ~FailureWindow() { failing = false; }
+    };
+}
+
+#ifdef MKA_WRAP_PTHREAD_MUTEX
+extern "C" int __real_pthread_mutex_lock(pthread_mutex_t*);
+extern "C" int __real_pthread_mutex_trylock(pthread_mutex_t*);
+extern "C" int __real_pthread_mutex_timedlock(pthread_mutex_t*,const struct timespec*);
+extern "C" int __wrap_pthread_mutex_lock(pthread_mutex_t* mutex) {
+    if (measuring) ++mutexAttempts;
+    return __real_pthread_mutex_lock(mutex);
+}
+extern "C" int __wrap_pthread_mutex_trylock(pthread_mutex_t* mutex) {
+    if (measuring) ++mutexAttempts;
+    return __real_pthread_mutex_trylock(mutex);
+}
+extern "C" int __wrap_pthread_mutex_timedlock(pthread_mutex_t* mutex,const struct timespec* until) {
+    if (measuring) ++mutexAttempts;
+    return __real_pthread_mutex_timedlock(mutex,until);
+}
+extern "C" int __real_pthread_cond_wait(pthread_cond_t*,pthread_mutex_t*);
+extern "C" int __wrap_pthread_cond_wait(pthread_cond_t* condition,pthread_mutex_t* mutex) {
+    if (measuring) ++waitAttempts;
+    return __real_pthread_cond_wait(condition,mutex);
+}
+extern "C" int __real_nanosleep(const timespec*,timespec*);
+extern "C" int __wrap_nanosleep(const timespec* requested,timespec* remaining) {
+    if (measuring) ++waitAttempts;
+    return __real_nanosleep(requested,remaining);
+}
+extern "C" ssize_t __real_write(int,const void*,std::size_t);
+extern "C" ssize_t __wrap_write(int fd,const void* bytes,std::size_t count) {
+    if (measuring) ++logAttempts;
+    return __real_write(fd,bytes,count);
+}
+extern "C" std::size_t __real_fwrite(const void*,std::size_t,std::size_t,FILE*);
+extern "C" std::size_t __wrap_fwrite(const void* bytes,std::size_t size,std::size_t count,FILE* stream) {
+    if (measuring) ++logAttempts;
+    return __real_fwrite(bytes,size,count,stream);
+}
+extern "C" [[noreturn]] void __real___cxa_throw(void*,void*,void (*)(void*));
+extern "C" [[noreturn]] void __wrap___cxa_throw(void* exception,void* type,void (*destroy)(void*)) {
+    if (measuring) ++exceptionAttempts;
+    __real___cxa_throw(exception,type,destroy);
+}
+#endif
+
+// Replacements belong only to mka-node-rt-tests, never to the DSP library.
+void* operator new(const std::size_t size) { return allocate(size); }
+void* operator new[](const std::size_t size) { return allocate(size); }
+void* operator new(const std::size_t size, const std::align_val_t alignment) {
+    return allocateAligned(size, static_cast<std::size_t>(alignment));
+}
+void* operator new[](const std::size_t size, const std::align_val_t alignment) {
+    return allocateAligned(size, static_cast<std::size_t>(alignment));
+}
+void* operator new(const std::size_t size, const std::nothrow_t&) noexcept {
+    try { return allocate(size); } catch (...) { return nullptr; }
+}
+void* operator new[](const std::size_t size, const std::nothrow_t&) noexcept {
+    try { return allocate(size); } catch (...) { return nullptr; }
+}
+void* operator new(const std::size_t size, const std::align_val_t alignment,
+                   const std::nothrow_t&) noexcept {
+    try { return allocateAligned(size, static_cast<std::size_t>(alignment)); }
+    catch (...) { return nullptr; }
+}
+void* operator new[](const std::size_t size, const std::align_val_t alignment,
+                     const std::nothrow_t&) noexcept {
+    try { return allocateAligned(size, static_cast<std::size_t>(alignment)); }
+    catch (...) { return nullptr; }
+}
+void operator delete(void* memory) noexcept { release(memory); }
+void operator delete[](void* memory) noexcept { release(memory); }
+void operator delete(void* memory, std::size_t) noexcept { release(memory); }
+void operator delete[](void* memory, std::size_t) noexcept { release(memory); }
+void operator delete(void* memory, std::align_val_t) noexcept { release(memory); }
+void operator delete[](void* memory, std::align_val_t) noexcept { release(memory); }
+void operator delete(void* memory, std::size_t, std::align_val_t) noexcept { release(memory); }
+void operator delete[](void* memory, std::size_t, std::align_val_t) noexcept { release(memory); }
+void operator delete(void* memory, const std::nothrow_t&) noexcept { release(memory); }
+void operator delete[](void* memory, const std::nothrow_t&) noexcept { release(memory); }
+void operator delete(void* memory, std::align_val_t, const std::nothrow_t&) noexcept { release(memory); }
+void operator delete[](void* memory, std::align_val_t, const std::nothrow_t&) noexcept { release(memory); }
+
+namespace {
+    using namespace mka::audio::dsp;
+
+    TEST(PlanSwitcherRealtime, PersistentActiveAndReadyPlansHaveNoCallbackHeapOperations) {
+        DAG graph; PlanSwitcher switcher;
+        const auto id=graph.add<switcher_test::SignalNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
+        const BackendConfig cfg{.maxFrames=4,.inputChannels=1,.outputChannels=1};
+        ASSERT_TRUE(switcher.initialize(graph,cfg)); ASSERT_TRUE(switcher.prepareInactivePlan(graph,cfg));
+        switcher_test::IO io;
+        {
+            const AllocationWindow window;
+            for (unsigned callback=0;callback<64;++callback) switcher.exec(io.block(callback%3 ? 4 : 0));
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        EXPECT_EQ(switcher.audioGeneration(),1U);
+    }
+
+    TEST(PlanSwitcherRealtime, BoundarySwapAndAcknowledgmentNeverAllocateDeleteOrLock) {
+        DAG graph; PlanSwitcher switcher;
+        const auto id=graph.add<switcher_test::GenerationNode>(switcher); ASSERT_TRUE(id);
+        ASSERT_TRUE(graph.markAsOutput(*id));
+        const BackendConfig cfg{.maxFrames=4,.inputChannels=1,.outputChannels=1};
+        ASSERT_TRUE(switcher.initialize(graph,cfg)); switcher_test::IO io;
+        for (unsigned cycle=0;cycle<256;++cycle) {
+            ASSERT_TRUE(switcher.prepareInactivePlan(graph,cfg)); ASSERT_TRUE(switcher.publishReadyPlan());
+            {
+                const AllocationWindow window;
+                switcher.exec(io.block());
+            }
+            EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+            ASSERT_TRUE(switcher.retireAcknowledgedPlan());
+        }
+    }
+
+    TEST(PlanSwitcherRealtime, RetirementAndNodeDestructionOccurOnlyOnControlAfterAck) {
+        switcher_test::LifetimeTrace trace;
+        DAG graph; PlanSwitcher switcher;
+        const auto id=graph.add<switcher_test::SignalNode>(&trace); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
+        const BackendConfig cfg{.maxFrames=4,.inputChannels=1,.outputChannels=1};
+        ASSERT_TRUE(switcher.initialize(graph,cfg)); ASSERT_TRUE(graph.remove(*id));
+        ASSERT_TRUE(switcher.prepareInactivePlan(graph,cfg)); ASSERT_TRUE(switcher.publishReadyPlan());
+        switcher_test::IO io;
+        {
+            const AllocationWindow window;
+            switcher_test::onAudio=true;
+            switcher.exec(io.block());
+            switcher_test::onAudio=false;
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        EXPECT_EQ(trace.destroyed.load(),0U);
+        Result retired;
+        {
+            const AllocationWindow controlWindow;
+            retired=switcher.retireAcknowledgedPlan();
+        }
+        ASSERT_TRUE(retired); EXPECT_EQ(allocations,0U); EXPECT_GT(deallocations,0U);
+        EXPECT_EQ(graph.collectRetiredNodes(),1U); EXPECT_EQ(trace.destroyedOnAudio.load(),0U);
+    }
+
+    TEST(PlanSwitcherFailure, EveryCandidateAllocationFailurePreservesTheActiveGenerationAndDesiredGraph) {
+        DAG graph; PlanSwitcher switcher;
+        const auto id=graph.add<switcher_test::SignalNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
+        const BackendConfig cfg{.maxFrames=4,.inputChannels=1,.outputChannels=1};
+        ASSERT_TRUE(switcher.initialize(graph,cfg));
+        std::size_t points=0;
+        Result prepared;
+        {
+            const AllocationWindow window;
+            prepared=switcher.prepareInactivePlan(graph,cfg); points=allocations;
+        }
+        ASSERT_TRUE(prepared); ASSERT_GT(points,0U); ASSERT_TRUE(switcher.discardReadyPlan());
+        switcher_test::IO io;
+        for (std::size_t point=0;point<points;++point) {
+            SCOPED_TRACE(point); Result result;
+            {
+                const FailureWindow fault(point);
+                result=switcher.prepareAndPublish(graph,cfg);
+            }
+            ASSERT_FALSE(result); EXPECT_EQ(injectedFailures,1U);
+            EXPECT_TRUE(result.error().code==ErrorCode::PrepareFailed || result.error().code==ErrorCode::MemoryBudgetExceeded);
+            EXPECT_EQ(switcher.handshakeState(),HandshakeState::Idle); EXPECT_EQ(switcher.readyPlan(),nullptr);
+            EXPECT_EQ(switcher.controlGeneration(),1U); EXPECT_NE(graph.node(*id),nullptr);
+            switcher.exec(io.block()); EXPECT_EQ(io.input,io.output);
+        }
+    }
+
+    TEST(PlanSwitcherRealtime, TenThousandThreadedSwapsHaveZeroAudioAllocationsDeletesOrMutexes) {
+        const switcher_test::StressHooks hooks{
+            .before=[]() noexcept { allocations=deallocations=mutexAttempts=0; measuring=true; },
+            .after=[](switcher_test::HeapTotals& totals) noexcept {
+                measuring=false;
+                totals.allocations+=allocations; totals.deallocations+=deallocations; totals.mutexAttempts+=mutexAttempts;
+            }};
+        const auto result=switcher_test::runSwitcherStress(10000,hooks);
+        EXPECT_EQ(result.failures,0U) << "control step=" << result.errorStep;
+        EXPECT_EQ(result.swaps,10000U);
+        for (const auto plans : result.delayPlans) EXPECT_GT(plans,0U);
+        EXPECT_EQ(result.heap.allocations,0U); EXPECT_EQ(result.heap.deallocations,0U); EXPECT_EQ(result.heap.mutexAttempts,0U);
+        EXPECT_EQ(result.created,result.destroyed); EXPECT_EQ(result.destroyedOnAudio,0U);
+    }
+
+    TEST(BackendCapacityRealtime, FixedPhysicalShapesAndRejectionsNeverAllocateOrLock) {
+        for (const std::uint32_t count : {0U,1U,2U,6U}) {
+            backend_test::Observation observation; observation.expectOutput=true;
+            DAG graph;
+            const auto id=graph.add<backend_test::ProbeNode>(observation,Config{.layoutOutput={0}}); ASSERT_TRUE(id);
+            ASSERT_TRUE(graph.markAsOutput(*id));
+            auto plan=graph.compile(BackendConfig{.maxFrames=128,.inputChannels=count,.outputChannels=count,.sampleRate=48000});
+            ASSERT_TRUE(plan);
+            backend_test::FakeBackend first(0.F),second(100.F);
+            {
+                const AllocationWindow window;
+                for (unsigned block=0;block<32;++block) {
+                    const auto io=(block%2 ? first : second).io(block%3 ? 128U : 0U,count,count);
+                    const backend_test::IOScope expected(io);
+                    plan->exec(io);
+                }
+                plan->exec(first.io(129,count,count));
+                if (count) plan->exec(first.io(1,count-1,count));
+            }
+            EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+            EXPECT_TRUE(observation.directInputs); EXPECT_TRUE(observation.directOutputs);
+            EXPECT_EQ(observation.calls,32U);
+        }
+    }
+
+    TEST(PhysicalInputsRealtime, TwoSourcesShareSixReadOnlyPointersWithNoHeapOrMutex) {
+        std::array<backend_test::Observation,2> seen;
+        seen[1].expectOutput=true;
+        DAG graph;
+        const auto a=graph.add<backend_test::ProbeNode>(seen[0],Config{.layoutOutput={0}});
+        const auto b=graph.add<backend_test::ProbeNode>(seen[1],Config{.layoutInput={65535},.layoutOutput={0}});
+        ASSERT_TRUE(a); ASSERT_TRUE(b); ASSERT_TRUE(graph.markAsOutput(*b));
+        auto plan=graph.compile(BackendConfig{.maxFrames=128,.inputChannels=6,.outputChannels=6}); ASSERT_TRUE(plan);
+        backend_test::FakeBackend first,second(100.F);
+        {
+            const AllocationWindow window;
+            for (unsigned block=0;block<32;++block) {
+                const auto io=(block%2 ? first : second).io(block%3 ? 128U : 0U,6,6);
+                const backend_test::IOScope expected(io); plan->exec(io);
+            }
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        for (const auto& o : seen) { EXPECT_EQ(o.calls,32U); EXPECT_TRUE(o.directInputs); EXPECT_TRUE(o.directOutputs); }
+    }
+
+    TEST(HardwareSilenceRealtime, RepeatedPartialWritesCannotLeaveResiduesOnUnusedChannels) {
+        backend_test::Observation seen; seen.expectOutput=true;
+        backend_test::WritePolicy policy{.lanes=1U<<2,.begin=2,.end=7,.stride=2,.physicalValue=40.F};
+        DAG graph;
+        const auto id=graph.add<backend_test::PhysicalWriter>(seen,policy); ASSERT_TRUE(id);
+        ASSERT_TRUE(graph.markAsOutput(*id));
+        auto plan=graph.compile(BackendConfig{.maxFrames=128,.outputChannels=6}); ASSERT_TRUE(plan);
+        backend_test::FakeBackend a,b;
+        {
+            const AllocationWindow window;
+            for (unsigned block=0;block<32;++block) {
+                const auto io=(block%2 ? a : b).io(block%3 ? 128U : 0U,0,6);
+                const backend_test::IOScope scope(io); plan->exec(io);
+            }
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        for (auto* backend : {&a,&b}) for (unsigned c=0;c<6;++c) {
+            EXPECT_EQ(backend->outputStorage[c].front(),backend_test::guard);
+            EXPECT_EQ(backend->outputStorage[c].back(),backend_test::guard);
+            for (FrameCount f=0;f<128;++f)
+                EXPECT_EQ(backend->outputs[c][f],c==2 && (f==2 || f==4 || f==6) ? 42.F : 0.F);
+        }
+    }
+
+    TEST(LastWriterRealtime, ThreeDirectWritersAndLogicalSuccessorRequireNoConflictSearchOrHeap) {
+        std::array<backend_test::Observation,5> seen;
+        std::array<backend_test::WritePolicy,4> policies;
+        std::array<NodeID,5> ids;
+        DAG graph; ASSERT_TRUE(backend_test::buildLastWriters(graph,ids,seen,policies));
+        auto plan=graph.compile(BackendConfig{.maxFrames=128,.inputChannels=2,.outputChannels=6}); ASSERT_TRUE(plan);
+        backend_test::FakeBackend a,b;
+        {
+            const AllocationWindow window;
+            for (unsigned block=0;block<32;++block) {
+                const auto io=(block%2 ? a : b).io(block%3 ? 128U : 0U,2,6);
+                const backend_test::IOScope scope(io); plan->exec(io);
+            }
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        EXPECT_TRUE(seen[4].inputSamplesIntact);
+        for (auto* backend : {&a,&b}) for (unsigned c=0;c<6;++c) for (FrameCount f=0;f<128;++f)
+            EXPECT_EQ(backend->outputs[c][f],backend_test::lastWriterSample(c,f,policies));
+    }
+
+    TEST(TwoSixRoutingRealtime, PhysicalPairsAndLogicalSuccessorRenderWithoutHeapOrMutex) {
+        for (const std::uint32_t outputs : {2U,6U}) {
+            std::array<NodeID,3> ids;
+            std::array<backend_test::PairRouting,3> routing;
+            std::array<backend_test::Observation,3> seen;
+            DAG graph; ASSERT_TRUE(backend_test::buildPairRouting(graph,ids,routing,seen,outputs));
+            auto plan=graph.compile(BackendConfig{.maxFrames=128,.inputChannels=6,.outputChannels=outputs}); ASSERT_TRUE(plan);
+            backend_test::FakeBackend a(1.F),b(100.F);
+            {
+                const AllocationWindow window;
+                for (unsigned block=0;block<32;++block) {
+                    const auto io=(block%2 ? a : b).io(block%3 ? 128U : 0U,6,outputs);
+                    const backend_test::IOScope scope(io); plan->exec(io);
+                }
+            }
+            EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+            for (auto* backend : {&a,&b}) for (unsigned c=0;c<outputs;++c) for (FrameCount f=0;f<128;++f)
+                EXPECT_EQ(backend->outputs[c][f],backend_test::routedPairSample(outputs,c,f,*backend));
+        }
+    }
+
+    TEST(HeadphonePipelineRealtime, EndToEndGainTwoPairsAndLastWriterRemainHeapAndMutexFree) {
+        std::array<NodeID,4> ids;
+        std::array<backend_test::PairRouting,4> routing;
+        std::array<backend_test::Observation,4> seen;
+        DAG graph; ASSERT_TRUE(backend_test::buildHeadphonePipeline(graph,ids,routing,seen));
+        auto plan=graph.compile(BackendConfig{.maxFrames=128,.inputChannels=6,.outputChannels=6,.sampleRate=48000}); ASSERT_TRUE(plan);
+        backend_test::FakeBackend a(1.F),b(100.F);
+        {
+            const AllocationWindow window;
+            for (unsigned block=0;block<32;++block) {
+                const auto io=(block%2 ? a : b).io(block%3 ? 128U : 0U,6,6);
+                const backend_test::IOScope scope(io); plan->exec(io);
+            }
+            plan->exec(a.io(129,6,6));
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        EXPECT_EQ(plan->takeCallbackDiagnostics(),static_cast<std::uint32_t>(CallbackDiagnostic::FrameCapacityExceeded));
+        for (const auto& o : seen) {
+            EXPECT_EQ(o.calls,32U); EXPECT_TRUE(o.directInputs); EXPECT_TRUE(o.directOutputs); EXPECT_TRUE(o.separateStorage);
+        }
+        for (unsigned c=0;c<6;++c) for (FrameCount f=0;f<128;++f) {
+            EXPECT_EQ(a.outputs[c][f],0.F); // Rejected block: bounded fail-safe silence.
+            EXPECT_EQ(b.outputs[c][f],backend_test::headphoneSample(c,f,b));
+        }
+    }
+
+    TEST(PoolRealtime, RecycledFanoutAndPersistentDelayNeedNoHeapOrMutexOnCallbacks) {
+        pool_test::Pipeline p;
+        const auto a=p.add(), b=p.add(), c=p.add(), d=p.add();
+        p.edge(a,b); p.edge(a,c,PortType::Aux);
+        const auto edge=p.edge(b,d);
+        p.edge(c,d,PortType::Aux);
+        ASSERT_TRUE(p.graph.markAsOutput(b)); ASSERT_TRUE(p.graph.markAsOutput(d));
+        const std::array delays{ConnectionDelay{edge,256}};
+        auto plan=p.graph.compile(BackendConfig{.maxFrames=128,.inputChannels=1,.outputChannels=1,
+                                                .connectionDelays=delays}); ASSERT_TRUE(plan);
+        std::array<float,128> input{}, first{}, second{};
+        const std::array<const float*,1> inputs{input.data()};
+        {
+            const AllocationWindow window;
+            for (unsigned block=0;block<64;++block) {
+                const std::array outputs{block%2 ? first.data() : second.data()};
+                plan->exec(mka::audio::AudioProcessContext{inputs,outputs,block%3 ? 128U : 0U});
+            }
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+    }
+
+    TEST(PoolRealtime, FullBlockCorpusWithTenReadersAndZeroThree256SampleDelaysAllocatesNothing) {
+        pool_test::Pipeline p;
+        const auto source=p.add();
+        std::vector<NodeID> readers;
+        for (unsigned n=0;n<10;++n) { const auto node=p.add(); readers.push_back(node); p.edge(source,node); }
+        const auto sink=p.add();
+        p.edge(readers.front(),sink); p.edge(readers.back(),sink,PortType::In,1);
+        const auto delayed=p.edge(source,sink,PortType::Aux);
+        ASSERT_TRUE(p.graph.markAsOutput(readers.front())); ASSERT_TRUE(p.graph.markAsOutput(sink));
+        std::array<float,4098> input{}, first{}, second{};
+        const std::array<const float*,1> inputs{input.data()+1};
+        constexpr std::array<FrameCount,4> frames{0,1,128,4096};
+        for (const std::uint64_t delay : {0U,3U,256U}) {
+            const std::array delays{ConnectionDelay{delayed,delay}};
+            auto plan=p.graph.compile(BackendConfig{.maxFrames=4096,.inputChannels=1,.outputChannels=1,
+                                                    .connectionDelays=delays}); ASSERT_TRUE(plan);
+            first.fill(-99.F); second.fill(-99.F);
+            {
+                const AllocationWindow window;
+                for (unsigned block=0;block<32;++block) {
+                    const std::array outputs{(block%2 ? first.data() : second.data())+1};
+                    plan->exec(mka::audio::AudioProcessContext{inputs,outputs,frames[block%4]});
+                }
+            }
+            EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+            EXPECT_EQ(plan->callbackDiagnostics(),0U);
+            EXPECT_EQ(first.front(),-99.F); EXPECT_EQ(first.back(),-99.F);
+            EXPECT_EQ(second.front(),-99.F); EXPECT_EQ(second.back(),-99.F);
+        }
+    }
+
+    TEST(PoolAllocation, EveryFailureDuringDelayedPreparationKeepsTheActiveGeneration) {
+        pool_test::Pipeline p;
+        const auto a=p.add(), b=p.add();
+        const auto edge=p.edge(a,b);
+        ASSERT_TRUE(p.graph.markAsOutput(b));
+        const std::array delays{ConnectionDelay{edge,3}};
+        const BackendConfig cfg{.maxFrames=128,.inputChannels=1,.outputChannels=1,.connectionDelays=delays};
+        auto plan=p.graph.compile(cfg); ASSERT_TRUE(plan);
+        std::size_t points=0;
+        {
+            const AllocationWindow window;
+            const auto result=plan->prepareBackend(cfg,p.graph.connections(),p.graph.outputNodes());
+            if (!result) std::abort();
+            points=allocations;
+        }
+        ASSERT_GT(points,0U);
+        auto* const bound=plan->executionTasks()[0].context.outputs[0].buffer;
+        const auto total=plan->preparedMemoryUsage().totalBytes;
+        for (std::size_t point=0;point<points;++point) {
+            SCOPED_TRACE(point);
+            ExecutionPlan snapshot=*plan; // Independent history immediately before the failed attempt.
+            Result result;
+            {
+                const FailureWindow fault(point);
+                result=plan->prepareBackend(cfg,p.graph.connections(),p.graph.outputNodes());
+            }
+            ASSERT_FALSE(result);
+            EXPECT_EQ(result.error().code,ErrorCode::PrepareFailed);
+            EXPECT_EQ(injectedFailures,1U);
+            EXPECT_EQ(plan->executionTasks()[0].context.outputs[0].buffer,bound);
+            EXPECT_EQ(plan->preparedMemoryUsage().totalBytes,total);
+            EXPECT_TRUE(plan->isBackendPrepared());
+            std::array<float,128> input{}, actual{}, expected{};
+            input.fill(static_cast<float>(point+1));
+            const std::array<const float*,1> inputs{input.data()};
+            const std::array outputs{actual.data()}, reference{expected.data()};
+            plan->exec(mka::audio::AudioProcessContext{inputs,outputs,128});
+            snapshot.exec(mka::audio::AudioProcessContext{inputs,reference,128});
+            EXPECT_EQ(actual,expected); // Refusal must preserve history contents AND its cursor.
+        }
+    }
+
+    TEST(BufferPoolFailure, AllocationFailurePreservesPreviouslyPreparedSlots) {
+        BufferPool pool;
+        ASSERT_TRUE(pool.prepare(1, 128));
+        auto* old = pool.buffer(0);
+        old[0] = 19.F;
+        Result result;
+        {
+            const FailureWindow window(0);
+            result = pool.prepare(7, 4096);
+        }
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().code, ErrorCode::PrepareFailed);
+        EXPECT_EQ(injectedFailures, 1U);
+        EXPECT_EQ(pool.buffer(0), old);
+        EXPECT_EQ(old[0], 19.F);
+    }
+
+    TEST(BufferPoolFailure, SilenceAllocationFailureAlsoPreservesBothOldAllocations) {
+        BufferPool pool;
+        ASSERT_TRUE(pool.prepare(1, 128));
+        auto* old = pool.buffer(0);
+        const auto* zero = pool.silence();
+        Result result;
+        {
+            const FailureWindow window(1); // Slot storage succeeds; silence fails.
+            result = pool.prepare(7, 4096);
+        }
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error().code, ErrorCode::PrepareFailed);
+        EXPECT_EQ(injectedFailures, 1U);
+        EXPECT_EQ(pool.buffer(0), old);
+        EXPECT_EQ(pool.silence(), zero);
+        {
+            const AllocationWindow window;
+            for (unsigned callback = 0; callback < 64; ++callback)
+                for (FrameCount f = 0; f < 128; ++f) pool.buffer(0)[f] = pool.silence()[f];
+        }
+        EXPECT_EQ(allocations, 0U);
+        EXPECT_EQ(deallocations, 0U);
+        EXPECT_EQ(mutexAttempts, 0U);
+    }
+
+    class GainNode final : public Node {
+    public:
+        explicit GainNode(const NodeID id = 1) : Node(id, Config{.layoutInput = {0}, .layoutAuxiliary = {},
+                                    .layoutOutput = {0}}) {}
+
+        void process(const ProcessContext& context) noexcept override {
+            ++calls;
+            backendChannels = context.backendOutputs.size();
+            for (FrameCount i = 0; i < context.frames; ++i) {
+                if (partial && i%2) continue;
+                const auto sample = context.inputs[0].buffer[i];
+                context.outputs[0].buffer[i] = sample * 2.F;
+                context.backendOutputs[0].buffer[i] = sample + 100.F;
+            }
+        }
+
+        unsigned calls = 0; // Numeric state only; no retained context or pointer.
+        bool partial=false;
+        std::size_t backendChannels = 0;
+    };
+
+#ifdef MKA_WRAP_PTHREAD_MUTEX
+    TEST(RealtimeMutexProbe, DetectsAnExplicitMutexAcquisition) {
+        pthread_mutex_t mutex=PTHREAD_MUTEX_INITIALIZER;
+        int locked=-1;
+        {
+            const AllocationWindow window;
+            locked=pthread_mutex_lock(&mutex);
+            if (locked==0) pthread_mutex_unlock(&mutex);
+        }
+        EXPECT_EQ(locked,0); EXPECT_EQ(mutexAttempts,1U);
+        EXPECT_EQ(pthread_mutex_destroy(&mutex),0);
+    }
+#endif
+
+    TEST(NodeAllocationProbe, DetectsAnExplicitCppAllocationAndDeallocation) {
+        {
+            const AllocationWindow window;
+            void* memory = ::operator new(32);
+            ::operator delete(memory);
+        }
+        EXPECT_EQ(allocations, 1U);
+        EXPECT_EQ(deallocations, 1U);
+    }
+
+    TEST(NodeRealtimeContract, ProcessAndContextBindingUseNoCppHeapOperations) {
+        // All owning allocations/construction occur before measurement.
+        GainNode node;
+        std::array<float, 32> input{};
+        std::array<float, 32> internalOutput{};
+        std::array<float, 32> backendOutput{};
+        for (std::size_t i = 0; i < input.size(); ++i) input[i] = static_cast<float>(i);
+        const std::array inputs{InputChannel{0, input.data()}};
+        const std::array outputs{OutputChannel{node.channel(PortType::Out, 0), internalOutput.data()}};
+        const std::array backendOutputs{OutputChannel{0, backendOutput.data()}};
+        const PreparedContextBindings bindings{.outputs = outputs, .maxFrames = 32,
+            .maxBackendInputChannels = 1, .maxBackendOutputChannels = 1,
+            .isSource = true, .isOutput = true};
+        ASSERT_TRUE(validateContextBindings(bindings));
+        Node& base = node;
+        auto consume = [&base](const ProcessContext& context) noexcept { base.process(context); };
+        bool accepted = true;
+        {
+            const AllocationWindow window;
+            for (unsigned callback = 0; callback < 64; ++callback) {
+                accepted = withProcessContext(bindings, inputs, backendOutputs, 32, consume) && accepted;
+            }
+        }
+        EXPECT_TRUE(accepted);
+        EXPECT_EQ(node.calls, 64U);
+        EXPECT_EQ(allocations, 0U);
+        EXPECT_EQ(deallocations, 0U);
+        for (std::size_t i = 0; i < input.size(); ++i) {
+            EXPECT_FLOAT_EQ(internalOutput[i], input[i] * 2.F);
+            EXPECT_FLOAT_EQ(backendOutput[i], input[i] + 100.F);
+        }
+        // Destruction and its vector/token deallocations happen on control,
+        // outside the measured process window.
+    }
+
+    TEST(BackendRealtimeContract, PreparedGraphRebindsAndProcessesWithoutCppHeapOperations) {
+        DAG graph;
+        const auto addedSource = graph.add<GainNode>();
+        ASSERT_TRUE(addedSource);
+        auto& source = *static_cast<GainNode*>(graph.node(*addedSource));
+        const auto addedSink = graph.add<GainNode>();
+        ASSERT_TRUE(addedSink);
+        auto& sink = *static_cast<GainNode*>(graph.node(*addedSink));
+        ASSERT_TRUE(graph.connect(sink.channel(PortType::In, 0), source.channel(PortType::Out, 0)));
+        ASSERT_TRUE(graph.markAsOutput(source.id()));
+        ASSERT_TRUE(graph.markAsOutput(sink.id()));
+        auto plan = graph.compile(BackendConfig{.maxFrames = 32, .inputChannels = 1, .outputChannels = 1});
+        ASSERT_TRUE(plan);
+        std::array<float, 32> input{}, first{}, second{};
+        for (std::size_t i = 0; i < input.size(); ++i) input[i] = static_cast<float>(i);
+        const std::array<const float*, 1> inputs{input.data()};
+        const std::array firstOutputs{first.data()};
+        const std::array secondOutputs{second.data()};
+        bool accepted = true;
+        bool rejectedOverflow = false;
+        {
+            const AllocationWindow window;
+            rejectedOverflow = !plan->exec(BackendBlock{inputs, firstOutputs, 33});
+            accepted = plan->exec(BackendBlock{inputs, firstOutputs, 0}) && accepted;
+            for (unsigned callback = 0; callback < 64; ++callback) {
+                const auto outputs = callback % 2 == 0 ? std::span<float* const>{firstOutputs} :
+                                                        std::span<float* const>{secondOutputs};
+                accepted = plan->exec(BackendBlock{inputs, outputs, 32}) && accepted;
+            }
+        }
+        EXPECT_TRUE(rejectedOverflow);
+        EXPECT_TRUE(accepted);
+        EXPECT_EQ(source.calls, 65U);
+        EXPECT_EQ(sink.calls, 65U);
+        EXPECT_EQ(allocations, 0U);
+        EXPECT_EQ(deallocations, 0U);
+        for (std::size_t i = 0; i < input.size(); ++i) {
+            EXPECT_FLOAT_EQ(first[i], input[i] * 2.F + 100.F);
+            EXPECT_FLOAT_EQ(second[i], input[i] * 2.F + 100.F);
+        }
+    }
+
+    TEST(PreparedPlanRealtime, CanonicalCallbacksAndReferenceQueriesDoNotAllocateOrRelease) {
+        DAG graph;
+        const auto id=graph.add<GainNode>(); ASSERT_TRUE(id);
+        ASSERT_TRUE(graph.markAsOutput(*id));
+        auto plan=graph.compile(BackendConfig{.maxFrames=2,.inputChannels=1,.outputChannels=1}); ASSERT_TRUE(plan);
+        const std::array<float,2> input{1,2}; std::array<float,2> output{};
+        const std::array<const float*,1> inputs{input.data()}; const std::array outputs{output.data()};
+        bool references=true;
+        {
+            const AllocationWindow window;
+            for (FrameCount i=0;i<64;++i) {
+                plan->exec(mka::audio::AudioProcessContext{inputs,outputs,i%3});
+                references=references && plan->references(*id) && !plan->references(0);
+            }
+        }
+        EXPECT_TRUE(references); EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U);
+        EXPECT_EQ(static_cast<GainNode*>(graph.node(*id))->calls,64U);
+    }
+
+    TEST(ExecutionRealtime, ValidRejectedAndZeroFrameCanonicalCallbacksUseNoHeapOrMutex) {
+        DAG graph;
+        const auto id=graph.add<GainNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
+        auto plan=graph.compile(BackendConfig{.maxFrames=2,.inputChannels=1,.outputChannels=1}); ASSERT_TRUE(plan);
+        const std::array<float,2> input{1,2}; std::array<float,3> output{99,99,77};
+        const std::array<const float*,1> inputs{input.data()}; const std::array outputs{output.data()};
+        {
+            const AllocationWindow window;
+            for (unsigned block=0;block<128;++block) {
+                plan->exec(mka::audio::AudioProcessContext{inputs,outputs,0});
+                plan->exec(mka::audio::AudioProcessContext{inputs,outputs,1});
+                plan->exec(mka::audio::AudioProcessContext{inputs,outputs,2});
+                plan->exec(mka::audio::AudioProcessContext{inputs,outputs,3,2,2});
+            }
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        EXPECT_EQ(static_cast<GainNode*>(graph.node(*id))->calls,128U*3U);
+        EXPECT_EQ(output,(std::array<float,3>{0,0,77}));
+        EXPECT_EQ(plan->takeCallbackDiagnostics(),static_cast<std::uint32_t>(CallbackDiagnostic::FrameCapacityExceeded));
+        EXPECT_EQ(plan->callbackDiagnostics(),0U);
+    }
+
+    TEST(LogicalOutputRealtime, PartialWritersLeaveZeroHolesWithNoHeapOrMutexOperations) {
+        DAG graph;
+        const auto id=graph.add<GainNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
+        auto plan=graph.compile(BackendConfig{.maxFrames=32,.inputChannels=1,.outputChannels=1}); ASSERT_TRUE(plan);
+        std::array<float,32> input{},output{};
+        for (std::size_t i=0;i<32;++i) input[i]=static_cast<float>(i+1);
+        const std::array<const float*,1> inputs{input.data()}; const std::array outputs{output.data()};
+        plan->exec(mka::audio::AudioProcessContext{inputs,outputs,32});
+        static_cast<GainNode*>(graph.node(*id))->partial=true;
+        {
+            const AllocationWindow window;
+            for (unsigned block=0;block<64;++block)
+                plan->exec(mka::audio::AudioProcessContext{inputs,outputs,block%3==0 ? 0U : (block%3==1 ? 1U : 32U)});
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        const auto* logical=plan->executionTasks()[0].context.outputs[0].buffer;
+        for (std::size_t i=0;i<32;++i) {
+            EXPECT_EQ(logical[i],i%2 ? 0.F : input[i]*2.F);
+            EXPECT_EQ(output[i],i%2 ? 0.F : input[i]+100.F);
+        }
+    }
+
+    TEST(OfflinePipelineRealtime, CompiledStereoPipelineUsesNoHeapOrMutexAcrossChangingAndRejectedBlocks) {
+        DAG graph;
+        std::array<NodeID,3> ids{}; ASSERT_TRUE(offline_test::buildPipeline(graph,ids));
+        auto plan=graph.compile(BackendConfig{.maxFrames=offline_test::FakeBackend::maximum,.inputChannels=2,.outputChannels=3}); ASSERT_TRUE(plan);
+        offline_test::FakeBackend first{1.F},second{-3.F};
+        const std::array<FrameCount,4> frames{0,1,128,offline_test::FakeBackend::maximum};
+        {
+            const AllocationWindow window;
+            for (unsigned block=0;block<64;++block)
+                plan->exec((block%2 ? second : first).io(frames[block%4]));
+            plan->exec(first.io(offline_test::FakeBackend::maximum+1));
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        for (auto id : ids) EXPECT_EQ(static_cast<offline_test::PipelineNode*>(graph.node(id))->calls,64U);
+        for (std::size_t lane=0;lane<2;++lane)
+            for (FrameCount i=0;i<offline_test::FakeBackend::maximum;++i)
+                EXPECT_EQ(second.outputs[lane][i],second.inputs[lane][i]*0.5F);
+        for (FrameCount i=0;i<offline_test::FakeBackend::maximum;++i) {
+            EXPECT_EQ(second.outputs[2][i],0.F);
+            for (auto* out : first.outputs) EXPECT_EQ(out[i],0.F);
+        }
+        EXPECT_EQ(first.outputStorage[0].front(),999.F); EXPECT_EQ(first.outputStorage[0].back(),999.F);
+        EXPECT_EQ(plan->takeCallbackDiagnostics(),static_cast<std::uint32_t>(CallbackDiagnostic::FrameCapacityExceeded));
+    }
+
+    struct ConstructionTrace {
+        unsigned completed = 0;
+        unsigned destroyed = 0;
+    };
+    class AllocationNode final : public Node {
+    public:
+        AllocationNode(const NodeID id, ConstructionTrace& trace)
+            : Node(id, Config{.layoutInput = {0}, .layoutOutput = {0}}), trace_(trace) {
+            ++trace_.completed;
+        }
+        ~AllocationNode() override { ++trace_.destroyed; }
+        void process(const ProcessContext&) noexcept override {}
+    private:
+        ConstructionTrace& trace_;
+    };
+
+    TEST(DAGAllocationFailure, EveryAddAllocationRollsBackOwnershipAndIdentityWithoutChangingTheOldPlan) {
+        std::size_t allocationPoints = 0;
+        {
+            ConstructionTrace trace;
+            DAG graph;
+            ASSERT_TRUE(graph.add<GainNode>());
+            std::expected<NodeID, GraphError> added;
+            {
+                const AllocationWindow measured;
+                added = graph.add<AllocationNode>(trace);
+            }
+            ASSERT_TRUE(added);
+            allocationPoints = allocations;
+        }
+        ASSERT_GT(allocationPoints, 0U);
+        bool observedPostConstructionCleanup = false;
+        for (std::size_t failAt = 0; failAt < allocationPoints; ++failAt) {
+            SCOPED_TRACE(failAt);
+            ConstructionTrace trace;
+            DAG graph;
+            const auto first = graph.add<GainNode>();
+            ASSERT_TRUE(first);
+            auto* const originalAddress = graph.node(*first);
+            ASSERT_TRUE(graph.markAsOutput(*first));
+            auto oldPlan = graph.compile(BackendConfig{.maxFrames = 1, .inputChannels = 1, .outputChannels = 1});
+            ASSERT_TRUE(oldPlan);
+            std::expected<NodeID, GraphError> failed;
+            {
+                const FailureWindow fault{failAt};
+                failed = graph.add<AllocationNode>(trace);
+            }
+            ASSERT_FALSE(failed);
+            EXPECT_EQ(failed.error(), GraphError::AllocationFailed);
+            EXPECT_EQ(injectedFailures, 1U);
+            EXPECT_EQ(trace.completed, trace.destroyed);
+            observedPostConstructionCleanup = observedPostConstructionCleanup || trace.completed == 1;
+            EXPECT_EQ(graph.node(2), nullptr);
+            EXPECT_EQ(graph.node(*first), originalAddress);
+            ASSERT_EQ(oldPlan->tasks().size(), 1U);
+            EXPECT_EQ(oldPlan->tasks().front(), originalAddress);
+            const float input = 3;
+            float output = 99;
+            const std::array inputs{&input};
+            const std::array outputs{&output};
+            ASSERT_TRUE(oldPlan->exec(BackendBlock{inputs, outputs, 1}));
+            EXPECT_EQ(output, 103);
+            const auto retry = graph.add<AllocationNode>(trace);
+            ASSERT_TRUE(retry);
+            EXPECT_EQ(*retry, 2U);
+            EXPECT_EQ(trace.completed - trace.destroyed, 1U);
+        }
+        // At least one failure was after the complete derived object existed,
+        // exercising vector growth rollback and polymorphic candidate cleanup.
+        EXPECT_TRUE(observedPostConstructionCleanup);
+    }
+
+    TEST(DAGAllocationFailure, EveryConnectionAllocationPreservesTheGraphAndOldPlanOnFailure) {
+        const BackendConfig config{.maxFrames = 1, .inputChannels = 1, .outputChannels = 1};
+        std::size_t allocationPoints = 0;
+        {
+            DAG graph;
+            const auto source = graph.add<GainNode>();
+            const auto sink = graph.add<GainNode>();
+            ASSERT_TRUE(source);
+            ASSERT_TRUE(sink);
+            ASSERT_TRUE(graph.markAsOutput(*source));
+            ASSERT_TRUE(graph.markAsOutput(*sink));
+            auto oldPlan = graph.compile(config);
+            ASSERT_TRUE(oldPlan);
+            const auto from = graph.node(*source)->channel(PortType::Out, 0);
+            const auto to = graph.node(*sink)->channel(PortType::In, 0);
+            Result connected;
+            {
+                const AllocationWindow measured;
+                connected = graph.connect(to, from);
+            }
+            ASSERT_TRUE(connected);
+            allocationPoints = allocations;
+        }
+        ASSERT_GT(allocationPoints, 0U);
+        for (std::size_t failAt = 0; failAt < allocationPoints; ++failAt) {
+            SCOPED_TRACE(failAt);
+            DAG graph;
+            const auto source = graph.add<GainNode>();
+            const auto sink = graph.add<GainNode>();
+            ASSERT_TRUE(source);
+            ASSERT_TRUE(sink);
+            Node* const sourceAddress = graph.node(*source);
+            Node* const sinkAddress = graph.node(*sink);
+            const auto from = sourceAddress->channel(PortType::Out, 0);
+            const auto to = sinkAddress->channel(PortType::In, 0);
+            ASSERT_TRUE(graph.markAsOutput(*source));
+            ASSERT_TRUE(graph.markAsOutput(*sink));
+            auto oldPlan = graph.compile(config);
+            ASSERT_TRUE(oldPlan);
+            Result failed;
+            {
+                const FailureWindow fault{failAt};
+                failed = graph.connect(to, from);
+            }
+            ASSERT_FALSE(failed);
+            EXPECT_EQ(failed.error(), GraphError::AllocationFailed);
+            EXPECT_EQ(injectedFailures, 1U);
+            EXPECT_TRUE(graph.connections().empty());
+            EXPECT_EQ(graph.node(*source), sourceAddress);
+            EXPECT_EQ(graph.node(*sink), sinkAddress);
+            ASSERT_EQ(oldPlan->tasks().size(), 2U);
+            EXPECT_EQ(oldPlan->tasks()[0], sourceAddress);
+            EXPECT_EQ(oldPlan->tasks()[1], sinkAddress);
+            const float input = 3;
+            float output = 99;
+            const std::array inputs{&input};
+            const std::array outputs{&output};
+            ASSERT_TRUE(oldPlan->exec(BackendBlock{inputs, outputs, 1}));
+            EXPECT_EQ(output, 103);
+            auto unchanged = graph.compile(config);
+            ASSERT_TRUE(unchanged);
+            ASSERT_TRUE(unchanged->exec(BackendBlock{inputs, outputs, 1}));
+            EXPECT_EQ(output, 103);
+            EXPECT_EQ(static_cast<GainNode*>(sourceAddress)->backendChannels, 1U);
+            EXPECT_EQ(static_cast<GainNode*>(sinkAddress)->backendChannels, 1U);
+            ASSERT_TRUE(graph.connect(to, from));
+            ASSERT_EQ(graph.connections().size(), 1U);
+            EXPECT_EQ(graph.connections()[0], (Connection{from, to}));
+            // A successful desired-graph edit also leaves the old audio snapshot intact.
+            ASSERT_TRUE(oldPlan->exec(BackendBlock{inputs, outputs, 1}));
+            EXPECT_EQ(output, 103);
+            auto updated = graph.compile(config);
+            ASSERT_TRUE(updated);
+            ASSERT_TRUE(updated->exec(BackendBlock{inputs, outputs, 1}));
+            EXPECT_EQ(output, 106);
+        }
+    }
+
+    TEST(DAGAllocationFailure, FailedRetirementPreservesNodeEdgesOutputRolesAndOldPlan) {
+        DAG graph;
+        const auto source = graph.add<GainNode>();
+        const auto sink = graph.add<GainNode>();
+        ASSERT_TRUE(source);
+        ASSERT_TRUE(sink);
+        Node* const address = graph.node(*source);
+        const auto from = address->channel(PortType::Out, 0);
+        const auto to = graph.node(*sink)->channel(PortType::In, 0);
+        ASSERT_TRUE(graph.connect(to, from));
+        ASSERT_TRUE(graph.markAsOutput(*source));
+        ASSERT_TRUE(graph.markAsOutput(*sink));
+        const BackendConfig config{.maxFrames = 1, .inputChannels = 1, .outputChannels = 1};
+        auto oldPlan = graph.compile(config);
+        ASSERT_TRUE(oldPlan);
+        Result failed;
+        {
+            const FailureWindow fault{0};
+            failed = graph.remove(*source);
+        }
+        ASSERT_FALSE(failed);
+        EXPECT_EQ(failed.error(), GraphError::AllocationFailed);
+        EXPECT_EQ(injectedFailures, 1U);
+        EXPECT_EQ(graph.node(*source), address);
+        const auto duplicate = graph.connect(to, from);
+        ASSERT_FALSE(duplicate);
+        EXPECT_EQ(duplicate.error(), GraphError::ConnectionExists);
+        auto unchanged = graph.compile(config);
+        ASSERT_TRUE(unchanged);
+        const float input = 3;
+        float output = 99;
+        const std::array inputs{&input};
+        const std::array outputs{&output};
+        ASSERT_TRUE(unchanged->exec(BackendBlock{inputs, outputs, 1}));
+        EXPECT_EQ(output, 106);
+        EXPECT_EQ(static_cast<GainNode*>(address)->backendChannels, 1U);
+        EXPECT_EQ(static_cast<GainNode*>(graph.node(*sink))->backendChannels, 1U);
+        ASSERT_TRUE(graph.remove(*source));
+        EXPECT_EQ(graph.node(*source), nullptr);
+        EXPECT_EQ(graph.collectRetiredNodes(), 0U);
+        ASSERT_TRUE(oldPlan->exec(BackendBlock{inputs, outputs, 1}));
+        EXPECT_EQ(output, 106);
+        auto replacement = graph.compile(config);
+        ASSERT_TRUE(replacement);
+        ASSERT_TRUE(replacement->exec(BackendBlock{inputs, outputs, 1}));
+        EXPECT_EQ(output, 103); // Sink is now a topological source in this plan.
+    }
+
+    TEST(OutputMarkerFailure, FailedMarkIsTransactionalAndRepeatedMarkAndUnmarkDoNotAllocate) {
+        ConstructionTrace trace;
+        DAG graph;
+        auto id = graph.add<AllocationNode>(trace);
+        ASSERT_TRUE(id);
+        auto old = graph.compile(BackendConfig{.maxFrames=1,.outputChannels=1});
+        ASSERT_TRUE(old);
+        Result result;
+        {
+            const FailureWindow fault{0};
+            result = graph.markAsOutput(*id);
+        }
+        ASSERT_FALSE(result);
+        EXPECT_EQ(result.error(),GraphError::AllocationFailed);
+        EXPECT_EQ(injectedFailures,1U);
+        EXPECT_TRUE(graph.outputNodes().empty());
+        float output=99;
+        const std::array outputs{&output};
+        ASSERT_TRUE(old->exec(BackendBlock{.outputs=outputs,.frames=1}));
+        EXPECT_EQ(output,0);
+        ASSERT_TRUE(graph.markAsOutput(*id));
+        {
+            const FailureWindow fault{0};
+            result = graph.markAsOutput(*id);
+        }
+        EXPECT_TRUE(result);
+        EXPECT_EQ(injectedFailures,0U);
+        ASSERT_EQ(graph.outputNodes().size(),1U);
+        EXPECT_EQ(graph.outputNodes()[0],*id);
+        {
+            const FailureWindow fault{0};
+            result = graph.unmarkAsOutput(*id);
+        }
+        EXPECT_TRUE(result);
+        EXPECT_EQ(injectedFailures,0U);
+        EXPECT_TRUE(graph.outputNodes().empty());
+    }
+
+    TEST(ConfigAllocationFailure, EveryConfigCopyFailureKeepsOwnedLayoutsEdgesAndIdentity) {
+        const Config next{.layoutInput={2,6},.layoutAuxiliary={2,6},.layoutOutput={2,6}};
+        std::size_t points=0;
+        {
+            ConstructionTrace trace;
+            DAG graph;
+            auto id=graph.add<AllocationNode>(trace); ASSERT_TRUE(id);
+            Result changed;
+            {
+                const AllocationWindow measured;
+                changed=graph.setConfig(*id,next);
+            }
+            ASSERT_TRUE(changed); points=allocations;
+        }
+        ASSERT_GT(points,0U);
+        for (std::size_t i=0;i<points;++i) {
+            SCOPED_TRACE(i);
+            ConstructionTrace trace;
+            DAG graph;
+            auto a=graph.add<AllocationNode>(trace), b=graph.add<AllocationNode>(trace);
+            ASSERT_TRUE(a); ASSERT_TRUE(b);
+            Node* const address=graph.node(*a);
+            const Connection edge{encode(*a,PortType::Out,0),encode(*b,PortType::In,0)};
+            ASSERT_TRUE(graph.connect(edge.to,edge.from)); ASSERT_TRUE(graph.markAsOutput(*a));
+            const Config before=address->config();
+            Result failed;
+            {
+                const FailureWindow fault{i};
+                failed=graph.setConfig(*a,next);
+            }
+            ASSERT_FALSE(failed); EXPECT_EQ(failed.error(),GraphError::AllocationFailed);
+            EXPECT_EQ(injectedFailures,1U); EXPECT_EQ(graph.node(*a),address);
+            EXPECT_EQ(address->config().layoutInput,before.layoutInput);
+            EXPECT_EQ(address->config().layoutAuxiliary,before.layoutAuxiliary);
+            EXPECT_EQ(address->config().layoutOutput,before.layoutOutput);
+            ASSERT_EQ(graph.connections().size(),1U); EXPECT_EQ(graph.connections()[0],edge);
+            ASSERT_EQ(graph.outputNodes().size(),1U); EXPECT_EQ(graph.outputNodes()[0],*a);
+            ASSERT_TRUE(graph.setConfig(*a,next));
+            EXPECT_EQ(address->config().layoutInput,next.layoutInput);
+            EXPECT_EQ(address->config().layoutAuxiliary,next.layoutAuxiliary);
+            EXPECT_EQ(address->config().layoutOutput,next.layoutOutput);
+        }
+    }
+
+    TEST(TopologyAllocationFailure, EveryAllocationFailureLeavesTheDesiredGraphAndOldPlanIntact) {
+        std::size_t points=0;
+        {
+            ConstructionTrace trace;
+            DAG graph;
+            for (unsigned i=0;i<4;++i) ASSERT_TRUE(graph.add<AllocationNode>(trace));
+            ASSERT_TRUE(graph.connect(encode(1,PortType::In,0),encode(2,PortType::Out,0)));
+            ASSERT_TRUE(graph.markAsOutput(3));
+            std::expected<std::vector<NodeID>,GraphError> order;
+            {
+                const AllocationWindow measured;
+                order=topologicalOrder(graph);
+            }
+            ASSERT_TRUE(order); points=allocations;
+        }
+        ASSERT_GT(points,0U);
+        for (std::size_t i=0;i<points;++i) {
+            SCOPED_TRACE(i);
+            ConstructionTrace trace;
+            DAG graph;
+            for (unsigned n=0;n<4;++n) ASSERT_TRUE(graph.add<AllocationNode>(trace));
+            const Connection edge{encode(2,PortType::Out,0),encode(1,PortType::In,0)};
+            ASSERT_TRUE(graph.connect(edge.to,edge.from)); ASSERT_TRUE(graph.markAsOutput(3));
+            auto old=graph.compile(); ASSERT_TRUE(old);
+            const auto* const address=graph.node(1);
+            std::expected<std::vector<NodeID>,GraphError> failed;
+            {
+                const FailureWindow fault{i};
+                failed=topologicalOrder(graph);
+            }
+            ASSERT_FALSE(failed); EXPECT_EQ(failed.error(),GraphError::AllocationFailed);
+            EXPECT_EQ(injectedFailures,1U); EXPECT_EQ(graph.node(1),address);
+            ASSERT_EQ(graph.connections().size(),1U); EXPECT_EQ(graph.connections()[0],edge);
+            ASSERT_EQ(graph.outputNodes().size(),1U); EXPECT_EQ(graph.outputNodes()[0],3U);
+            const std::array<NodeID,4> expected{2,1,3,4};
+            ASSERT_EQ(old->tasks().size(),4U);
+            for (std::size_t n=0;n<4;++n) EXPECT_EQ(old->tasks()[n]->id(),expected[n]);
+            const auto retry=topologicalOrder(graph); ASSERT_TRUE(retry);
+            ASSERT_EQ(retry->size(),4U);
+            for (std::size_t n=0;n<4;++n) EXPECT_EQ((*retry)[n],expected[n]);
+        }
+    }
+
+    TEST(StructuredErrorAllocation, BackendCompileCatchesEveryAllocationAndPreservesTheOldPreparedPlan) {
+        const BackendConfig config{.maxFrames=1,.outputChannels=1};
+        std::size_t points=0;
+        {
+            ConstructionTrace trace;
+            DAG graph;
+            auto id=graph.add<AllocationNode>(trace); ASSERT_TRUE(id);
+            ASSERT_TRUE(graph.markAsOutput(*id));
+            std::expected<ExecutionPlan,Error> compiled{std::unexpected(Error{ErrorCode::PrepareFailed})};
+            {
+                const AllocationWindow measured;
+                compiled=graph.compile(config);
+            }
+            ASSERT_TRUE(compiled); points=allocations;
+        }
+        ASSERT_GT(points,0U);
+        for (std::size_t i=0;i<points;++i) {
+            SCOPED_TRACE(i);
+            ConstructionTrace trace;
+            DAG graph;
+            auto id=graph.add<AllocationNode>(trace); ASSERT_TRUE(id);
+            Node* const address=graph.node(*id);
+            ASSERT_TRUE(graph.markAsOutput(*id));
+            auto old=graph.compile(config); ASSERT_TRUE(old);
+            std::expected<ExecutionPlan,Error> failed{std::unexpected(Error{ErrorCode::PrepareFailed})};
+            {
+                const FailureWindow fault{i};
+                failed=graph.compile(config);
+            }
+            ASSERT_FALSE(failed); EXPECT_EQ(failed.error().code,ErrorCode::PrepareFailed);
+            EXPECT_EQ(injectedFailures,1U); EXPECT_EQ(graph.node(*id),address);
+            EXPECT_EQ(trace.destroyed,0U); EXPECT_TRUE(old->isBackendPrepared());
+            ASSERT_EQ(old->tasks().size(),1U); EXPECT_EQ(old->tasks()[0],address);
+            ASSERT_EQ(graph.outputNodes().size(),1U); EXPECT_EQ(graph.outputNodes()[0],*id);
+            float output=99; const std::array outputs{&output};
+            ASSERT_TRUE(old->exec(BackendBlock{.outputs=outputs,.frames=1}));
+            EXPECT_EQ(output,0);
+            auto retry=graph.compile(config); ASSERT_TRUE(retry);
+        }
+    }
+
+    TEST(StructuralCompileAllocation, EveryAllocationPreservesThePreparedTargetAndReleasesCandidateBorrows) {
+        const BackendConfig backend{.maxFrames=1,.inputChannels=1,.outputChannels=1};
+        std::size_t points=0;
+        {
+            DAG graph;
+            const auto first=graph.add<GainNode>(); ASSERT_TRUE(first);
+            ASSERT_TRUE(graph.markAsOutput(*first));
+            auto old=graph.compile(backend); ASSERT_TRUE(old);
+            ExecutionPlan target=std::move(*old);
+            const auto second=graph.add<GainNode>(); ASSERT_TRUE(second);
+            ASSERT_TRUE(graph.connect(encode(*second,PortType::In,0),encode(*first,PortType::Out,0)));
+            ASSERT_TRUE(graph.markAsOutput(*second));
+            Result compiled;
+            {
+                const AllocationWindow measured;
+                compiled=graph.compile(target,CompileConfig{});
+            }
+            ASSERT_TRUE(compiled); points=allocations;
+        }
+        ASSERT_GT(points,0U);
+        for (std::size_t i=0;i<points;++i) {
+            SCOPED_TRACE(i);
+            DAG graph;
+            const auto first=graph.add<GainNode>(); ASSERT_TRUE(first);
+            Node* const firstAddress=graph.node(*first);
+            ASSERT_TRUE(graph.markAsOutput(*first));
+            auto old=graph.compile(backend); ASSERT_TRUE(old);
+            ExecutionPlan target=std::move(*old);
+            ExecutionPlan active=target;
+            const auto* const taskStorage=target.tasks().data();
+            const auto* const metadataStorage=target.taskInfos().data();
+            const auto* const sourceStorage=target.sourceTasks().data();
+            const auto* const outputStorage=target.outputTasks().data();
+            const auto second=graph.add<GainNode>(); ASSERT_TRUE(second);
+            Node* const secondAddress=graph.node(*second);
+            const Connection edge{encode(*first,PortType::Out,0),encode(*second,PortType::In,0)};
+            ASSERT_TRUE(graph.connect(edge.to,edge.from));
+            ASSERT_TRUE(graph.markAsOutput(*second));
+            Result failed;
+            {
+                const FailureWindow fault{i};
+                failed=graph.compile(target,CompileConfig{});
+            }
+            ASSERT_FALSE(failed);
+            EXPECT_EQ(failed.error(),(Error{ErrorCode::MemoryBudgetExceeded}));
+            EXPECT_EQ(injectedFailures,1U);
+            EXPECT_TRUE(target.isBackendPrepared());
+            EXPECT_EQ(target.tasks().data(),taskStorage);
+            EXPECT_EQ(target.taskInfos().data(),metadataStorage);
+            EXPECT_EQ(target.sourceTasks().data(),sourceStorage);
+            EXPECT_EQ(target.outputTasks().data(),outputStorage);
+            ASSERT_EQ(target.tasks().size(),1U);
+            EXPECT_EQ(target.tasks()[0],firstAddress);
+            ASSERT_EQ(target.taskInfos().size(),1U);
+            EXPECT_EQ(target.taskInfos()[0].id,*first);
+            EXPECT_EQ(target.taskInfos()[0].index,0U);
+            EXPECT_TRUE(target.taskInfos()[0].isSource);
+            EXPECT_TRUE(target.taskInfos()[0].isOutput);
+            EXPECT_EQ(target.taskIndexOf(*first),0U);
+            EXPECT_FALSE(target.taskIndexOf(*second));
+            ASSERT_EQ(target.sourceTasks().size(),1U); EXPECT_EQ(target.sourceTasks()[0],0U);
+            ASSERT_EQ(target.outputTasks().size(),1U); EXPECT_EQ(target.outputTasks()[0],0U);
+            EXPECT_EQ(graph.node(*first),firstAddress);
+            EXPECT_EQ(graph.node(*second),secondAddress);
+            ASSERT_EQ(graph.connections().size(),1U); EXPECT_EQ(graph.connections()[0],edge);
+            ASSERT_EQ(graph.outputNodes().size(),2U);
+            EXPECT_EQ(static_cast<GainNode*>(firstAddress)->calls,0U);
+            EXPECT_EQ(static_cast<GainNode*>(secondAddress)->calls,0U);
+            // Any partially acquired borrow of the new Node must have unwound.
+            ASSERT_TRUE(graph.setConfig(*second,secondAddress->config()));
+            const auto blocked=graph.setConfig(*first,firstAddress->config());
+            ASSERT_FALSE(blocked); EXPECT_EQ(blocked.error().code,ErrorCode::NodeInUse);
+            const float input=3;
+            float output=99;
+            const std::array inputs{&input}; const std::array outputs{&output};
+            ASSERT_TRUE(target.exec(BackendBlock{inputs,outputs,1}));
+            EXPECT_EQ(output,103);
+            ASSERT_TRUE(active.exec(BackendBlock{inputs,outputs,1}));
+            EXPECT_EQ(output,103);
+            ASSERT_TRUE(graph.compile(target,CompileConfig{}));
+            EXPECT_FALSE(target.isBackendPrepared());
+            ASSERT_EQ(target.tasks().size(),2U);
+            EXPECT_EQ(target.taskIndexOf(*second),1U);
+            EXPECT_FALSE(target.taskInfos()[1].isSource);
+            EXPECT_TRUE(target.taskInfos()[1].isOutput);
+            EXPECT_FALSE(target.exec(BackendBlock{inputs,outputs,1}));
+            // Replacing target never mutates the independent active generation.
+            ASSERT_EQ(active.tasks().size(),1U);
+            EXPECT_TRUE(active.isBackendPrepared());
+            ASSERT_TRUE(active.exec(BackendBlock{inputs,outputs,1}));
+            EXPECT_EQ(output,103);
+        }
+    }
+
+    TEST(InternalBindingAllocation, EveryPreparationAllocationPreservesTargetAndSeparateActiveContexts) {
+        const BackendConfig oldConfig{.maxFrames=1,.inputChannels=1,.outputChannels=1};
+        const BackendConfig nextConfig{.maxFrames=2,.inputChannels=1,.outputChannels=1};
+        std::size_t points=0;
+        {
+            DAG graph;
+            const auto a=graph.add<GainNode>(), b=graph.add<GainNode>(); ASSERT_TRUE(a); ASSERT_TRUE(b);
+            ASSERT_TRUE(graph.connect(encode(*b,PortType::In,0),encode(*a,PortType::Out,0)));
+            ASSERT_TRUE(graph.markAsOutput(*a));
+            ASSERT_TRUE(graph.markAsOutput(*b));
+            auto target=graph.compile(oldConfig); ASSERT_TRUE(target);
+            Result result;
+            {
+                const AllocationWindow measured;
+                result=target->prepareBackend(nextConfig,graph.connections(),graph.outputNodes());
+            }
+            ASSERT_TRUE(result); points=allocations;
+        }
+        ASSERT_GT(points,0U);
+        for (std::size_t i=0;i<points;++i) {
+            SCOPED_TRACE(i);
+            DAG graph;
+            const auto a=graph.add<GainNode>(), b=graph.add<GainNode>(); ASSERT_TRUE(a); ASSERT_TRUE(b);
+            ASSERT_TRUE(graph.connect(encode(*b,PortType::In,0),encode(*a,PortType::Out,0)));
+            ASSERT_TRUE(graph.markAsOutput(*a));
+            ASSERT_TRUE(graph.markAsOutput(*b));
+            auto target=graph.compile(oldConfig); ASSERT_TRUE(target);
+            ExecutionPlan active=*target;
+            const auto tasks=target->executionTasks();
+            const auto* descriptors=tasks[1].context.inputs.data();
+            const auto* producer=tasks[0].context.outputs[0].buffer;
+            const auto* activeProducer=active.executionTasks()[0].context.outputs[0].buffer;
+            Result result;
+            {
+                const FailureWindow fault{i};
+                result=target->prepareBackend(nextConfig,graph.connections(),graph.outputNodes());
+            }
+            ASSERT_FALSE(result); EXPECT_EQ(result.error().code,ErrorCode::PrepareFailed);
+            EXPECT_EQ(injectedFailures,1U); EXPECT_EQ(target->executionTasks().data(),tasks.data());
+            EXPECT_EQ(tasks[1].context.inputs.data(),descriptors);
+            EXPECT_EQ(tasks[0].context.outputs[0].buffer,producer);
+            EXPECT_EQ(tasks[1].context.inputs[0].buffer,producer);
+            EXPECT_EQ(active.executionTasks()[0].context.outputs[0].buffer,activeProducer);
+            EXPECT_EQ(static_cast<GainNode*>(graph.node(*a))->calls,0U);
+            const std::array<float,2> input{3,5}; std::array<float,2> output{};
+            const std::array<const float*,1> inputs{input.data()}; const std::array outputs{output.data()};
+            target->exec(mka::audio::AudioProcessContext{inputs,outputs,1}); EXPECT_EQ(output[0],106.F);
+            active.exec(mka::audio::AudioProcessContext{inputs,outputs,1}); EXPECT_EQ(output[0],106.F);
+            ASSERT_TRUE(target->prepareBackend(nextConfig,graph.connections(),graph.outputNodes()));
+            target->exec(mka::audio::AudioProcessContext{inputs,outputs,2});
+            EXPECT_EQ(output[0],106.F); EXPECT_EQ(output[1],110.F);
+            EXPECT_EQ(active.executionTasks()[0].context.outputs[0].buffer,activeProducer);
+        }
+    }
+
+    TEST(OutputMarkerRealtime, UnmarkKeepsTheOldRoleWithNoHeapOperationsDuringCallbacks) {
+        DAG graph;
+        auto id = graph.add<GainNode>();
+        ASSERT_TRUE(id);
+        ASSERT_TRUE(graph.markAsOutput(*id));
+        auto old = graph.compile(BackendConfig{.maxFrames=1,.inputChannels=1,.outputChannels=1});
+        ASSERT_TRUE(old);
+        ASSERT_TRUE(graph.unmarkAsOutput(*id));
+        const float input=3;
+        float first=99, second=99;
+        const std::array inputs{&input};
+        const std::array firstOutputs{&first}, secondOutputs{&second};
+        bool accepted=true;
+        {
+            const AllocationWindow measured;
+            for (unsigned i=0; i<64; ++i)
+                accepted = old->exec(BackendBlock{inputs,i%2 ? firstOutputs : secondOutputs,1}) && accepted;
+        }
+        EXPECT_TRUE(accepted);
+        EXPECT_EQ(allocations,0U);
+        EXPECT_EQ(deallocations,0U);
+        EXPECT_EQ(first,103);
+        EXPECT_EQ(second,103);
+        EXPECT_TRUE(graph.outputNodes().empty());
+    }
+}
+
+namespace {
+    TEST(PdcRealtime, AutomaticCompensationBeyondBlockSizeUsesNoHeapDeletesOrMutexes) {
+        using namespace mka::audio::dsp;
+        DAG graph;
+        const auto fast=graph.add<pdc_test::UniformDelayNode>(0U);
+        const auto slow=graph.add<pdc_test::UniformDelayNode>(256U);
+        const auto join=graph.add<pdc_test::UniformDelayNode>(0U,pdc_test::ports(),0U);
+        ASSERT_TRUE(fast); ASSERT_TRUE(slow); ASSERT_TRUE(join);
+        ASSERT_TRUE(pdc_test::connect(graph,pdc_test::edge(*fast,*join)));
+        ASSERT_TRUE(pdc_test::connect(graph,pdc_test::edge(*slow,*join,PortType::Aux)));
+        ASSERT_TRUE(graph.markAsOutput(*join));
+        auto plan=graph.compile(BackendConfig{.maxFrames=128,.inputChannels=1,.outputChannels=1}); ASSERT_TRUE(plan);
+        ASSERT_EQ(plan->delayTaskCount(),1U);
+        ASSERT_EQ(plan->preparedMemoryUsage().historyBytes,256U*sizeof(float));
+        std::array<float,130> input{},output{}; input.fill(1.F); output.fill(-999.F);
+        const std::array<const float*,1> inputs{input.data()+1};
+        const std::array outputs{output.data()+1};
+        const std::array<FrameCount,3> sizes{0,1,128};
+        {
+            const AllocationWindow measured;
+            for (unsigned block=0;block<64;++block)
+                plan->exec(mka::audio::AudioProcessContext{inputs,outputs,sizes[block%3],128,128});
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        EXPECT_EQ(output.front(),-999.F); EXPECT_EQ(output.back(),-999.F);
+        EXPECT_EQ(plan->callbackDiagnostics(),0U);
+    }
+}
+
+namespace {
+    TEST(PdcAllocation, EveryAutomaticPreparationFailurePreservesActiveHistoryAndTables) {
+        using namespace mka::audio::dsp;
+        DAG graph;
+        const auto a=graph.add<pdc_test::UniformDelayNode>(0U),b=graph.add<pdc_test::UniformDelayNode>(255U);
+        const auto c=graph.add<pdc_test::UniformDelayNode>(256U);
+        const auto join=graph.add<pdc_test::UniformDelayNode>(0U,
+            Config{.layoutInput={0,1},.layoutAuxiliary={0},.layoutOutput={0}},0U);
+        ASSERT_TRUE(a); ASSERT_TRUE(b); ASSERT_TRUE(c); ASSERT_TRUE(join);
+        for (const auto edge : {pdc_test::edge(*a,*join),pdc_test::edge(*b,*join,PortType::In,1),
+                               pdc_test::edge(*c,*join,PortType::Aux)})
+            ASSERT_TRUE(pdc_test::connect(graph,edge));
+        ASSERT_TRUE(graph.markAsOutput(*join));
+        const BackendConfig cfg{.maxFrames=4,.inputChannels=1,.outputChannels=1};
+        auto target=graph.compile(cfg); ASSERT_TRUE(target);
+        std::size_t points=0;
+        {
+            const AllocationWindow measured;
+            const auto result=target->prepareBackend(cfg,graph.connections(),graph.outputNodes());
+            if (!result) std::abort();
+            points=allocations;
+        }
+        ASSERT_GT(points,0U);
+        const auto* table=target->pdcAnalysis()->nodes.data();
+        const auto* snapshot=target->latencySnapshot()->nodes.data();
+        const auto* samples=pdc_test::context(*target,*a).outputs[0].buffer;
+        const auto total=target->preparedMemoryUsage().totalBytes;
+        std::array<float,4> input{},output{};
+        const std::array<const float*,1> inputs{input.data()}; const std::array outputs{output.data()};
+        unsigned t=0;
+        const auto renderNext=[&] {
+            for (unsigned f=0;f<4;++f) input[f]=static_cast<float>(t+f+1);
+            target->exec(mka::audio::AudioProcessContext{inputs,outputs,4,4,4});
+            for (unsigned f=0;f<4;++f)
+                EXPECT_EQ(output[f],t+f<256 ? 0.F : 3.F*static_cast<float>(t+f-256+1));
+            t+=4;
+        };
+        for (unsigned block=0;block<80;++block) renderNext();
+        for (std::size_t point=0;point<points;++point) {
+            SCOPED_TRACE(point);
+            Result result;
+            {
+                const FailureWindow fault(point);
+                result=target->prepareBackend(cfg,graph.connections(),graph.outputNodes());
+            }
+            ASSERT_FALSE(result); EXPECT_EQ(result.error().code,ErrorCode::PrepareFailed);
+            EXPECT_EQ(injectedFailures,1U);
+            EXPECT_EQ(target->pdcAnalysis()->nodes.data(),table);
+            EXPECT_EQ(target->latencySnapshot()->nodes.data(),snapshot);
+            EXPECT_EQ(pdc_test::context(*target,*a).outputs[0].buffer,samples);
+            EXPECT_EQ(target->preparedMemoryUsage().totalBytes,total);
+            EXPECT_EQ(target->preparedMemoryUsage().historyBytes,257U*sizeof(float));
+            // Independent time-domain oracle; do not execute a copy sharing the
+            // same mutable plugin histories, which would advance the DSP twice.
+            renderNext();
+        }
+    }
+}
+
+namespace {
+    TEST(DelayLineRealtime, PersistentProcessingIncludingEmptyBlocksUsesNoHeapDeletesOrMutexes) {
+        using namespace mka::audio::dsp;
+        for (const std::uint64_t delay : {0U,1U,3U,256U}) {
+            DelayLine line; ASSERT_TRUE(line.prepare(delay));
+            std::array<float,130> input{},output{}; input.fill(1.F); output.fill(-999.F);
+            const std::array<FrameCount,5> frames{0,1,2,7,128};
+            {
+                const AllocationWindow measured;
+                for (unsigned block=0;block<64;++block)
+                    line.process(input.data()+1,output.data()+1,frames[block%frames.size()]);
+                line.process(nullptr,nullptr,0);
+            }
+            EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+            EXPECT_EQ(output.front(),-999.F); EXPECT_EQ(output.back(),-999.F);
+        }
+    }
+
+    TEST(DelayLineAllocation, FailedHistoryAllocationPreservesTheRunningStream) {
+        using namespace mka::audio::dsp;
+        DelayLine line; ASSERT_TRUE(line.prepare(3));
+        const std::array<float,4> first{1,2,3,4},second{5,6,7,8}; std::array<float,4> output{};
+        line.process(first.data(),output.data(),4);
+        Result result;
+        {
+            const FailureWindow failed(0);
+            result=line.prepare(256);
+        }
+        ASSERT_FALSE(result); EXPECT_EQ(result.error().code,ErrorCode::PrepareFailed);
+        EXPECT_EQ(injectedFailures,1U); EXPECT_EQ(line.delaySamples(),3U);
+        line.process(second.data(),output.data(),4);
+        EXPECT_EQ(output,(std::array<float,4>{2,3,4,5}));
+    }
+}
+
+namespace {
+    TEST(DelayLineAllocation, PreparingZeroNeedsNoAllocationEvenWhenAnAllocationFailureIsArmed) {
+        using namespace mka::audio::dsp;
+        DelayLine line; ASSERT_TRUE(line.prepare(256));
+        Result result;
+        {
+            const FailureWindow failed(0);
+            result=line.prepare(0,DelayLineLimits{.memoryBudgetBytes=0});
+        }
+        ASSERT_TRUE(result); EXPECT_EQ(injectedFailures,0U); EXPECT_EQ(line.historyBytes(),0U);
+        std::array<float,2> input{3,-7},output{};
+        {
+            const AllocationWindow measured;
+            line.process(input.data(),output.data(),2);
+        }
+        EXPECT_EQ(output,input); EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+    }
+}
+
+namespace {
+    TEST(DelayTaskRealtime, CompiledConcreteTaskExecutesWithoutHeapDeletesOrMutexes) {
+        using namespace mka::audio::dsp;
+        for (const std::uint64_t delay : {1U,3U,256U,512U}) {
+            detail::DelayTask task; ASSERT_TRUE(task.prepare(delay));
+            std::array<float,130> input{},output{}; input.fill(1.F); output.fill(-999.F);
+            ASSERT_TRUE(task.bind(input.data()+1,output.data()+1,128));
+            const std::array<FrameCount,5> frames{0,1,2,7,128};
+            {
+                const AllocationWindow measured;
+                for (unsigned block=0;block<64;++block) task.execute(frames[block%frames.size()]);
+            }
+            EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+            EXPECT_EQ(output.front(),-999.F); EXPECT_EQ(output.back(),-999.F);
+        }
+    }
+}
+
+namespace {
+    TEST(DelayAudioPdcRealtime, CompleteStereoP01P02P03PlansUseNoHeapDeletesOrMutexes) {
+        using namespace mka::audio::dsp;
+        using namespace audio_pdc_test;
+        for (const auto scenario : {Scenario::Zero,Scenario::Parallel,Scenario::Chain})
+            for (const auto strategy : {SlotStrategy::Reuse,SlotStrategy::Unique}) {
+                Matrix model; ASSERT_TRUE(model.make(scenario));
+                auto plan=model.graph.compile(BackendConfig{.maxFrames=128,.inputChannels=2,.outputChannels=2,
+                    .sampleRate=48000,.slotStrategy=strategy}); ASSERT_TRUE(plan);
+                using Samples=std::array<std::array<float,130>,2>;
+                std::array<Samples,2> input{},output{};
+                for (auto& bank : input) for (auto& lane : bank) lane.fill(-999.F);
+                for (auto& bank : output) for (auto& lane : bank) lane.fill(-999.F);
+                const std::array<FrameCount,5> sizes{0,1,2,7,128}; std::size_t n=0;
+                {
+                    const AllocationWindow measured;
+                    for (unsigned block=0;block<64;++block) {
+                        const auto bank=block%2,frames=sizes[block%sizes.size()];
+                        for (unsigned lane=0;lane<2;++lane)
+                            for (FrameCount f=0;f<frames;++f) input[bank][lane][f+1]=inputSample(lane,n+f);
+                        const std::array<const float*,2> inputs{input[bank][0].data()+1,input[bank][1].data()+1};
+                        const std::array outputs{output[bank][0].data()+1,output[bank][1].data()+1};
+                        plan->exec(mka::audio::AudioProcessContext{inputs,outputs,frames,128,128}); n+=frames;
+                    }
+                }
+                EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+                EXPECT_EQ(plan->callbackDiagnostics(),0U);
+                for (const auto& bank : output) for (const auto& lane : bank) {
+                    EXPECT_EQ(lane.front(),-999.F); EXPECT_EQ(lane.back(),-999.F);
+                }
+                for (const auto& ref : model.references) EXPECT_EQ(model.processor(ref.id).queries,1U);
+            }
+    }
+}
+
+namespace {
+    TEST(ControlDiagnosticsRealtime, InvalidCallbacksAndAdmissionRejectionUseNoHeapOrMutex) {
+        using namespace mka::audio::dsp;
+        PlanSwitcher sw; std::array<float,4> out{1,2,3,4}; const std::array outputs{out.data()};
+        {
+            const AllocationWindow measured;
+            for (unsigned i=0;i<64;++i) sw.exec(mka::audio::AudioProcessContext{{},outputs,4,4,4});
+        }
+        EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+        EXPECT_EQ(out,(std::array<float,4>{0,0,0,0})); EXPECT_EQ(sw.takeCallbackDiagnostics(),64U);
+    }
+}
+
+namespace {
+#ifdef MKA_WRAP_PTHREAD_MUTEX
+    TEST(RealtimeForbiddenOperationsProbe, DetectsExplicitWaitLogAndException) {
+        const int fd=::open("/dev/null",O_WRONLY); ASSERT_GE(fd,0);
+        const timespec zero{}; int slept=-1; ssize_t written=-1;
+        struct ProbeException {};
+        bool caught=false;
+        try {
+            const AllocationWindow measured;
+            slept=::nanosleep(&zero,nullptr);
+            written=::write(fd,"x",1);
+            throw ProbeException{};
+        } catch (const ProbeException&) { caught=true; }
+        EXPECT_EQ(::close(fd),0);EXPECT_EQ(slept,0);EXPECT_EQ(written,1);
+        EXPECT_TRUE(caught);EXPECT_EQ(waitAttempts,1U);EXPECT_EQ(logAttempts,1U);EXPECT_EQ(exceptionAttempts,1U);
+    }
+#endif
+
+    TEST(V1AcceptanceRealtime, CompleteRoutingPDCAndFailedCandidateRemainHeapAndMutexFree) {
+        using namespace mka::audio::dsp;
+        for(unsigned delay : {0U,64U,256U,512U}) for(unsigned outputs : {2U,6U}) {
+            v1_test::Graph g;ASSERT_TRUE(g.make(delay));PlanSwitcher sw;
+            const BackendConfig cfg{.maxFrames=128,.inputChannels=2,.outputChannels=outputs,.sampleRate=48000};
+            ASSERT_TRUE(sw.initialize(g.dag,cfg));v1_test::Bank bank;
+            constexpr std::array<FrameCount,4> sizes{0,1,7,128};std::uint64_t n=0;
+            for(unsigned block=0;block<64;++block) {
+                const auto frames=sizes[block%4];bank.fill(frames);
+                if(block==20) {
+                    Result rejected;
+                    { const FailureWindow fault(0); rejected=sw.prepareInactivePlan(g.dag,cfg); }
+                    ASSERT_FALSE(rejected);EXPECT_EQ(rejected.error().code,ErrorCode::MemoryBudgetExceeded);
+                }
+                {
+                    const AllocationWindow measured;
+                    v1_test::callback(sw,bank.io(frames,outputs));
+                }
+                EXPECT_EQ(allocations,0U);EXPECT_EQ(deallocations,0U);EXPECT_EQ(mutexAttempts,0U);
+                EXPECT_EQ(waitAttempts,0U);EXPECT_EQ(logAttempts,0U);EXPECT_EQ(exceptionAttempts,0U);
+                for(unsigned c=0;c<outputs;++c) for(FrameCount f=0;f<frames;++f) {
+                    float expected=0;
+                    if(n+f>=delay) { if(c==0||c==2) expected=1; if(c==1||c==3) expected=-2; if(c==0&&(n+f)%2==0) expected*=2; }
+                    EXPECT_EQ(bank.output[c][f+1],expected);
+                }
+                n+=frames;
+            }
+            EXPECT_EQ(g.trace.destroyedInAudio.load(),0U);EXPECT_EQ(sw.callbackDiagnostics(),0U);
+        }
+    }
+}

@@ -1,0 +1,16 @@
+[0/1] Re-running CMake...
+-- Configuring done (0.1s)
+-- Generating done (0.1s)
+-- Build files have been written to: /workspace/.mka-build/pr51-gcc16
+[1/112] Generating CXX dyndep file CMakeFiles/mka-audio-dsp.dir/CXX.dd
+[2/87] Scanning /workspace/mka-audio-dsp/test/test_v1_acceptance.cpp for CXX dependencies
+[3/87] Scanning /workspace/mka-audio-dsp/test/test_declared_latency.cpp for CXX dependencies
+[4/87] Generating CXX dyndep file CMakeFiles/mka_audio_dsp.dir/CXX.dd
+[5/85] Generating CXX dyndep file CMakeFiles/mka-audio-dsp-tests.dir/CXX.dd
+[6/13] Scanning /workspace/mka-audio-dsp/test/test_node_rt.cpp for CXX dependencies
+[7/13] Generating CXX dyndep file CMakeFiles/mka-node-rt-tests.dir/CXX.dd
+[8/13] Building CXX object CMakeFiles/mka-audio-dsp-tests.dir/test/test_declared_latency.cpp.o
+[9/13] Building CXX object CMakeFiles/mka-audio-dsp-tests.dir/test/test_v1_acceptance.cpp.o
+[10/13] Linking CXX executable mka-audio-dsp-tests
+[11/13] Building CXX object CMakeFiles/mka-node-rt-tests.dir/test/test_node_rt.cpp.o
+[12/13] Linking CXX executable mka-node-rt-tests

@@ -24,6 +24,24 @@ set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+option(MKA_ENABLE_ASAN_UBSAN "Instrument memory and undefined behavior" OFF)
+option(MKA_ENABLE_TSAN "Instrument concurrency (separate from ASan)" OFF)
+option(MKA_BUILD_RT_TESTS "Build global allocation/interposition probes" ON)
+if(MKA_ENABLE_ASAN_UBSAN AND MKA_ENABLE_TSAN)
+    message(FATAL_ERROR "ASan/UBSan and TSan require separate build directories")
+endif()
+if(MKA_ENABLE_ASAN_UBSAN OR MKA_ENABLE_TSAN)
+    if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        message(FATAL_ERROR "Sanitizer profiles require Clang or GCC")
+    endif()
+    if(MKA_ENABLE_TSAN)
+        add_compile_options(-fsanitize=thread -fno-omit-frame-pointer -O1)
+        add_link_options(-fsanitize=thread)
+    else()
+        add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+        add_link_options(-fsanitize=address,undefined)
+    endif()
+endif()
 include(FetchContent)
 
 FetchContent_Declare(
@@ -48,12 +66,29 @@ target_sources(mka-audio-dsp
         src
         FILES
         src/error.cppm
+        src/diagnostics.cppm
+        src/identifiers.cppm
         src/types.cppm
+        src/config.cppm
         src/process_context.cppm
+        src/audio_process_context.cppm
         src/node.cppm
+        src/latency_snapshot.cppm
+        src/pdc_analysis.cppm
         src/channel.cppm
+        src/connection.cppm
+        src/graph_snapshot.cppm
+        src/topology.cppm
+        src/compile_config.cppm
+        src/buffer_pool.cppm
+        src/memory_budget.cppm
+        src/delay_line.cppm
+        src/delay_task.cppm
+        src/signal_liveness.cppm
+        src/structural_compile.cppm
         src/dag.cppm
         src/execution_plan.cppm
+        src/plan_switcher.cppm
 )
 
 target_compile_features(
@@ -82,6 +117,14 @@ target_compile_features(
         cxx_std_26
 )
 
+option(MKA_BUILD_EXAMPLES "Build documented graph usage examples" OFF)
+if(MKA_BUILD_EXAMPLES)
+    foreach(example graph pdc swap)
+        add_executable(mka-${example}-example exemple/${example}_exemple.cpp)
+        target_link_libraries(mka-${example}-example PRIVATE mka-audio-dsp)
+    endforeach()
+endif()
+
 
 # ============================================================
 # Tests
@@ -93,6 +136,79 @@ if (MKA_BUILD_TESTS)
 
     add_executable(mka-audio-dsp-tests
             test/test_types.cpp
+            test/test_latency_recompile.cpp
+            test/test_pdc_warmup.cpp
+            test/test_control_diagnostics.cpp
+            test/test_v1_stress.cpp
+            test/test_declared_latency.cpp
+            test/test_v1_acceptance.cpp
+            test/test_plan_switcher_storage.cpp
+            test/test_plan_switcher_handshake.cpp
+            test/test_plan_switcher_boundary.cpp
+            test/test_plan_switcher_retirement.cpp
+            test/test_plan_switcher_edits.cpp
+            test/test_plan_switcher_node_lifetime.cpp
+            test/test_plan_switcher_stop.cpp
+            test/test_plan_switcher_stress.cpp
+            test/test_backend_capacities.cpp
+            test/test_backend_sources.cpp
+            test/test_physical_input_views.cpp
+            test/test_physical_output_views.cpp
+            test/test_hardware_silence.cpp
+            test/test_last_writer_wins.cpp
+            test/test_two_six_routing.cpp
+            test/test_headphone_pipeline.cpp
+            test/test_buffer_pool.cpp
+            test/test_signal_liveness.cpp
+            test/test_fanout_liveness.cpp
+            test/test_memory_budget.cpp
+            test/test_pool_integration.cpp
+            test/test_pool_render_oracle.cpp
+            test/test_ports.cpp
+            test/test_channel_id.cpp
+            test/test_audio_channels.cpp
+            test/test_config.cpp
+            test/test_process_context.cpp
+            test/test_node.cpp
+            test/test_delay_line.cpp
+            test/test_delay_line_oracle.cpp
+            test/test_delay_task.cpp
+            test/test_delay_task_order.cpp
+            test/test_delay_task_liveness.cpp
+            test/test_delay_bindings.cpp
+            test/test_delay_audio_oracle.cpp
+            test/test_latency_snapshot.cpp
+            test/test_pdc_analysis.cpp
+            test/test_pdc_edges.cpp
+            test/test_pdc_fanout.cpp
+            test/test_pdc_outputs.cpp
+            test/test_pdc_budget.cpp
+            test/test_pdc_oracle.cpp
+            test/test_node_lifetime.cpp
+            test/test_backend_io.cpp
+            test/test_dag_storage.cpp
+            test/test_connection.cpp
+            test/test_connect.cpp
+            test/test_input_occupancy.cpp
+            test/test_disconnect.cpp
+            test/test_remove.cpp
+            test/test_output_markers.cpp
+            test/test_dag_editing.cpp
+            test/test_cycles.cpp
+            test/test_undeclared_channels.cpp
+            test/test_topological_order.cpp
+            test/test_four_node_oracle.cpp
+            test/test_exhaustive_oracles.cpp
+            test/test_dag_mutations.cpp
+            test/test_errors.cpp
+            test/test_structural_compile.cpp
+            test/test_execution_tasks.cpp
+            test/test_prepared_plan.cpp
+            test/test_silence_inputs.cpp
+            test/test_internal_bindings.cpp
+            test/test_realtime_execution.cpp
+            test/test_logical_output_clearing.cpp
+            test/test_offline_pipeline.cpp
     )
 
     target_link_libraries(mka-audio-dsp-tests
@@ -114,4 +230,42 @@ if (MKA_BUILD_TESTS)
             TEST_PREFIX "dsp."
     )
 
+    # Keep allocation interception local to this executable: it is not part of
+    # the library and does not change the allocator used by application clients.
+    if(MKA_BUILD_RT_TESTS AND NOT MKA_ENABLE_TSAN)
+    add_executable(mka-node-rt-tests test/test_node_rt.cpp)
+    target_link_libraries(mka-node-rt-tests PRIVATE mka-audio-dsp GTest::gtest_main)
+    target_compile_features(mka-node-rt-tests PRIVATE cxx_std_26)
+    if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # Observe direct forbidden calls only inside measured RT windows.
+        target_compile_definitions(mka-node-rt-tests PRIVATE MKA_WRAP_PTHREAD_MUTEX=1)
+        foreach(symbol pthread_mutex_lock pthread_mutex_trylock pthread_mutex_timedlock pthread_cond_wait nanosleep write fwrite __cxa_throw)
+            target_link_options(mka-node-rt-tests PRIVATE "-Wl,--wrap=${symbol}")
+        endforeach()
+    endif ()
+    gtest_discover_tests(mka-node-rt-tests TEST_PREFIX "dsp.rt.")
+    endif()
+
 endif ()
+
+option(MKA_BUILD_BENCHMARKS "Build the dedicated Linux V1 measurement harness" OFF)
+if(MKA_BUILD_BENCHMARKS)
+    if(MKA_ENABLE_TSAN)
+        message(FATAL_ERROR "Benchmark probes need a separate non-TSan Release build")
+    endif()
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        message(FATAL_ERROR "The V1 probe harness currently requires Linux linker wrapping")
+    endif()
+    add_executable(mka-v1-benchmark bench/v1_benchmark.cpp)
+    target_link_libraries(mka-v1-benchmark PRIVATE mka-audio-dsp)
+    foreach(symbol malloc free calloc realloc pthread_mutex_lock pthread_mutex_trylock pthread_mutex_timedlock pthread_cond_wait nanosleep write fwrite)
+        target_link_options(mka-v1-benchmark PRIVATE "-Wl,--wrap=${symbol}")
+    endforeach()
+endif()
+
+option(MKA_BUILD_DOCS "Enable the Doxygen documentation target" OFF)
+if(MKA_BUILD_DOCS)
+    find_program(MKA_DOXYGEN doxygen REQUIRED)
+    add_custom_target(doc COMMAND ${MKA_DOXYGEN} ${CMAKE_CURRENT_SOURCE_DIR}/Doxyfile
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} VERBATIM)
+endif()

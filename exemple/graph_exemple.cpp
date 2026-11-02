@@ -1,38 +1,42 @@
-//
-// Created by mika on 10/17/26.
-//
-
-#include <cstdint>
+// Exemple minimal : une entrée mono -> gain 0.5 -> une sortie physique.
+#include <array>
+#include <expected>
+#include <iostream>
+#include <span>
+#include "nodes.hpp"
 
 import mka.audio.dsp.dag;
-import mka.audio.dsp.channel;
 
-namespace {
-    class StereoEffect final : public mka::audio::dsp::Node {
-    public:
-        explicit StereoEffect(const std::uint64_t id)
-            : Node(id, {
-                       .layoutInput = Layout::Stereo,
-                       .layoutOutput = Layout::Stereo
-                   }) {
-        }
-    };
-}
+using namespace mka::audio::dsp;
 
 int main() {
-    mka::audio::dsp::DAG graph;
+    // CONTRÔLE : créer les processeurs. Le DAG en reste propriétaire.
+    DAG graph;
+    const auto source = graph.add<example::Source>();
+    const auto gain = graph.add<example::Gain>(0.5F);
+    const auto output = graph.add<example::Output>();
+    if (!source || !gain || !output) return 1;
 
-    const auto& source = graph.add<StereoEffect>();
-    const auto& effect = graph.add<StereoEffect>();
+    // connect(destination, source) relie les canaux LOGIQUES des Nodes.
+    if (!graph.connect(encode(*gain, PortType::In, 0), encode(*source, PortType::Out, 0))) return 1;
+    if (!graph.connect(encode(*output, PortType::In, 0), encode(*gain, PortType::Out, 0))) return 1;
+    if (!graph.markAsOutput(*output)) return 1;
 
-    const auto result = graph.connect(
-        effect.channel(mka::audio::dsp::PortType::In, 0),
-        source.channel(mka::audio::dsp::PortType::Out, 0)
-    );
+    // Préparer l'ordre et les buffers avant de commencer le traitement audio.
+    auto plan = graph.compile(BackendConfig{.maxFrames = 4, .inputChannels = 1, .outputChannels = 1});
+    if (!plan) return 1;
 
-    if (!result) {
-        // Traiter l'erreur.
-    }
+    // Dans une application, ces buffers seraient fournis par le backend audio.
+    std::array<float, 4> input{1, 2, 3, 4};
+    std::array<float, 4> samples{};
+    const std::array<const float*, 1> inputs{input.data()};
+    const std::array<float*, 1> outputs{samples.data()};
 
-    const auto effectId = effect.id();
+    // AUDIO : appeler exec() pour chaque bloc, avec les capacités préparées.
+    plan->exec(mka::audio::AudioProcessContext{inputs, outputs, 4});
+
+    // Afficher le résultat après le traitement, hors callback.
+    for (float sample : samples) std::cout << sample << ' ';
+    std::cout << '\n';
+    // À la sortie : le plan est libéré avant le DAG, après le dernier callback.
 }
