@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <cstddef>
 #include <new>
 #include <stdexcept>
@@ -16,12 +17,16 @@ namespace pool_test {
                 float sample = static_cast<float>(id());
                 for (const auto& input : ctx.inputs) sample += input.buffer[f] * 0.5F;
                 for (const auto& input : ctx.auxiliary) sample += input.buffer[f] * 0.25F;
-                for (std::size_t c = 0; c < ctx.outputs.size(); ++c)
+                for (std::size_t c = 0; c < ctx.outputs.size(); ++c) {
                     ctx.outputs[c].buffer[f] = sample + static_cast<float>(c);
+                    if (capture[c]) capture[c][f] = sample + static_cast<float>(c);
+                }
                 for (std::size_t c = 0; c < ctx.backendOutputs.size(); ++c)
                     ctx.backendOutputs[c].buffer[f] = sample + static_cast<float>(c);
             }
         }
+        // Optional preallocated test trace; copying samples performs no allocation.
+        std::array<float*,2> capture{};
     };
 
     struct Pipeline {

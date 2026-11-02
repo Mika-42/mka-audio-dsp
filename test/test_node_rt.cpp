@@ -163,6 +163,37 @@ namespace {
         EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
     }
 
+    TEST(PoolRealtime, FullBlockCorpusWithTenReadersAndZeroThree256SampleDelaysAllocatesNothing) {
+        pool_test::Pipeline p;
+        const auto source=p.add();
+        std::vector<NodeID> readers;
+        for (unsigned n=0;n<10;++n) { const auto node=p.add(); readers.push_back(node); p.edge(source,node); }
+        const auto sink=p.add();
+        p.edge(readers.front(),sink); p.edge(readers.back(),sink,PortType::In,1);
+        const auto delayed=p.edge(source,sink,PortType::Aux);
+        ASSERT_TRUE(p.graph.markAsOutput(readers.front())); ASSERT_TRUE(p.graph.markAsOutput(sink));
+        std::array<float,4098> input{}, first{}, second{};
+        const std::array<const float*,1> inputs{input.data()+1};
+        constexpr std::array<FrameCount,4> frames{0,1,128,4096};
+        for (const std::uint64_t delay : {0U,3U,256U}) {
+            const std::array delays{ConnectionDelay{delayed,delay}};
+            auto plan=p.graph.compile(BackendConfig{.maxFrames=4096,.inputChannels=1,.outputChannels=1,
+                                                    .connectionDelays=delays}); ASSERT_TRUE(plan);
+            first.fill(-99.F); second.fill(-99.F);
+            {
+                const AllocationWindow window;
+                for (unsigned block=0;block<32;++block) {
+                    const std::array outputs{(block%2 ? first.data() : second.data())+1};
+                    plan->exec(mka::audio::AudioProcessContext{inputs,outputs,frames[block%4]});
+                }
+            }
+            EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+            EXPECT_EQ(plan->callbackDiagnostics(),0U);
+            EXPECT_EQ(first.front(),-99.F); EXPECT_EQ(first.back(),-99.F);
+            EXPECT_EQ(second.front(),-99.F); EXPECT_EQ(second.back(),-99.F);
+        }
+    }
+
     TEST(PoolAllocation, EveryFailureDuringDelayedPreparationKeepsTheActiveGeneration) {
         pool_test::Pipeline p;
         const auto a=p.add(), b=p.add();
@@ -183,6 +214,7 @@ namespace {
         const auto total=plan->preparedMemoryUsage().totalBytes;
         for (std::size_t point=0;point<points;++point) {
             SCOPED_TRACE(point);
+            ExecutionPlan snapshot=*plan; // Independent history immediately before the failed attempt.
             Result result;
             {
                 const FailureWindow fault(point);
@@ -194,6 +226,13 @@ namespace {
             EXPECT_EQ(plan->executionTasks()[0].context.outputs[0].buffer,bound);
             EXPECT_EQ(plan->preparedMemoryUsage().totalBytes,total);
             EXPECT_TRUE(plan->isBackendPrepared());
+            std::array<float,128> input{}, actual{}, expected{};
+            input.fill(static_cast<float>(point+1));
+            const std::array<const float*,1> inputs{input.data()};
+            const std::array outputs{actual.data()}, reference{expected.data()};
+            plan->exec(mka::audio::AudioProcessContext{inputs,outputs,128});
+            snapshot.exec(mka::audio::AudioProcessContext{inputs,reference,128});
+            EXPECT_EQ(actual,expected); // Refusal must preserve history contents AND its cursor.
         }
     }
 
