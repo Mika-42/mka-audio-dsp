@@ -123,6 +123,8 @@ export namespace mka::audio::dsp {
         /** Publish fully linked B. Single control writer; never overwrite a Pending. */
         [[nodiscard]] Result publishReadyPlan() noexcept {
             if (!initialized_) return std::unexpected(Error{ErrorCode::PrepareFailed});
+            if (gate_.load(std::memory_order_acquire)==CallbackGate::Stopped)
+                return std::unexpected(Error{ErrorCode::PrepareFailed});
             if (state_.load(std::memory_order_acquire)!=HandshakeState::Idle)
                 return std::unexpected(Error{ErrorCode::PlanBusy});
             const auto index=static_cast<std::uint8_t>(1-controlActive_);
@@ -167,6 +169,59 @@ export namespace mka::audio::dsp {
             controlActive_=pendingIndex_;
             slots_[controlActive_].role=PlanSlotState::Active;
             clearSlot(slots_[old]);
+            state_.store(HandshakeState::Idle,std::memory_order_release);
+            return {};
+        }
+
+        /**
+         * @brief Resolve publication AFTER the backend has stopped and joined.
+         * @pre The driver guarantees no callback is in flight and no future
+         * callback may enter until resume/restart. An idle flag alone is NOT
+         * such a proof. The admission check detects an outstanding callback,
+         * but cannot prove that an external driver will not call again.
+         * @details Retain the last adopted active generation for resume. Cancel
+         * unaccepted Pending, discard Ready, reclaim an ACKed predecessor, all
+         * on control. No waiting for an ACK that can no longer arrive.
+         */
+        [[nodiscard]] Result stopAfterBackendStopped() noexcept {
+            auto expected=CallbackGate::Ready;
+            if (!gate_.compare_exchange_strong(expected,CallbackGate::Stopped,
+                    std::memory_order_acq_rel,std::memory_order_acquire) && expected!=CallbackGate::Stopped)
+                return std::unexpected(Error{ErrorCode::PlanBusy});
+            if (!initialized_) return {};
+            const auto state=state_.load(std::memory_order_acquire);
+            if (state==HandshakeState::Acknowledged) {
+                const auto result=retireAcknowledgedPlan();
+                assert(result.has_value());
+                (void)result;
+            } else if (state==HandshakeState::Pending) {
+                // The closed gate + external join prove this B was never adopted.
+                clearSlot(slots_[pendingIndex_]);
+                state_.store(HandshakeState::Idle,std::memory_order_release);
+            }
+            auto& inactive=slots_[1-controlActive_];
+            if (inactive.role==PlanSlotState::Ready) clearSlot(inactive);
+            audioActive_=controlActive_; // Legal only under backend quiescence.
+            return {};
+        }
+
+        /** Reopen admission before restarting a stopped backend. Control only. */
+        [[nodiscard]] Result resumeAfterBackendStopped() noexcept {
+            if (!initialized_) return std::unexpected(Error{ErrorCode::PrepareFailed});
+            if (gate_.load(std::memory_order_acquire)!=CallbackGate::Stopped ||
+                state_.load(std::memory_order_acquire)!=HandshakeState::Idle)
+                return std::unexpected(Error{ErrorCode::PlanBusy});
+            audioActive_=controlActive_;
+            gate_.store(CallbackGate::Ready,std::memory_order_release);
+            return {};
+        }
+
+        /** Release all generations on control after the same backend stop/join proof. */
+        [[nodiscard]] Result shutdownAfterBackendStopped() noexcept {
+            if (auto result=stopAfterBackendStopped(); !result) return result;
+            for (auto& slot : slots_) clearSlot(slot);
+            initialized_=false;
+            controlActive_=audioActive_=0;
             state_.store(HandshakeState::Idle,std::memory_order_release);
             return {};
         }
