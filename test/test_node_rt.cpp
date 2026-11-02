@@ -20,6 +20,7 @@
 import mka.audio.dsp.node;
 import mka.audio.dsp.dag;
 import mka.audio.dsp.buffer_pool;
+import mka.audio.dsp.delay_line;
 import mka.audio.dsp.plan_switcher;
 #include "offline_pipeline.hpp"
 #include "pool_pipeline.hpp"
@@ -1359,5 +1360,40 @@ namespace {
             // same mutable plugin histories, which would advance the DSP twice.
             renderNext();
         }
+    }
+}
+
+namespace {
+    TEST(DelayLineRealtime, PersistentProcessingIncludingEmptyBlocksUsesNoHeapDeletesOrMutexes) {
+        using namespace mka::audio::dsp;
+        for (const std::uint64_t delay : {0U,1U,3U,256U}) {
+            DelayLine line; ASSERT_TRUE(line.prepare(delay));
+            std::array<float,130> input{},output{}; input.fill(1.F); output.fill(-999.F);
+            const std::array<FrameCount,4> frames{0,1,7,128};
+            {
+                const AllocationWindow measured;
+                for (unsigned block=0;block<64;++block)
+                    line.process(input.data()+1,output.data()+1,frames[block%4]);
+                line.process(nullptr,nullptr,0);
+            }
+            EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
+            EXPECT_EQ(output.front(),-999.F); EXPECT_EQ(output.back(),-999.F);
+        }
+    }
+
+    TEST(DelayLineAllocation, FailedHistoryAllocationPreservesTheRunningStream) {
+        using namespace mka::audio::dsp;
+        DelayLine line; ASSERT_TRUE(line.prepare(3));
+        const std::array<float,4> first{1,2,3,4},second{5,6,7,8}; std::array<float,4> output{};
+        line.process(first.data(),output.data(),4);
+        Result result;
+        {
+            const FailureWindow failed(0);
+            result=line.prepare(256);
+        }
+        ASSERT_FALSE(result); EXPECT_EQ(result.error().code,ErrorCode::PrepareFailed);
+        EXPECT_EQ(injectedFailures,1U); EXPECT_EQ(line.delaySamples(),3U);
+        line.process(second.data(),output.data(),4);
+        EXPECT_EQ(output,(std::array<float,4>{2,3,4,5}));
     }
 }
