@@ -111,6 +111,7 @@ if (MKA_BUILD_TESTS)
             test/test_plan_switcher_retirement.cpp
             test/test_plan_switcher_edits.cpp
             test/test_plan_switcher_node_lifetime.cpp
+            test/test_plan_switcher_stop.cpp
             test/test_backend_capacities.cpp
             test/test_backend_sources.cpp
             test/test_physical_input_views.cpp
