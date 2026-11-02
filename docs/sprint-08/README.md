@@ -31,3 +31,11 @@ L'analyse possède maintenant une table complète `Connection{from,to} → D` tr
 La compilation backend applique automatiquement les D calculés. L'ancien champ `BackendConfig::connectionDelays`, s'il est non vide, fournit un planning explicite complet qui remplace l'insertion automatique (pour les intégrations existantes) ; les tables P/A/L/D restent l'analyse mathématique des déclarations intrinsèques, pas une description de ce planning manuel. Le span n'est jamais conservé. Dans les deux cas les opérations finales sont soumises à la même preuve de liveness, au budget et à la transaction de préparation.
 
 Les historiques internes appartiennent au plan, ne modifient pas le DAG, et traversent les callbacks. Les tests vérifient 3/8 → 5/0, Aux, pointeurs directs, fan-out à retards différents, impulsions sur deux blocs et latence du consommateur. L'exécutable RT instrumente une compensation automatique de 256 samples avec maxFrames=128 : zéro allocation, libération et mutex dans les callbacks.
+
+## S08-05 — Fan-out, Aux et lecteurs réels
+
+Les DelayTasks lisent la production Out commune sans la modifier et écrivent une nouvelle production logique. La preuve de liveness porte sur la séquence finale Node+Delay : le signal source vit jusqu'au dernier lecteur, qu'il soit un Node In/Aux direct ou une DelayTask. Les historiques des branches restent indépendants. Les slots PCM des temporaires peuvent être recyclés lorsque leurs intervalles ne se chevauchent pas ; cela ne partage jamais les historiques.
+
+Un Aux déclaré et produit participe au maximum et reçoit son D exact comme un In. Une destination hors Config n'est pas un lecteur audio. Une sortie absente de layoutOutput ne produit aucun signal : son consommateur déclaré lit le silence, sans compensation artificielle. Une entrée non connectée reste aussi silencieuse. La contrainte topologique et le statut structurel de source restent déterminés par toutes les connexions désirées.
+
+Les tests rendent un diamant et dix jonctions à délais différents, en stratégies Reuse et Unique, avec des blocs 0/1/2/3/4. Ils comparent chaque échantillon In/Aux et produit à une rampe décalée calculée indépendamment, puis vérifient qu'un lecteur direct placé après les dix branches retrouve la source intacte. Les identités du DAG restent inchangées : aucun Node PDC ou mélangeur implicite.
