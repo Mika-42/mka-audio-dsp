@@ -27,6 +27,9 @@ export namespace mka::audio::dsp {
      * quiescence; process belongs to one audio owner. Copy duplicates history
      * and cursor; move transfers them and leaves an empty pass-through source.
      * No backend pointer is retained. The default empty object implements D=0.
+     * A newly published plan owns fresh zero history: its first D stream samples
+     * may be silent. Publication never copies/reads the active history. V1
+     * permits this discontinuity and does not imply prewarming or crossfade.
      */
     class DelayLine final {
     public:
