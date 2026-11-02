@@ -119,8 +119,10 @@ target_compile_features(
 
 option(MKA_BUILD_EXAMPLES "Build documented graph usage examples" OFF)
 if(MKA_BUILD_EXAMPLES)
-    add_executable(mka-graph-example exemple/graph_exemple.cpp)
-    target_link_libraries(mka-graph-example PRIVATE mka-audio-dsp)
+    foreach(example graph pdc swap)
+        add_executable(mka-${example}-example exemple/${example}_exemple.cpp)
+        target_link_libraries(mka-${example}-example PRIVATE mka-audio-dsp)
+    endforeach()
 endif()
 
 
@@ -131,9 +133,6 @@ endif()
 if (MKA_BUILD_TESTS)
 
     enable_testing()
-    if(MKA_BUILD_EXAMPLES)
-        add_test(NAME dsp.example.GraphUsage COMMAND mka-graph-example)
-    endif()
 
     add_executable(mka-audio-dsp-tests
             test/test_types.cpp

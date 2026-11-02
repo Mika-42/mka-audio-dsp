@@ -25,19 +25,27 @@ GoogleTest 1.17 est téléchargé par CMake à la première configuration.
 cmake --preset debug -DCMAKE_CXX_COMPILER=g++-16 -DMKA_BUILD_EXAMPLES=ON
 cmake --build --preset debug --parallel 2
 ./build/debug/mka-graph-example
-ctest --preset debug
+./build/debug/mka-pdc-example
+./build/debug/mka-swap-example
 ```
 
 Pour Clang ou une installation particulière, fournir le compilateur et les flags
 de la STL, ou un fichier toolchain, lors de la première configuration.
 
-## Exemple et documentation
+## Exemples et documentation
 
-[exemple/graph_exemple.cpp](exemple/graph_exemple.cpp) décrit un petit mixeur
-stéréo avec gain, branches directe/latente, Mix In/Aux et sorties casque/enceintes.
-Il exécute et vérifie le rendu, remplace une latence de 64 par 256 samples,
-illustre les refus, le swap A/B, le retrait des Nodes et l'arrêt/reprise.
-Le backend est simulé ; aucune carte son n'est nécessaire.
+Trois exemples mono, chacun centré sur une utilisation :
+
+- [graph_exemple.cpp](exemple/graph_exemple.cpp) : entrée → gain → sortie,
+  compilation du graphe et traitement d'un bloc.
+- [pdc_exemple.cpp](exemple/pdc_exemple.cpp) : deux branches réunies par In/Aux,
+  dont une retardée ; compensation de latence automatique.
+- [swap_exemple.cpp](exemple/swap_exemple.cpp) : remplacement d'un gain pendant
+  la lecture, publication de B et retrait de A après acquittement.
+
+Les petits [Nodes communs](exemple/nodes.hpp) contiennent uniquement le DSP.
+Les buffers sont fournis directement dans chaque `main` ; aucune carte son
+n'est nécessaire. Les valeurs affichées illustrent le traitement.
 
 Les allocations, éditions du graphe, préparations et diagnostics formatés restent
 sur le contrôle. Le callback traite des buffers empruntés sans allocation,
