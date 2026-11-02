@@ -117,6 +117,12 @@ target_compile_features(
         cxx_std_26
 )
 
+option(MKA_BUILD_EXAMPLES "Build documented graph usage examples" OFF)
+if(MKA_BUILD_EXAMPLES)
+    add_executable(mka-graph-example exemple/graph_exemple.cpp)
+    target_link_libraries(mka-graph-example PRIVATE mka-audio-dsp)
+endif()
+
 
 # ============================================================
 # Tests
@@ -125,6 +131,9 @@ target_compile_features(
 if (MKA_BUILD_TESTS)
 
     enable_testing()
+    if(MKA_BUILD_EXAMPLES)
+        add_test(NAME dsp.example.GraphUsage COMMAND mka-graph-example)
+    endif()
 
     add_executable(mka-audio-dsp-tests
             test/test_types.cpp
