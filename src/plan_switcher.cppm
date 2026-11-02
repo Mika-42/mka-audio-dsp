@@ -141,6 +141,10 @@ export namespace mka::audio::dsp {
          * @details The caller serializes graph edits. A busy switcher rejects
          * before compilation; desired edits remain in DAG for the next attempt.
          * Compilation never mutates active/shared DSP state or consumes edits.
+         * For a latency change, prepare a distinct immutable DSP Node on control,
+         * edit desired edges, then compile/publish B. A keeps its old Node until
+         * ACK. Reusing a shared Node requires the frozen latency/rate contract;
+         * unsafe preparation must be refused, never performed from process.
          */
         [[nodiscard]] Result prepareAndPublish(const DAG& graph,const BackendConfig& backend,
                                                const CompileConfig& limits={}) {

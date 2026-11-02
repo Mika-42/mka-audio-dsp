@@ -109,6 +109,7 @@ if (MKA_BUILD_TESTS)
 
     add_executable(mka-audio-dsp-tests
             test/test_types.cpp
+            test/test_latency_recompile.cpp
             test/test_plan_switcher_storage.cpp
             test/test_plan_switcher_handshake.cpp
             test/test_plan_switcher_boundary.cpp
