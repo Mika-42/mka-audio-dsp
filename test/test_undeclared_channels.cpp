@@ -1,3 +1,8 @@
+/**
+ * @file test_undeclared_channels.cpp
+ * @brief Tests for undeclared channels.
+ * @author Mika
+ */
 #include <array>
 #include <cstddef>
 #include <expected>
@@ -12,10 +17,13 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
 
+    /// @brief Exposes a chosen logical layout for undeclared-channel edge tests.
     class LayoutNode final : public Node {
     public:
+        /// @brief Copy the supplied logical layouts for undeclared-channel connection cases.
         explicit LayoutNode(NodeID id, const Config& config = {}) : Node(id, config) {}
 
+        /// @brief Add the Node identity to the selected input and write logical and physical samples.
         void process(const ProcessContext& context) noexcept override {
             inputCount = context.inputs.size();
             backendCount = context.backendOutputs.size();
@@ -27,34 +35,42 @@ namespace {
             }
         }
 
+        /// @brief Number of input descriptors observed during the callback.
         std::size_t inputCount = 0;
+        /// @brief Number of physical output descriptors observed during the callback.
         std::size_t backendCount = 0; // Numeric observations; no retained callback pointers.
     };
 
+    /// @brief Return independently ordered sparse main, auxiliary and output layouts.
     Config sparseConfig() {
         return Config{.layoutInput = {2, 6}, .layoutAuxiliary = {2, 6}, .layoutOutput = {2, 6}};
     }
+    /// @brief Return the single-channel logical layout used by graph-edit cases.
     Config unitConfig() {
         return Config{.layoutInput = {0}, .layoutAuxiliary = {0}, .layoutOutput = {0}};
     }
 
+    /// @brief Require the expected numeric error while preserving its node/channel context.
     void expectError(const Result& result, GraphError error) {
         ASSERT_FALSE(result.has_value());
         EXPECT_EQ(result.error().code, error.code);
     }
 
+    /// @brief Compare the desired logical-edge set with the expected connections.
     void expectEdges(const DAG& graph, std::span<const Connection> expected) {
         ASSERT_EQ(graph.connections().size(), expected.size());
         for (std::size_t i = 0; i < expected.size(); ++i)
             EXPECT_EQ(graph.connections()[i], expected[i]);
     }
 
+    /// @brief Compare all ordered logical port layouts with the expected snapshot.
     void expectConfig(const Node& node, const Config& expected) {
         EXPECT_EQ(node.config().layoutInput, expected.layoutInput);
         EXPECT_EQ(node.config().layoutAuxiliary, expected.layoutAuxiliary);
         EXPECT_EQ(node.config().layoutOutput, expected.layoutOutput);
     }
 
+    /// @brief Test case: empty and sparse layouts allow out in and aux at zero and65535.
     TEST(UndeclaredChannels, EmptyAndSparseLayoutsAllowOutInAndAuxAtZeroAnd65535) {
         const std::array configs{Config{}, sparseConfig()};
         for (std::size_t producerLayout = 0; producerLayout < configs.size(); ++producerLayout) {
@@ -76,6 +92,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: config replacement preserves identity address edges and output markers.
     TEST(UndeclaredChannels, ConfigReplacementPreservesIdentityAddressEdgesAndOutputMarkers) {
         DAG graph;
         const auto a = graph.add<LayoutNode>();
@@ -110,6 +127,7 @@ namespace {
         ASSERT_TRUE(graph.compile(BackendConfig{.maxFrames = 1, .outputChannels = 1}));
     }
 
+    /// @brief Test case: every plan borrow protects the config and existing prepared routing.
     TEST(UndeclaredChannels, EveryPlanBorrowProtectsTheConfigAndExistingPreparedRouting) {
         DAG graph;
         const auto a = graph.add<LayoutNode>(unitConfig());
@@ -148,6 +166,7 @@ namespace {
         EXPECT_EQ(producer->inputCount, 1U); // Source still sees all physical inputs.
     }
 
+    /// @brief Test case: invalid config or missing identity leaves config and structure unchanged.
     TEST(UndeclaredChannels, InvalidConfigOrMissingIdentityLeavesConfigAndStructureUnchanged) {
         DAG graph;
         const auto a = graph.add<LayoutNode>(sparseConfig());
@@ -174,6 +193,7 @@ namespace {
         ASSERT_TRUE(graph.compile(BackendConfig{.maxFrames = 1}));
     }
 
+    /// @brief Test case: undeclared indices still obey ports occupancy and acyclicity.
     TEST(UndeclaredChannels, UndeclaredIndicesStillObeyPortsOccupancyAndAcyclicity) {
         DAG graph;
         const auto a = graph.add<LayoutNode>(sparseConfig());
@@ -183,7 +203,8 @@ namespace {
         const Connection existing{encode(*a, PortType::Out, 0), encode(*b, PortType::In, 65535)};
         ASSERT_TRUE(graph.connect(existing.to, existing.from));
         ASSERT_TRUE(graph.markAsOutput(*c));
-        struct Candidate { ChannelID to; ChannelID from; GraphError error; };
+        /// @brief Proposed graph change and the expected validation result.
+        struct Candidate { /** Complete logical consumer identity in this reference edge. */ ChannelID to; /** Complete logical producer identity in this reference edge. */ ChannelID from; /** Numeric failure expected or retained for this reference case. */ GraphError error; };
         const auto malformed = (ChannelID{*a} << 32U) | (ChannelID{256} << 16U);
         const std::array rejected{
             Candidate{existing.to, encode(*c, PortType::Out, 65535), GraphError::InputOccupied},

@@ -1,3 +1,8 @@
+/**
+ * @file test_four_node_oracle.cpp
+ * @brief Tests for four node oracle.
+ * @author Mika
+ */
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -18,13 +23,18 @@ namespace {
     static_assert(std::is_same_v<reference::ChannelId, ChannelID>);
     static_assert(std::is_same_v<std::underlying_type_t<reference::Decision>, std::uint16_t>);
 
+    /// @brief Processor carrying declared metadata for an independently computed oracle.
     class OracleNode final : public Node {
     public:
+        /// @brief Install the identity and metadata required by the independent graph oracle.
         explicit OracleNode(NodeID id) : Node(id, Config{}) {}
+        /// @brief Count callbacks so structural graph operations can be checked for unintended DSP work.
         void process(const ProcessContext&) noexcept override { ++processCalls; }
+        /// @brief Number of processing calls observed by the fixture.
         unsigned processCalls = 0;
     };
 
+    /// @brief Map the independent model's decision to the corresponding production error category.
     [[nodiscard]] auto expectedError(reference::Decision decision) {
         switch (decision) {
             case reference::Decision::InvalidPort: return GraphError::InvalidPort;
@@ -39,6 +49,7 @@ namespace {
         return GraphError::InvalidDirection;
     }
 
+    /// @brief Compare desired nodes, edges and retained addresses against the independent graph model.
     void expectMetadata(const DAG& graph, const reference::Graph& model,
                         const std::array<Node*, reference::nodeCount>& addresses) {
         ASSERT_EQ(graph.outputNodes().size(), 2U);
@@ -62,6 +73,7 @@ namespace {
         ASSERT_NO_FATAL_FAILURE(expectMetadata(graph, model, addresses));
     }
 
+    /// @brief Test case: all acyclic masks and candidate relations match independent closure and occupancy.
     TEST(FourNodeOracle, AllAcyclicMasksAndCandidateRelationsMatchIndependentClosureAndOccupancy) {
         unsigned acyclicMasks = 0;
         std::size_t attempts = 0;

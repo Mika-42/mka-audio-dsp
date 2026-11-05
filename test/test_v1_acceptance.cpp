@@ -1,3 +1,8 @@
+/**
+ * @file test_v1_acceptance.cpp
+ * @brief Tests for v1 acceptance.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -12,14 +17,17 @@ import mka.audio.dsp.plan_switcher;
 #include "v1_fixture.hpp"
 namespace {
     using namespace mka::audio::dsp;
+    /// @brief Return the selected channel's deterministic impulse sequence.
     float input(unsigned lane,std::size_t t) {
         if(lane==0) return t==0?1.F:t==129?-2.F:t==513?.5F:0.F;
         return t==3?4.F:t==257?-.5F:t==1023?2.F:0.F;
     }
+    /// @brief Initialize the selected input samples and reset output guards before rendering.
     void fill(v1_test::Bank& bank,std::size_t absolute,FrameCount frames) {
         bank.fill(frames);
         for(unsigned c=0;c<2;++c) for(FrameCount f=0;f<frames;++f) bank.input[c][f+1]=input(c,absolute+f);
     }
+    /// @brief Compare physical samples and guards with the independent stream oracle.
     void verify(const v1_test::Bank& bank,std::size_t absolute,std::size_t relative,unsigned delay,FrameCount frames,unsigned outputs) {
         for(unsigned c=0;c<6;++c) {
             for(FrameCount f=0;f<frames;++f) {
@@ -35,6 +43,7 @@ namespace {
             for(std::size_t f=frames+1;f<130;++f) EXPECT_EQ(bank.output[c][f],-999.F);
         }
     }
+    /// @brief Test case: stereo gain delay mix headphones speakers last writer and silence match every impulse sample.
     TEST(V1Acceptance, StereoGainDelayMixHeadphonesSpeakersLastWriterAndSilenceMatchEveryImpulseSample) {
         for(unsigned delay : {0U,64U,256U,512U}) for(unsigned outputs : {2U,6U}) {
             SCOPED_TRACE(::testing::Message()<<"D="<<delay<<" outputs="<<outputs);
@@ -65,6 +74,7 @@ namespace {
             EXPECT_TRUE(failureChecked);EXPECT_EQ(sw.callbackDiagnostics(),0U);EXPECT_EQ(g.trace.destroyedInAudio.load(),0U);
         }
     }
+    /// @brief Test case: boundary swap and pending edits preserve audible A and keep new history private.
     TEST(V1Acceptance, BoundarySwapAndPendingEditsPreserveAudibleAAndKeepNewHistoryPrivate) {
         v1_test::Graph g;ASSERT_TRUE(g.make(0));PlanSwitcher sw;
         const BackendConfig cfg{.maxFrames=128,.inputChannels=2,.outputChannels=6,.sampleRate=48000};

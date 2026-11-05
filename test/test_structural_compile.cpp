@@ -1,3 +1,8 @@
+/**
+ * @file test_structural_compile.cpp
+ * @brief Tests for structural compile.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <cstddef>
@@ -17,14 +22,18 @@ import mka.audio.dsp.structural_compile;
 namespace {
     using namespace mka::audio::dsp;
 
+    /// @brief Minimal configured processor used by structural-plan compilation tests.
     class StructuralNode final : public Node {
     public:
+        /// @brief Declare the processor logical ports under the supplied stable Node identity.
         explicit StructuralNode(NodeID id, const Config& config = Config{}) : Node(id, config) {}
+        /// @brief Record execution and write the fixture marker into every exposed physical output.
         void process(const ProcessContext& context) noexcept override {
             ++calls;
             for (const auto& output : context.backendOutputs)
                 for (FrameCount i = 0; i < context.frames; ++i) output.buffer[i] = 17.F;
         }
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls = 0;
     };
 
@@ -42,6 +51,7 @@ namespace {
     static_assert(std::is_nothrow_move_constructible_v<ExecutionPlan>);
     static_assert(std::is_nothrow_move_assignable_v<ExecutionPlan>);
 
+    /// @brief Copy the compiled task identities into a comparable value sequence.
     std::vector<NodeID> taskIDs(const ExecutionPlan& plan) {
         std::vector<NodeID> ids;
         for (const auto& task : plan.taskInfos()) ids.push_back(task.id);
@@ -50,15 +60,24 @@ namespace {
 
     /** Retain values and storage addresses to detect any failed partial commit. */
     struct PlanImage {
+        /// @brief Prepared task descriptors in processing order.
         std::vector<TaskInfo> tasks;
-        std::vector<std::size_t> sources, outputs;
+        std::vector<std::size_t> sources /**< Sources retained by the fixture. */,
+             outputs /**< Output channel descriptors or physical sample pointers used by this state. */;
+        /// @brief Address of the plan's retained Node-pointer array before a refused replacement.
         Node* const* pointerStorage;
+        /// @brief Address of task metadata retained before a refused replacement.
         const TaskInfo* taskStorage;
+        /// @brief Address of source-role indices retained before a refused replacement.
         const std::size_t* sourceStorage;
+        /// @brief Guarded writable physical samples owned by the fake backend.
         const std::size_t* outputStorage;
+        /// @brief Whether backend preparation had completed in the captured plan.
         bool prepared;
+        /// @brief Number of dependency layers in the captured structural schedule.
         std::size_t layers;
 
+        /// @brief Capture plan identities, roles and storage addresses before a refused replacement.
         explicit PlanImage(const ExecutionPlan& plan)
             : tasks(plan.taskInfos().begin(), plan.taskInfos().end()),
               sources(plan.sourceTasks().begin(), plan.sourceTasks().end()),
@@ -67,6 +86,7 @@ namespace {
               sourceStorage(plan.sourceTasks().data()), outputStorage(plan.outputTasks().data()),
               prepared(plan.isBackendPrepared()), layers(plan.layerCount()) {}
 
+        /// @brief Compare the plan with its saved identity, role and binding snapshot.
         void expectUnchanged(const ExecutionPlan& plan) const {
             EXPECT_EQ(plan.tasks().data(), pointerStorage);
             EXPECT_EQ(plan.taskInfos().data(), taskStorage);
@@ -91,6 +111,7 @@ namespace {
         }
     };
 
+    /// @brief Check that task identities, roles and reverse indices agree with the schedule.
     void expectIndexed(const ExecutionPlan& plan) {
         ASSERT_EQ(plan.taskInfos().size(), plan.tasks().size());
         std::vector<std::size_t> sources, outputs;
@@ -112,6 +133,7 @@ namespace {
         EXPECT_FALSE(plan.taskIndexOf(maxNodeID));
     }
 
+    /// @brief Test case: default and empty targets have no audio or tasks.
     TEST(StructuralCompilation, DefaultAndEmptyTargetsHaveNoAudioOrTasks) {
         DAG graph;
         ExecutionPlan target;
@@ -130,6 +152,7 @@ namespace {
         EXPECT_FALSE(legacy->isBackendPrepared());
     }
 
+    /// @brief Test case: isolates include identity gaps and independent output membership.
     TEST(StructuralCompilation, IsolatesIncludeIdentityGapsAndIndependentOutputMembership) {
         DAG graph;
         const auto a = graph.add<StructuralNode>(), removed = graph.add<StructuralNode>();
@@ -150,6 +173,7 @@ namespace {
         EXPECT_EQ(static_cast<StructuralNode*>(graph.node(*c))->calls, 0U);
     }
 
+    /// @brief Test case: undeclared auxiliary dependencies use global priority and independent roles.
     TEST(StructuralCompilation, UndeclaredAuxiliaryDependenciesUseGlobalPriorityAndIndependentRoles) {
         DAG graph;
         const auto sink = graph.add<StructuralNode>(), source = graph.add<StructuralNode>();
@@ -172,6 +196,7 @@ namespace {
         EXPECT_FALSE(target.isBackendPrepared());
     }
 
+    /// @brief Test case: diamond and parallel logical edges yield one task per node.
     TEST(StructuralCompilation, DiamondAndParallelLogicalEdgesYieldOneTaskPerNode) {
         DAG graph;
         std::array<NodeID, 4> ids{};
@@ -200,6 +225,7 @@ namespace {
             EXPECT_EQ(static_cast<StructuralNode*>(task.node)->calls, 0U);
     }
 
+    /// @brief Test case: detached owner order does not affect ranks or role indexes.
     TEST(StructuralCompilation, DetachedOwnerOrderDoesNotAffectRanksOrRoleIndexes) {
         StructuralNode three{3}, nine{9}, twenty{20}, fifty{50};
         const std::array<Node*, 4> owners{&fifty, &nine, &three, &twenty};
@@ -225,6 +251,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: invalid detached snapshots preserve prepared target and all existing borrows.
     TEST(StructuralCompilation, InvalidDetachedSnapshotsPreservePreparedTargetAndAllExistingBorrows) {
         StructuralNode one{1}, two{2}, three{3};
         const std::array<Node*, 3> owners{&one, &two, &three};
@@ -233,7 +260,8 @@ namespace {
             .connections = {{encode(1, PortType::Out, 0), encode(2, PortType::In, 0)},
                             {encode(2, PortType::Out, 0), encode(3, PortType::Aux, 65535)}},
             .outputs = {1, 3}};
-        struct Case { detail::GraphSnapshot graph; Error error; };
+        /// @brief Input values and expected behavior for one table-driven test case.
+        struct Case { /** Owned desired DAG or detached graph values used by this fixture. */ detail::GraphSnapshot graph; /** Numeric failure expected or retained for this reference case. */ Error error; };
         std::vector<Case> cases;
         const auto add = [&](detail::GraphSnapshot graph, Error error) { cases.push_back({std::move(graph), error}); };
         auto fixture = valid;
@@ -299,6 +327,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: invalid owners and intrinsic config do not acquire partial borrows.
     TEST(StructuralCompilation, InvalidOwnersAndIntrinsicConfigDoNotAcquirePartialBorrows) {
         StructuralNode one{1}, two{2}, duplicate{1}, zero{0};
         // A deliberately malformed detached fixture exercises validation only;
@@ -328,6 +357,7 @@ namespace {
         EXPECT_FALSE(detail::NodeBorrowAccess::inUse(invalidConfig));
     }
 
+    /// @brief Test case: capacity budget and checked arithmetic reject before replacing the target.
     TEST(StructuralCompilation, CapacityBudgetAndCheckedArithmeticRejectBeforeReplacingTheTarget) {
         DAG graph;
         std::array<NodeID, 3> ids{};
@@ -364,6 +394,7 @@ namespace {
             EXPECT_EQ(static_cast<StructuralNode*>(task.node)->calls, 0U);
     }
 
+    /// @brief Test case: replacing the candidate keeps the separate prepared generation intact.
     TEST(StructuralCompilation, ReplacingTheCandidateKeepsTheSeparatePreparedGenerationIntact) {
         DAG graph;
         const auto first = graph.add<StructuralNode>();
@@ -391,6 +422,7 @@ namespace {
         EXPECT_EQ(static_cast<StructuralNode*>(graph.node(*second))->calls, 0U);
     }
 
+    /// @brief Test case: copy move and legacy preparation keep metadata indexes consistent.
     TEST(StructuralCompilation, CopyMoveAndLegacyPreparationKeepMetadataIndexesConsistent) {
         StructuralNode one{1}, two{2};
         const std::array edges{Connection{encode(1, PortType::Out, 0), encode(2, PortType::Aux, 65535)}};

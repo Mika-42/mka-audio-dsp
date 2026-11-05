@@ -1,3 +1,8 @@
+/**
+ * @file test_audio_channels.cpp
+ * @brief Tests for audio channels.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <cstddef>
@@ -27,9 +32,11 @@ namespace {
     static_assert(std::is_convertible_v<float*, const float*>);
     static_assert(!std::is_convertible_v<const float*, float*>);
 
+    /// @brief Whether a descriptor permits writing its pointed-to sample values.
     template<typename Descriptor>
     concept WritableSamples = requires(Descriptor& channel) { channel.buffer[0] = 1.F; };
 
+    /// @brief Whether a descriptor permits replacing its borrowed sample pointer.
     template<typename Descriptor>
     concept RebindableDescriptor = requires(Descriptor& channel, float* buffer) {
         channel.buffer = buffer;
@@ -59,6 +66,7 @@ namespace {
 
     // Stateless test harness for a conforming consumer, not Node/ExecutionPlan
     // integration. The caller guarantees matching views and sufficient extents.
+    /// @brief Copy the selected borrowed input samples to matching writable output views.
     void copySamples(const std::span<const InputChannel> inputs,
                      const std::span<const OutputChannel> outputs,
                      const FrameCount frames) noexcept {
@@ -69,6 +77,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: default initialization leaves zero identity and null preparation buffer.
     TEST(AudioChannelDescriptors, DefaultInitializationLeavesZeroIdentityAndNullPreparationBuffer) {
         const InputChannel input;
         const OutputChannel output;
@@ -78,6 +87,7 @@ namespace {
         EXPECT_EQ(output.buffer, nullptr);
     }
 
+    /// @brief Test case: copies preserve logical identity and borrow caller owned storage.
     TEST(AudioChannelDescriptors, CopiesPreserveLogicalIdentityAndBorrowCallerOwnedStorage) {
         const std::array<float, 3> inputOwner{2.F, 4.F, 6.F};
         std::array<float, 3> outputOwner{7.F, 8.F, 9.F};
@@ -98,6 +108,7 @@ namespace {
         EXPECT_EQ(outputOwner, (std::array<float, 3>{7.F, 6.F, 9.F}));
     }
 
+    /// @brief Test case: mono consumer writes through const output descriptors.
     TEST(AudioChannelDescriptors, MonoConsumerWritesThroughConstOutputDescriptors) {
         const std::array<float, 4> inputOwner{1.F, -2.F, 3.F, -4.F};
         std::array<float, 4> outputOwner{};
@@ -110,6 +121,7 @@ namespace {
         EXPECT_EQ(outputs[0].buffer, outputOwner.data());
     }
 
+    /// @brief Test case: stereo and six backend lanes use position with zero identity.
     TEST(AudioChannelDescriptors, StereoAndSixBackendLanesUsePositionWithZeroIdentity) {
         for (const auto channelCount : std::array<std::size_t, 2>{2, 6}) {
             SCOPED_TRACE(channelCount);
@@ -139,6 +151,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: explicit read only view aliases mutable samples without ownership.
     TEST(AudioChannelDescriptors, ExplicitReadOnlyViewAliasesMutableSamplesWithoutOwnership) {
         std::array<float, 2> owner{3.F, 5.F};
         const OutputChannel writable{encode(7, PortType::Out, 1), owner.data()};
@@ -150,6 +163,7 @@ namespace {
         EXPECT_FLOAT_EQ(owner[1], 11.F);
     }
 
+    /// @brief Test case: positive frames reject null input at every consumed position without mutation.
     TEST(AudioChannelBuffers, PositiveFramesRejectNullInputAtEveryConsumedPositionWithoutMutation) {
         const std::array<std::array<float, 3>, 3> owners{{{1.F, 2.F, 3.F},
                                                        {4.F, 5.F, 6.F},
@@ -172,6 +186,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: positive frames reject null output at every consumed position without mutation.
     TEST(AudioChannelBuffers, PositiveFramesRejectNullOutputAtEveryConsumedPositionWithoutMutation) {
         std::array<std::array<float, 3>, 3> owners{{{1.F, 2.F, 3.F},
                                                  {4.F, 5.F, 6.F},
@@ -196,6 +211,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: empty views and zero frames do not access samples or null pointers.
     TEST(AudioChannelBuffers, EmptyViewsAndZeroFramesDoNotAccessSamplesOrNullPointers) {
         EXPECT_TRUE(validateChannelBuffers(std::span<const InputChannel>{}, FrameCount{4}));
         EXPECT_TRUE(validateChannelBuffers(std::span<const OutputChannel>{}, FrameCount{4}));
@@ -212,6 +228,7 @@ namespace {
         EXPECT_EQ(outputs[1].buffer, sentinel.data());
     }
 
+    /// @brief Test case: validation inspects pointers only even for maximum frame count.
     TEST(AudioChannelBuffers, ValidationInspectsPointersOnlyEvenForMaximumFrameCount) {
         const float inputSample = 23.F;
         float outputSample = 29.F;
@@ -225,6 +242,7 @@ namespace {
         EXPECT_FLOAT_EQ(outputSample, 29.F);
     }
 
+    /// @brief Test case: disconnected input can borrow A read only silence buffer.
     TEST(AudioChannelBuffers, DisconnectedInputCanBorrowAReadOnlySilenceBuffer) {
         const std::array<float, 4> silence{};
         std::array<float, 4> outputOwner{1.F, 2.F, 3.F, 4.F};
@@ -238,6 +256,7 @@ namespace {
         EXPECT_EQ(silence, (std::array<float, 4>{}));
     }
 
+    /// @brief Test case: callback harness rebinds backend buffers and clears borrowed pointers.
     TEST(AudioChannelBuffers, CallbackHarnessRebindsBackendBuffersAndClearsBorrowedPointers) {
         std::array<InputChannel, 1> inputDescriptors{};
         std::array<OutputChannel, 1> outputDescriptors{};

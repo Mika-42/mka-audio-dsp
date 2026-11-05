@@ -1,3 +1,8 @@
+/**
+ * @file test_output_markers.cpp
+ * @brief Tests for output markers.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <cstddef>
@@ -14,11 +19,14 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
 
+    /// @brief Minimal processor used to exercise desired output-role markers.
     class MarkerNode final : public Node {
     public:
+        /// @brief Declare the mono signal path used to exercise independent output-role markers.
         explicit MarkerNode(const NodeID id)
             : Node(id, Config{.layoutInput = {0}, .layoutOutput = {0}}) {}
 
+        /// @brief Render the configured constant or gain signal and selected logical/physical sample writes.
         void process(const ProcessContext& context) noexcept override {
             inputCount = context.inputs.size();
             backendCount = context.backendOutputs.size();
@@ -37,15 +45,25 @@ namespace {
             }
         }
 
+        /// @brief Scalar multiplication factor configured for this fixture path.
         float gain = 1.F;
+        /// @brief Offset distinguishing physical writes from the logical output signal.
         float backendBias = 0.F;
+        /// @brief Configured scalar signal value or expected value for this fixture case.
         float value = 0.F;
+        /// @brief Most recently written or observed scalar sample value.
         float lastSample = 0.F;
+        /// @brief Whether the fixture produces a constant rather than forwarding its input.
         bool constant = false;
+        /// @brief Whether writes are restricted to even sample positions.
         bool evenFramesOnly = false;
+        /// @brief Whether logical output storage remains separate from physical buffers.
         bool distinctDestinations = true;
+        /// @brief Physical output lane selected by the fixture writer.
         std::size_t outputLane = 0;
-        std::size_t inputCount = 0, backendCount = 0, logicalCount = 0;
+        std::size_t inputCount = 0 /**< Number of input descriptors observed during the callback. */,
+             backendCount = 0 /**< Number of physical output descriptors observed during the callback. */,
+             logicalCount = 0 /**< Logical count retained by the fixture. */;
     };
 
     static_assert(std::same_as<decltype(std::declval<DAG&>().markAsOutput(NodeID{})),
@@ -58,16 +76,19 @@ namespace {
     static_assert(noexcept(std::declval<const DAG&>().outputNodes()));
     static_assert(!std::is_assignable_v<decltype(std::declval<const DAG&>().outputNodes()[0]), NodeID>);
 
+    /// @brief Require the expected numeric error while preserving its node/channel context.
     void expectError(const Result& result, const GraphError error) {
         ASSERT_FALSE(result);
         EXPECT_EQ(result.error().code, error.code);
     }
 
+    /// @brief Compare the desired output-node set with the expected identities.
     void expectMarkers(const DAG& graph, const std::span<const NodeID> expected) {
         ASSERT_EQ(graph.outputNodes().size(), expected.size());
         for (std::size_t i = 0; i < expected.size(); ++i) EXPECT_EQ(graph.outputNodes()[i], expected[i]);
     }
 
+    /// @brief Test case: invalid and repeated edits preserve A unique sorted control collection.
     TEST(OutputMarkers, InvalidAndRepeatedEditsPreserveAUniqueSortedControlCollection) {
         DAG graph;
         const auto a = graph.add<MarkerNode>();
@@ -98,6 +119,7 @@ namespace {
         EXPECT_TRUE(graph.connections().empty());
     }
 
+    /// @brief Test case: removing A node drops its marker without creating hardware edges.
     TEST(OutputMarkers, RemovingANodeDropsItsMarkerWithoutCreatingHardwareEdges) {
         DAG graph;
         const auto a = graph.add<MarkerNode>();
@@ -116,6 +138,7 @@ namespace {
         ASSERT_TRUE(graph.compile(BackendConfig{.maxFrames = 1, .outputChannels = 2}));
     }
 
+    /// @brief Test case: mark unmark and remark create independent snapshots for A source with A successor.
     TEST(OutputMarkers, MarkUnmarkAndRemarkCreateIndependentSnapshotsForASourceWithASuccessor) {
         DAG graph;
         const auto source = graph.add<MarkerNode>();
@@ -151,6 +174,7 @@ namespace {
         EXPECT_EQ(graph.connections().size(), 1U);
     }
 
+    /// @brief Test case: unmarking A non source keeps logical outputs for its successor.
     TEST(OutputMarkers, UnmarkingANonSourceKeepsLogicalOutputsForItsSuccessor) {
         DAG graph;
         const auto a = graph.add<MarkerNode>();
@@ -180,6 +204,7 @@ namespace {
         EXPECT_EQ(graph.connections().size(), 2U);
     }
 
+    /// @brief Test case: stable writers use current backend addresses and last effective sample wins.
     TEST(OutputMarkers, StableWritersUseCurrentBackendAddressesAndLastEffectiveSampleWins) {
         DAG graph;
         const auto first = graph.add<MarkerNode>();

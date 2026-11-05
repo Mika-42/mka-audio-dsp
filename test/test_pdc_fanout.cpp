@@ -1,3 +1,8 @@
+/**
+ * @file test_pdc_fanout.cpp
+ * @brief Tests for pdc fanout.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -12,10 +17,12 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
     using namespace pdc_test;
+    /// @brief Return the expected delayed ramp, including the initial zero history.
     float delayedRamp(std::size_t t,std::size_t delay) {
         return t<delay ? 0.F : static_cast<float>(t-delay+1);
     }
 
+    /// @brief Test case: ten branch histories and late direct reader preserve shared source sample exactly.
     TEST(PdcFanout, TenBranchHistoriesAndLateDirectReaderPreserveSharedSourceSampleExactly) {
         for (const auto strategy : {SlotStrategy::Reuse,SlotStrategy::Unique}) {
             SCOPED_TRACE(strategy==SlotStrategy::Reuse ? "Reuse" : "Unique");
@@ -71,6 +78,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: auxiliary three aligns with main eight while ignored and unproduced ports stay silent.
     TEST(PdcFanout, AuxiliaryThreeAlignsWithMainEightWhileIgnoredAndUnproducedPortsStaySilent) {
         DAG graph;
         const auto fast=graph.add<UniformDelayNode>(3U),slow=graph.add<UniformDelayNode>(8U);
@@ -106,6 +114,7 @@ namespace {
         EXPECT_EQ(graph.connections().size(),4U);
     }
 
+    /// @brief Test case: four node diamond compensates only the short branch without implicit mix nodes.
     TEST(PdcFanout, FourNodeDiamondCompensatesOnlyTheShortBranchWithoutImplicitMixNodes) {
         DAG graph;
         const auto source=graph.add<UniformDelayNode>(0U),left=graph.add<UniformDelayNode>(3U);

@@ -1,3 +1,8 @@
+/**
+ * @file test_two_six_routing.cpp
+ * @brief Tests for two six routing.
+ * @author Mika
+ */
 #include <array>
 #include <expected>
 #include <gtest/gtest.h>
@@ -8,6 +13,7 @@ namespace {
     using namespace mka::audio::dsp;
     using namespace backend_test;
 
+    /// @brief Test case: node policies select pairs without hardware channels or edges in the engine.
     TEST(TwoSixRouting, NodePoliciesSelectPairsWithoutHardwareChannelsOrEdgesInTheEngine) {
         for (std::uint32_t outputs : {2U,6U}) {
             std::array<NodeID,3> ids;
@@ -34,6 +40,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: node checks unavailable input and output indices before access.
     TEST(TwoSixRouting, NodeChecksUnavailableInputAndOutputIndicesBeforeAccess) {
         PairRouting route; route.inputs={1,5}; route.destinations[0]={0,65535};
         Observation seen; seen.expectOutput=true;

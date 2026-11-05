@@ -1,3 +1,8 @@
+/**
+ * @file pdc_analysis.cppm
+ * @brief Cumulative path latencies and logical-edge compensation analysis.
+ * @author Mika
+ */
 module;
 #include <algorithm>
 #include <cstdint>
@@ -16,8 +21,11 @@ export import mka.audio.dsp.connection;
 export namespace mka::audio::dsp {
     /// Compensation on one complete logical Out -> In/Aux edge, in samples.
     struct ConnectionDelay {
+        /// @brief Complete logical producer-to-consumer edge identity.
         Connection connection;
+        /// @brief Whole-sample compensation assigned to this exact logical edge.
         std::uint64_t samples = 0;
+        /// @brief Compare all value fields for equality.
         bool operator==(const ConnectionDelay&) const noexcept = default;
     };
 
@@ -31,10 +39,15 @@ export namespace mka::audio::dsp {
 
     /// P(v), A(v) and L(v), in integer samples at the snapshot's rate.
     struct NodeLatency {
+        /// @brief Logical identity of the processor described by this latency entry.
         NodeID node = invalidNodeID;
+        /// @brief Algorithmic latency declared by the processor.
         LatencySamples intrinsic = 0;
+        /// @brief Maximum cumulative latency of the processed input predecessors.
         std::uint64_t arrival = 0;
+        /// @brief Arrival latency plus this processor's intrinsic latency.
         std::uint64_t cumulative = 0;
+        /// @brief Compare all value fields for equality.
         bool operator==(const NodeLatency&) const noexcept = default;
     };
 
@@ -49,16 +62,19 @@ export namespace mka::audio::dsp {
      * logical storage for output Nodes with successors remain unchanged.
      */
     struct PdcAnalysis {
+        /// @brief Owned P/A/L entries in the prepared topological order.
         std::vector<NodeLatency> nodes;
         /// Complete materialized audio-edge table, including D=0 direct links.
         /// Sorted by destination then source ChannelID, independent of insertion.
         std::vector<ConnectionDelay> edges;
 
+        /// @brief Borrow the matching immutable metadata entry, or return null when it is absent.
         [[nodiscard]] const NodeLatency* find(const NodeID id) const noexcept {
             const auto it=std::find_if(nodes.begin(),nodes.end(),
                 [id](const NodeLatency& value) { return value.node==id; });
             return it==nodes.end() ? nullptr : &*it;
         }
+        /// @brief Borrow the matching immutable metadata entry, or return null when it is absent.
         [[nodiscard]] const ConnectionDelay* find(const Connection edge) const noexcept {
             const auto it=std::find_if(edges.begin(),edges.end(),
                 [edge](const ConnectionDelay& value) { return value.connection==edge; });

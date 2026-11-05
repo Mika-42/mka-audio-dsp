@@ -1,3 +1,8 @@
+/**
+ * @file test_signal_liveness.cpp
+ * @brief Tests for signal liveness.
+ * @author Mika
+ */
 #include <algorithm>
 #include <cstddef>
 #include <vector>
@@ -10,6 +15,7 @@ namespace {
 
     // Deliberately independent: find each producer, then scan backwards for the
     // last matching read instead of updating forward maxima like production.
+    /// @brief Compute signal last-use positions by scanning the reference operations backward.
     std::vector<SignalLifetime> backwardsOracle(const std::vector<SignalOperation>& ops,
                                                std::size_t count) {
         std::vector<SignalLifetime> expected;
@@ -30,6 +36,7 @@ namespace {
         return expected;
     }
 
+    /// @brief Test case: chain diamond aux and unconsumed outputs have exact indices.
     TEST(SignalLiveness, ChainDiamondAuxAndUnconsumedOutputsHaveExactIndices) {
         const std::vector<SignalOperation> ops{
             {OperationKind::Node, {}, {0,1}},
@@ -44,6 +51,7 @@ namespace {
         EXPECT_EQ(*result, backwardsOracle(ops, 6));
     }
 
+    /// @brief Test case: ten way fanout delay and late terminal reader extend every production.
     TEST(SignalLiveness, TenWayFanoutDelayAndLateTerminalReaderExtendEveryProduction) {
         std::vector<SignalOperation> ops{{OperationKind::Node, {}, {0}}};
         for (SignalID s = 1; s <= 10; ++s) ops.push_back({OperationKind::Node, {0}, {s}});
@@ -58,6 +66,7 @@ namespace {
         EXPECT_EQ(*result, backwardsOracle(ops, 13));
     }
 
+    /// @brief Test case: rejects missing duplicate future and invalid productions.
     TEST(SignalLiveness, RejectsMissingDuplicateFutureAndInvalidProductions) {
         EXPECT_FALSE(calculateLifetimes({}, 1));
         EXPECT_TRUE(calculateLifetimes({}, 0));
@@ -72,12 +81,14 @@ namespace {
         EXPECT_FALSE(calculateLifetimes(self, 1));
     }
 
+    /// @brief Check that signals sharing a slot have disjoint inclusive live intervals.
     void expectNoOverlap(const std::vector<SignalLifetime>& life, const SlotAssignment& slots) {
         for (SignalID a = 0; a < life.size(); ++a) for (SignalID b = a + 1; b < life.size(); ++b)
             if (life[a].producedAt <= life[b].lastUse && life[b].producedAt <= life[a].lastUse)
                 EXPECT_NE(slots.slotOf[a], slots.slotOf[b]) << "signals " << a << ", " << b;
     }
 
+    /// @brief Test case: last input and new output never alias within one operation.
     TEST(StaticSlots, LastInputAndNewOutputNeverAliasWithinOneOperation) {
         std::vector<SignalOperation> ops;
         for (SignalID s = 0; s < 100; ++s)
@@ -97,6 +108,7 @@ namespace {
         EXPECT_EQ(*life, backwardsOracle(ops, 100));
     }
 
+    /// @brief Test case: diamond late readers and delay match A non recycling sample oracle.
     TEST(StaticSlots, DiamondLateReadersAndDelayMatchANonRecyclingSampleOracle) {
         const std::vector<SignalOperation> ops{
             {OperationKind::Node, {}, {0}}, {OperationKind::Node, {0}, {1}},
@@ -123,6 +135,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: invalid intervals and capacity fail without narrowing.
     TEST(StaticSlots, InvalidIntervalsAndCapacityFailWithoutNarrowing) {
         EXPECT_TRUE(assignBufferSlots({}, 0));
         const std::vector<SignalLifetime> overlap{{0,1},{1,1}};

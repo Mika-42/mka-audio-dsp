@@ -1,3 +1,8 @@
+/**
+ * @file test_fanout_liveness.cpp
+ * @brief Tests for fanout liveness.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -9,6 +14,7 @@ import mka.audio.dsp.signal_liveness;
 namespace {
     using namespace mka::audio::dsp;
 
+    /// @brief Test case: late aux delay and marked output successor preserve source samples.
     TEST(FanoutLiveness, LateAuxDelayAndMarkedOutputSuccessorPreserveSourceSamples) {
         for (std::size_t branches : {2U, 10U}) {
             std::vector<SignalOperation> ops{{OperationKind::Node, {}, {0}}};
@@ -53,6 +59,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: rejects premature recycling at the last consumer before binding.
     TEST(FanoutLiveness, RejectsPrematureRecyclingAtTheLastConsumerBeforeBinding) {
         const std::vector<SignalLifetime> life{{0,4},{1,2},{2,3},{3,4},{4,4}};
         auto result = assignBufferSlots(life, 5); ASSERT_TRUE(result);

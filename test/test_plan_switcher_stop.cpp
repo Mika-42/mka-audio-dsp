@@ -1,3 +1,8 @@
+/**
+ * @file test_plan_switcher_stop.cpp
+ * @brief Tests for plan switcher stop.
+ * @author Mika
+ */
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -14,6 +19,7 @@ namespace {
     using namespace mka::audio::dsp;
     using namespace switcher_test;
 
+    /// @brief Test case: pending without any callback is canceled without waiting and can resume.
     TEST(PlanSwitcherStop, PendingWithoutAnyCallbackIsCanceledWithoutWaitingAndCanResume) {
         DAG graph; PlanSwitcher switcher;
         const auto id=graph.add<SignalNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
@@ -32,6 +38,7 @@ namespace {
         ASSERT_TRUE(switcher.retireAcknowledgedPlan());
     }
 
+    /// @brief Test case: stop after adoption reconciles ack and discards unpublished ready off audio.
     TEST(PlanSwitcherStop, StopAfterAdoptionReconcilesAckAndDiscardsUnpublishedReadyOffAudio) {
         DAG graph; PlanSwitcher switcher;
         const auto id=graph.add<SignalNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
@@ -48,19 +55,25 @@ namespace {
         ASSERT_TRUE(switcher.initialize(graph,cfg)); EXPECT_EQ(switcher.audioGeneration(),4U);
     }
 
+    /// @brief Holds a callback open until the control-side stop test releases it.
     class HeldNode final : public Node {
     public:
+        /// @brief Borrow the entry, release and completion gates used to hold one test callback open.
         HeldNode(NodeID id,std::atomic<bool>& entered,std::atomic<bool>& release,std::atomic<bool>& finished)
             : Node(id,Config{}),entered_(entered),release_(release),finished_(finished) {}
+        /// @brief Signal callback entry and wait for the test gate before reporting completion; test use
+        /// only.
         void process(const ProcessContext&) noexcept override {
             entered_.store(true,std::memory_order_release);
             while (!release_.load(std::memory_order_acquire)) std::this_thread::yield(); // Test harness pause only.
             finished_.store(true,std::memory_order_release);
         }
     private:
-        std::atomic<bool>& entered_; std::atomic<bool>& release_; std::atomic<bool>& finished_;
+        /// @brief Borrowed atomic signal indicating that the held callback has entered processing.
+        std::atomic<bool>& entered_; /** Borrowed atomic gate released by control to let the held callback finish. */ std::atomic<bool>& release_; /** Borrowed atomic signal indicating completion of the held callback. */ std::atomic<bool>& finished_;
     };
 
+    /// @brief Test case: backend stop joins an in flight callback before canceling pending.
     TEST(PlanSwitcherStop, BackendStopJoinsAnInFlightCallbackBeforeCancelingPending) {
         std::atomic<bool> entered{false},release{false},finished{false},stopped{false};
         DAG graph; PlanSwitcher switcher;

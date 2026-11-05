@@ -1,3 +1,8 @@
+/**
+ * @file test_pdc_budget.cpp
+ * @brief Tests for pdc budget.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -13,9 +18,15 @@ import mka.audio.dsp.plan_switcher;
 namespace {
     using namespace mka::audio::dsp;
     using namespace pdc_test;
+    /// @brief Builds a small graph for PDC quota and memory-budget refusal checks.
     struct ResourceGraph {
+        /// @brief Owned desired DAG or detached graph values used by this fixture.
         DAG graph;
-        NodeID fast=0,middle=0,slow=0,join=0;
+        NodeID fast=0 /**< Fast retained by the fixture. */,
+            middle=0 /**< Middle retained by the fixture. */,
+            slow=0 /**< Identity of the desired delayed-branch processor. */,
+            join=0 /**< Join retained by the fixture. */;
+        /// @brief Build the selected fixture topology and mark its physical-output processors.
         Result make() {
             const auto a=graph.add<UniformDelayNode>(0U),b=graph.add<UniformDelayNode>(255U);
             const auto c=graph.add<UniformDelayNode>(256U);
@@ -27,8 +38,10 @@ namespace {
             return graph.markAsOutput(join);
         }
     };
+    /// @brief Prepared backend shape and quotas shared by this fixture's cases.
     const BackendConfig cfg{.maxFrames=4,.inputChannels=1,.outputChannels=1,.sampleRate=48000};
 
+    /// @brief Test case: zero one and256 delays fit independent frame and history capacities.
     TEST(PdcBudget, ZeroOneAnd256DelaysFitIndependentFrameAndHistoryCapacities) {
         ResourceGraph p; ASSERT_TRUE(p.make());
         auto config=cfg; config.maxDelaySamples=256;
@@ -50,6 +63,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: exact aggregate budget includes tables temporaries silence and every history.
     TEST(PdcBudget, ExactAggregateBudgetIncludesTablesTemporariesSilenceAndEveryHistory) {
         ResourceGraph p; ASSERT_TRUE(p.make()); auto plan=p.graph.compile(cfg); ASSERT_TRUE(plan);
         const auto usage=plan->preparedMemoryUsage();
@@ -67,6 +81,7 @@ namespace {
         EXPECT_EQ(plan->pdcAnalysis()->find(p.join)->cumulative,256U);
     }
 
+    /// @brief Test case: rejected candidates preserve active generation and its running history.
     TEST(PdcBudget, RejectedCandidatesPreserveActiveGenerationAndItsRunningHistory) {
         ResourceGraph p; ASSERT_TRUE(p.make()); PlanSwitcher switcher;
         ASSERT_TRUE(switcher.initialize(p.graph,cfg));
@@ -96,6 +111,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: sample quota and platform size products are checked without allocating huge histories.
     TEST(PdcBudget, SampleQuotaAndPlatformSizeProductsAreCheckedWithoutAllocatingHugeHistories) {
         constexpr auto sizeMax=std::numeric_limits<std::size_t>::max();
         constexpr auto sampleMax=std::numeric_limits<std::uint64_t>::max();
@@ -117,6 +133,7 @@ namespace {
         EXPECT_EQ(checkedLatencyAdd(*near,1).error().code,ErrorCode::LatencyOverflow);
     }
 
+    /// @brief Test case: unrepresentable explicit history is rejected before replacing prepared automatic state.
     TEST(PdcBudget, UnrepresentableExplicitHistoryIsRejectedBeforeReplacingPreparedAutomaticState) {
         ResourceGraph p; ASSERT_TRUE(p.make()); auto plan=p.graph.compile(cfg); ASSERT_TRUE(plan);
         const auto* original=plan->pdcAnalysis(); const auto bytes=plan->preparedMemoryUsage().totalBytes;

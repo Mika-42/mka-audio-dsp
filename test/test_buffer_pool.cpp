@@ -1,3 +1,8 @@
+/**
+ * @file test_buffer_pool.cpp
+ * @brief Tests for buffer pool.
+ * @author Mika
+ */
 #include <algorithm>
 #include <concepts>
 #include <cstdint>
@@ -15,6 +20,7 @@ namespace {
     static_assert(!std::is_move_constructible_v<BufferPool>);
     static_assert(noexcept(std::declval<BufferPool&>().buffer(BufferId{})));
 
+    /// @brief Test case: exact mono capacities are isolated and stable.
     TEST(BufferPool, ExactMonoCapacitiesAreIsolatedAndStable) {
         for (auto slots : {0U, 1U, 7U}) for (auto frames : {1U, 128U, 4096U}) {
             BufferPool pool;
@@ -36,6 +42,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: failed budget and overflow preserve old storage.
     TEST(BufferPool, FailedBudgetAndOverflowPreserveOldStorage) {
         BufferPool pool;
         ASSERT_TRUE(pool.prepare(1, 128));
@@ -54,6 +61,7 @@ namespace {
         EXPECT_TRUE(pool.prepare(2, 128, 1536));
     }
 
+    /// @brief Test case: zero frames and independent control copy.
     TEST(BufferPool, ZeroFramesAndIndependentControlCopy) {
         BufferPool empty;
         ASSERT_TRUE(empty.prepare(2, 0, 0));
@@ -69,6 +77,7 @@ namespace {
     static_assert(std::same_as<decltype(std::declval<const BufferPool&>().silence()), const float*>);
     static_assert(noexcept(std::declval<const BufferPool&>().silence()));
 
+    /// @brief Test case: silence is shared const and excluded from every writable slot.
     TEST(BufferPool, SilenceIsSharedConstAndExcludedFromEveryWritableSlot) {
         for (FrameCount frames : {1U, 128U, 4096U}) {
             BufferPool pool;

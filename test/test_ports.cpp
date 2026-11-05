@@ -1,3 +1,8 @@
+/**
+ * @file test_ports.cpp
+ * @brief Tests for ports.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <cstdint>
@@ -44,33 +49,43 @@ namespace {
                                             std::declval<const Channel&>())),
         std::expected<void, GraphError>>);
 
+    /// @brief Minimal processor used by logical-port direction tests.
     class PortTestNode final : public Node {
     public:
+        /// @brief Declare logical channel layouts used by the port-direction cases.
         explicit PortTestNode(const NodeID id)
             : Node(id, {.layoutInput = {0, 1},
                         .layoutAuxiliary = {},
                         .layoutOutput = {0, 1}}) {}
 
+        /// @brief Leave sample buffers unchanged; this processor supplies structural metadata only.
         void process(const ProcessContext&) noexcept override {}
     };
 
+    /// @brief Require the expected numeric error while preserving its node/channel context.
     void expectError(const std::expected<void, GraphError>& result, const GraphError error) {
         ASSERT_FALSE(result.has_value());
         EXPECT_EQ(result.error().code, error.code);
     }
 
+    /// @brief Check whether the exact requested connection was removed.
     void expectDisconnect(const std::expected<bool, GraphError>& result, const bool removed) {
         ASSERT_TRUE(result.has_value());
         EXPECT_EQ(*result, removed);
     }
 
+    /// @brief Source and destination port categories for a connection case.
     struct PortPair {
+        /// @brief Borrowed producer sample pointer or identity selected for this operation.
         PortType source;
+        /// @brief Borrowed writable sample buffer for the delayed signal.
         PortType destination;
+        /// @brief Whether the selected source/destination port combination is valid.
         bool allowed;
     };
 
     // Independent, explicit oracle for all nine official source/destination pairs.
+    /// @brief All producer/consumer port combinations and their expected admissibility.
     constexpr std::array directionCases{
         PortPair{PortType::In,  PortType::In,  false},
         PortPair{PortType::In,  PortType::Out, false},
@@ -82,15 +97,18 @@ namespace {
         PortPair{PortType::Aux, PortType::Out, false},
         PortPair{PortType::Aux, PortType::Aux, false},
     };
+    /// @brief Position in the prepared processing order.
     constexpr ChannelIndex index = 0;
 
     // Malformed IDs must be constructed without calling Node::channel/encode
     // outside their valid-port precondition.
+    /// @brief Build a raw numeric identity for port-domain validation cases.
     constexpr ChannelID rawChannelID(const NodeID node, const PortType port) noexcept {
         return (ChannelID{node} << 32U) |
                (ChannelID{static_cast<std::uint16_t>(port)} << 16U);
     }
 
+    /// @brief Test case: has fixed sixteen bit codes.
     TEST(PortTypeContract, HasFixedSixteenBitCodes) {
         EXPECT_EQ(sizeof(PortType), sizeof(std::uint16_t));
         EXPECT_EQ(static_cast<std::uint16_t>(PortType::In), 0);
@@ -99,6 +117,7 @@ namespace {
         EXPECT_EQ(std::numeric_limits<std::underlying_type_t<PortType>>::digits, 16);
     }
 
+    /// @brief Test case: classifies main and auxiliary inputs and output.
     TEST(PortTypeContract, ClassifiesMainAndAuxiliaryInputsAndOutput) {
         EXPECT_TRUE(isInputPort(PortType::In));
         EXPECT_TRUE(isInputPort(PortType::Aux));
@@ -108,6 +127,7 @@ namespace {
         EXPECT_FALSE(isOutputPort(PortType::Aux));
     }
 
+    /// @brief Test case: helpers classify every sixteen bit representation.
     TEST(PortTypeContract, HelpersClassifyEverySixteenBitRepresentation) {
         // Use a wider counter so the loop terminates instead of wrapping.
         for (std::uint32_t code = 0; code <= 65535; ++code) {
@@ -118,8 +138,10 @@ namespace {
         }
     }
 
+    /// @brief Parameterized fixture covering all source/destination port categories.
     class PortDirectionMatrix : public ::testing::TestWithParam<PortPair> {};
 
+    /// @brief Test case: accepts only out to in or aux without phantom edges.
     TEST_P(PortDirectionMatrix, AcceptsOnlyOutToInOrAuxWithoutPhantomEdges) {
         DAG graph;
         const auto addedSource = graph.add<PortTestNode>();
@@ -154,6 +176,7 @@ namespace {
         expectDisconnect(graph.disconnect(connectedDestination, connectedSource), false);
     }
 
+    /// @brief Return a readable name for the tested port category.
     const char* portName(const PortType port) {
         switch (port) {
             case PortType::In: return "In";
@@ -170,6 +193,7 @@ namespace {
                    portName(info.param.destination);
         });
 
+    /// @brief Test case: rejects undefined codes in either position.
     TEST(PortDirections, RejectsUndefinedCodesInEitherPosition) {
         constexpr std::array<std::uint16_t, 6> codes{3, 4, 255, 256, 32768, 65535};
         for (const auto code : codes) {
@@ -201,6 +225,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: rejections preserve an existing edge and do not add another.
     TEST(PortDirections, RejectionsPreserveAnExistingEdgeAndDoNotAddAnother) {
         DAG graph;
         const auto addedA = graph.add<PortTestNode>();
@@ -248,6 +273,7 @@ namespace {
                                            c.channel(PortType::Out, index)), true);
     }
 
+    /// @brief Test case: port and direction errors take priority over other graph errors.
     TEST(PortDirections, PortAndDirectionErrorsTakePriorityOverOtherGraphErrors) {
         DAG graph;
         const auto addedA = graph.add<PortTestNode>();
@@ -284,6 +310,7 @@ namespace {
                                            b.channel(PortType::Out, index)), false);
     }
 
+    /// @brief Test case: valid directions return distinct structural errors.
     TEST(PortDirections, ValidDirectionsReturnDistinctStructuralErrors) {
         DAG graph;
         const auto addedA = graph.add<PortTestNode>();

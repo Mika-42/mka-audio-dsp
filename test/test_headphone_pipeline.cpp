@@ -1,3 +1,8 @@
+/**
+ * @file test_headphone_pipeline.cpp
+ * @brief Tests for headphone pipeline.
+ * @author Mika
+ */
 #include <array>
 #include <expected>
 #include <gtest/gtest.h>
@@ -8,6 +13,7 @@ namespace {
     using namespace mka::audio::dsp;
     using namespace backend_test;
 
+    /// @brief Test case: physical inputs through gain reach two pairs with per sample last writer and fresh pointers.
     TEST(HeadphonePipeline, PhysicalInputsThroughGainReachTwoPairsWithPerSampleLastWriterAndFreshPointers) {
         std::array<NodeID,4> ids;
         std::array<PairRouting,4> routing;
@@ -45,6 +51,7 @@ namespace {
         EXPECT_EQ(plan->callbackDiagnostics(),0U);
     }
 
+    /// @brief Test case: malformed blocks remain bounded and the same prepared plan recovers.
     TEST(HeadphonePipeline, MalformedBlocksRemainBoundedAndTheSamePreparedPlanRecovers) {
         std::array<NodeID,4> ids;
         std::array<PairRouting,4> routing;

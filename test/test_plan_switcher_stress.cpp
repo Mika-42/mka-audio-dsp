@@ -1,3 +1,8 @@
+/**
+ * @file test_plan_switcher_stress.cpp
+ * @brief Tests for plan switcher stress.
+ * @author Mika
+ */
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -14,6 +19,7 @@ import mka.audio.dsp.plan_switcher;
 #include "plan_switcher_stress.hpp"
 
 namespace {
+    /// @brief Test case: ten thousand threaded swaps include edits failures retirement stop and pdc.
     TEST(PlanSwitcherStress, TenThousandThreadedSwapsIncludeEditsFailuresRetirementStopAndPdc) {
         const auto result=switcher_test::runSwitcherStress();
         std::cout << "seed=0x7342ABC1 swaps=" << result.swaps << " published=" << result.published

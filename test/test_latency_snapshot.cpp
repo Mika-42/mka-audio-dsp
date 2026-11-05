@@ -1,3 +1,8 @@
+/**
+ * @file test_latency_snapshot.cpp
+ * @brief Tests for latency snapshot.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -12,10 +17,14 @@ import mka.audio.dsp.plan_switcher;
 
 namespace {
     using namespace mka::audio::dsp;
+    /// @brief Exposes configuration or latency snapshots for preparation-time checks.
     class SnapshotNode final : public Node {
     public:
+        /// @brief Store the intrinsic latency and declare the output observed during callbacks.
         SnapshotNode(NodeID id,LatencySamples latency) : Node(id,Config{.layoutOutput={0}}),latency_(latency) {}
+        /// @brief Return the fixed algorithmic delay declared by this fixture processor.
         LatencySamples latencySamples() const noexcept override { ++queries; return latency_; }
+        /// @brief Advance audio-owned block state and produce unity without changing declared latency.
         void process(const ProcessContext& ctx) noexcept override {
             // Mutable audio-owned state must never be read during capture of B.
             ++blocks_;
@@ -24,14 +33,20 @@ namespace {
                 for (const auto& out : ctx.backendOutputs) out.buffer[f]=1.F;
             }
         }
+        /// @brief Change the fixture's latency only after all plans and callbacks have released it.
         void setLatencyAfterQuiescence(LatencySamples latency) { latency_=latency; }
+        /// @brief Number of control-side latency queries observed by the fixture.
         mutable std::atomic<unsigned> queries{0};
     private:
+        /// @brief Fixed intrinsic algorithmic latency declared by the processor.
         LatencySamples latency_;
+        /// @brief Number of audio blocks processed by the latency-snapshot fixture.
         unsigned blocks_=0;
     };
+    /// @brief Prepared backend shape and quotas shared by this fixture's cases.
     const BackendConfig cfg{.maxFrames=4,.outputChannels=1,.sampleRate=48000};
 
+    /// @brief Test case: deterministic owned table uses each declaration once and never in exec.
     TEST(LatencyCapture, DeterministicOwnedTableUsesEachDeclarationOnceAndNeverInExec) {
         DAG graph;
         const auto zero=graph.add<SnapshotNode>(0U),a=graph.add<SnapshotNode>(64U),b=graph.add<SnapshotNode>(256U);
@@ -52,6 +67,7 @@ namespace {
         for (const auto id : {*zero,*a,*b}) EXPECT_EQ(static_cast<SnapshotNode*>(graph.node(id))->queries.load(),1U);
     }
 
+    /// @brief Test case: new borrow epoch captures changed declaration without editing old snapshot.
     TEST(LatencyCapture, NewBorrowEpochCapturesChangedDeclarationWithoutEditingOldSnapshot) {
         DAG graph; const auto id=graph.add<SnapshotNode>(64U); ASSERT_TRUE(id);
         auto plan=graph.compile(cfg); ASSERT_TRUE(plan);
@@ -64,6 +80,7 @@ namespace {
         EXPECT_EQ(static_cast<SnapshotNode*>(graph.node(*id))->queries.load(),2U);
     }
 
+    /// @brief Test case: shared active and pending reuse frozen value without virtual DSP access.
     TEST(LatencyCapture, SharedActiveAndPendingReuseFrozenValueWithoutVirtualDSPAccess) {
         DAG graph; PlanSwitcher switcher; const auto id=graph.add<SnapshotNode>(64U); ASSERT_TRUE(id);
         ASSERT_TRUE(graph.markAsOutput(*id)); ASSERT_TRUE(switcher.initialize(graph,cfg));
@@ -82,6 +99,7 @@ namespace {
         EXPECT_EQ(output[0],1.F); ASSERT_TRUE(switcher.retireAcknowledgedPlan());
     }
 
+    /// @brief Test case: rate change with shared node fails and leaves A executable.
     TEST(LatencyCapture, RateChangeWithSharedNodeFailsAndLeavesAExecutable) {
         DAG graph; PlanSwitcher switcher; const auto id=graph.add<SnapshotNode>(64U); ASSERT_TRUE(id);
         ASSERT_TRUE(graph.markAsOutput(*id)); ASSERT_TRUE(switcher.initialize(graph,cfg));
@@ -98,6 +116,7 @@ namespace {
         EXPECT_EQ(switcher.slotAddress(0)->latencySnapshot()->sampleRate,96000U);
     }
 
+    /// @brief Test case: uncertain unprepared sharing refuses capture before querying DSP.
     TEST(LatencyCapture, UncertainUnpreparedSharingRefusesCaptureBeforeQueryingDSP) {
         DAG graph; const auto id=graph.add<SnapshotNode>(64U); ASSERT_TRUE(id);
         auto a=graph.compile(); auto b=graph.compile(); ASSERT_TRUE(a); ASSERT_TRUE(b);
@@ -109,6 +128,7 @@ namespace {
         ASSERT_TRUE(b->prepareBackend(cfg,graph.connections(),graph.outputNodes()));
     }
 
+    /// @brief Test case: input order does not change table and malformed nodes are rejected.
     TEST(LatencyCapture, InputOrderDoesNotChangeTableAndMalformedNodesAreRejected) {
         SnapshotNode a{9,256},b{2,64};
         const std::array<Node*,2> reversed{&a,&b};
@@ -124,6 +144,7 @@ namespace {
         EXPECT_EQ(fresh->sampleRate,96000U);
     }
 
+    /// @brief Test case: concurrent candidate preparation never requeries audio owned DSP.
     TEST(LatencyCapture, ConcurrentCandidatePreparationNeverRequeriesAudioOwnedDSP) {
         DAG graph; PlanSwitcher switcher; const auto id=graph.add<SnapshotNode>(256U); ASSERT_TRUE(id);
         ASSERT_TRUE(graph.markAsOutput(*id)); ASSERT_TRUE(switcher.initialize(graph,cfg));

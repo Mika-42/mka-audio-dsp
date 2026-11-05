@@ -1,3 +1,8 @@
+/**
+ * @file test_types.cpp
+ * @brief Tests for types.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <cstdint>
@@ -40,14 +45,20 @@ namespace {
     static_assert(std::same_as<decltype(toChannelIndex(0)),
                                std::expected<ChannelIndex, ErrorType>>);
 
-    enum class NonIntegralIndex { Zero };
+    /// @brief Enum used to prove that nonintegral channel-index sources are rejected.
+    enum class NonIntegralIndex {
+        /// @brief Enum value used to reject a nonintegral channel-index source.
+        Zero
+    };
 
+    /// @brief Whether channel-index conversion accepts the supplied source type.
     template<typename T>
     concept ConvertibleIndex = requires(T value) { toChannelIndex(value); };
 
     static_assert(!ConvertibleIndex<float> && !ConvertibleIndex<double>);
     static_assert(!ConvertibleIndex<NonIntegralIndex> && !ConvertibleIndex<int*>);
 
+    /// @brief Test case: preserve exact numeric limits.
     TEST(FundamentalTypes, PreserveExactNumericLimits) {
         EXPECT_EQ(std::numeric_limits<NodeID>::max(), UINT32_MAX);
         EXPECT_EQ(std::numeric_limits<ChannelID>::max(), UINT64_MAX);
@@ -58,6 +69,7 @@ namespace {
         EXPECT_EQ(maxNodeID, UINT32_MAX);
     }
 
+    /// @brief Test case: accepts both bounds and their neighbours.
     TEST(ChannelIndexConversion, AcceptsBothBoundsAndTheirNeighbours) {
         for (const auto value : std::array<std::uint64_t, 4>{0, 1, 65534, 65535}) {
             SCOPED_TRACE(value);
@@ -67,6 +79,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: preserves every representable index.
     TEST(ChannelIndexConversion, PreservesEveryRepresentableIndex) {
         // A wider loop counter is essential: ChannelIndex itself would wrap.
         for (std::uint32_t value = 0; value <= 65535; ++value) {
@@ -79,6 +92,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: rejects overflow instead of wrapping to zero or one.
     TEST(ChannelIndexConversion, RejectsOverflowInsteadOfWrappingToZeroOrOne) {
         for (const auto value : std::array<std::uint64_t, 6>{
                  65536, 65537, 131071, UINT32_MAX, std::uint64_t{UINT32_MAX} + 1,
@@ -90,6 +104,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: rejects every high bit before narrowing.
     TEST(ChannelIndexConversion, RejectsEveryHighBitBeforeNarrowing) {
         for (unsigned bit = 16; bit < 64; ++bit) {
             for (const auto low : std::array<std::uint64_t, 3>{0, 1, 65535}) {
@@ -102,6 +117,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: rejects negative values and signed extremes.
     TEST(ChannelIndexConversion, RejectsNegativeValuesAndSignedExtremes) {
         for (const auto value : std::array<std::int64_t, 7>{
                  -1, -65535, -65536, -65537,
@@ -116,6 +132,7 @@ namespace {
         EXPECT_EQ(toChannelIndex(std::int64_t{0}).value(), 0);
     }
 
+    /// @brief Exercise channel-index boundaries for one standard integral type.
     template<typename Integer>
     void checkIntegralSourceType() {
         static_assert(noexcept(toChannelIndex(Integer{})));
@@ -138,6 +155,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: supports all standard integral source types.
     TEST(ChannelIndexConversion, SupportsAllStandardIntegralSourceTypes) {
         checkIntegralSourceType<signed char>();
         checkIntegralSourceType<unsigned char>();

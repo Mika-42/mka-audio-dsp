@@ -1,3 +1,8 @@
+/**
+ * @file execution_plan.cppm
+ * @brief Prepared processing operations, buffer bindings and callback execution.
+ * @author Mika
+ */
 module;
 #include <algorithm>
 #include <atomic>
@@ -28,9 +33,23 @@ export import mka.audio.dsp.delay_task;
 export namespace mka::audio::dsp {
     /// Sticky, numeric callback diagnostics; formatting/handling belongs to control.
     enum class CallbackDiagnostic : std::uint32_t {
-        None=0, PlanNotPrepared=1U, FrameCapacityExceeded=2U,
-        ChannelCapacityExceeded=4U, NullBuffer=8U, BufferCapacityExceeded=16U,
-        InvalidContext=32U, CallbackAdmissionRejected=64U
+        /// @brief No callback diagnostics are set.
+        None=0,
+        /// @brief Audio execution was requested before backend preparation.
+        PlanNotPrepared=1U,
+        /// @brief The callback announces more frames than were prepared.
+        FrameCapacityExceeded=2U,
+        /// @brief The physical channel counts differ from the prepared shape.
+        ChannelCapacityExceeded=4U,
+        /// @brief A consumed nonempty sample buffer is null.
+        NullBuffer=8U,
+        /// @brief The announced readable or writable sample capacity is insufficient.
+        BufferCapacityExceeded=16U,
+        /// @brief The callback context is inconsistent with the prepared contract.
+        InvalidContext=32U,
+        /// @brief The callback gate is stopped or already executing.
+        CallbackAdmissionRejected=64U
+
     };
     static_assert(std::atomic<std::uint32_t>::is_always_lock_free);
     /**
@@ -41,10 +60,15 @@ export namespace mka::audio::dsp {
      * Compilation never invokes Node::process or prepares audio storage.
      */
     struct TaskInfo {
+        /// @brief Borrowed processor address; the DAG retains Node ownership.
         Node* node = nullptr;
+        /// @brief Stable logical node identity.
         NodeID id = invalidNodeID;
+        /// @brief Position in the prepared processing order.
         std::size_t index = 0;
+        /// @brief Whether the task receives physical inputs as a topological source.
         bool isSource = true;
+        /// @brief Whether the task may write the physical output views.
         bool isOutput = false;
     };
 
@@ -58,7 +82,9 @@ export namespace mka::audio::dsp {
      * audio thread may update context frames and external views during exec.
      */
     struct ExecutionTask {
+        /// @brief Borrowed processor address; the DAG retains Node ownership.
         Node* node = nullptr;
+        /// @brief Borrowed processing views rebound to the current prepared storage.
         ProcessContext context{};
     };
 
@@ -73,14 +99,23 @@ export namespace mka::audio::dsp {
      * numeric records never change in audio and contain no DSP-state pointer.
      */
     struct PlanOperationInfo {
+        /// @brief Kind of executable or readback operation represented by this schedule entry.
         OperationKind kind=OperationKind::Node;
+        /// @brief Position in the prepared processing order.
         std::size_t index=0;
+        /// @brief DSP operation identity; invalidNodeID denotes an internal delay operation.
         NodeID node=invalidNodeID;
+        /// @brief Complete logical producer-to-consumer edge identity.
         Connection connection{};
+        /// @brief Dense signal read by this prepared operation.
         SignalID sourceSignal=std::numeric_limits<SignalID>::max();
+        /// @brief First dense signal produced by this prepared operation.
         SignalID outputSignal=std::numeric_limits<SignalID>::max();
+        /// @brief Number of contiguous logical signals produced by this operation.
         std::size_t outputCount=0;
+        /// @brief Whole-sample delay or per-edge history lengths used by this record.
         std::uint64_t delaySamples=0;
+        /// @brief Compare all value fields for equality.
         bool operator==(const PlanOperationInfo&) const noexcept=default;
     };
 
@@ -92,13 +127,19 @@ export namespace mka::audio::dsp {
      * independently prepared inactive generation, never an audio-side resize.
      */
     struct BackendConfig {
+        /// @brief Prepared maximum samples per channel.
         FrameCount maxFrames = 0;
+        /// @brief Required physical input count for every callback, including empty blocks.
         std::uint32_t inputChannels = 0;
+        /// @brief Required physical output count for every callback, including empty blocks.
         std::uint32_t outputChannels = 0;
+        /// @brief Effective sampling frequency in Hz; zero means unspecified.
         std::uint32_t sampleRate = 0;
         /// All retained plan payload + alignment allowance; excludes allocator overhead/temporaries.
         std::size_t memoryBudgetBytes = std::numeric_limits<std::size_t>::max();
+        /// @brief Policy for reusing temporary sample storage across disjoint signal lifetimes.
         SlotStrategy slotStrategy = SlotStrategy::Reuse;
+        /// @brief Inclusive upper bound on retained temporary mono slots.
         std::uint32_t maxBufferSlots = std::numeric_limits<std::uint32_t>::max();
         /// Optional complete explicit schedule, overriding automatic PDC insertion
         /// when nonempty (legacy integration). Empty selects computed edge D.
@@ -129,8 +170,11 @@ export namespace mka::audio::dsp {
      * before narrowing to FrameCount. No pointer is retained after exec returns.
      */
     struct BackendBlock {
+        /// @brief Input channel descriptors or physical sample pointers used by this state.
         std::span<const float* const> inputs;
+        /// @brief Output channel descriptors or physical sample pointers used by this state.
         std::span<float* const> outputs;
+        /// @brief Effective samples per channel for this processing block.
         FrameCount frames = 0;
     };
 }
@@ -151,37 +195,64 @@ export namespace mka::audio::dsp {
      * expected-returning preparation/compilation boundaries translate them to Error.
      */
     class ExecutionPlan final {
+        /// @brief Sentinel indicating that no sample slot is associated with an entry.
         static constexpr auto noBuffer = std::numeric_limits<std::size_t>::max();
+        /// @brief Owns the descriptor arrays bound to one prepared DSP invocation.
         struct AudioTask {
+            /// @brief Owned main-input descriptors borrowing the selected pool or silence samples.
             std::vector<InputChannel> inputs;
+            /// @brief Owned auxiliary descriptors borrowing connected signals or immutable silence.
             std::vector<InputChannel> auxiliary;
+            /// @brief Owned logical output descriptors borrowing the assigned pool slots.
             std::vector<OutputChannel> outputs;
+            /// @brief Pool slot indices supplying the task's main input descriptors.
             std::vector<std::size_t> inputSlots;
+            /// @brief Pool slot indices supplying auxiliary descriptors; absent inputs bind to silence.
             std::vector<std::size_t> auxiliarySlots;
+            /// @brief Pool slot indices receiving the task's logical output signals.
             std::vector<std::size_t> outputSlots;
+            /// @brief Whether the task receives physical inputs as a topological source.
             bool isSource = true;
+            /// @brief Whether the task may write the physical output views.
             bool isOutput = false;
         };
 
+        /// @brief Owns one generation's sample pool, PDC histories and callback bindings.
         struct AudioState {
+            /// @brief Owned or captured processor/backend configuration used by this record.
             BackendConfig config;
+            /// @brief Owned intrinsic-latency snapshot captured for this generation.
             LatencySnapshot intrinsicLatencies;
+            /// @brief Owned cumulative-latency and per-edge compensation analysis.
             PdcAnalysis pdc;
+            /// @brief Owned temporary sample slots and separate immutable silence samples.
             BufferPool pool;
+            /// @brief Owned per-task descriptor arrays used by this prepared generation.
             std::vector<AudioTask> tasks;
+            /// @brief Preallocated descriptors rebound to physical input pointers for each callback.
             std::vector<InputChannel> backendInputs;
+            /// @brief Borrowed physical outputs, available only during a marked Node's callback.
             std::vector<OutputChannel> backendOutputs;
 
+            /// @brief Associates a persistent delay operation with its input and output slots.
             struct CompiledDelay {
-                std::size_t inputSlot = noBuffer, outputSlot = noBuffer;
+                std::size_t inputSlot = noBuffer /**< Pool slot read by the compiled delay operation. */,
+                     outputSlot = noBuffer /**< Distinct pool slot receiving the compiled delayed samples. */;
+                /// @brief Prepared persistent edge-delay operation.
                 detail::DelayTask task;
             };
+            /// @brief Final ordered Node, delay and readback operations.
             std::vector<PlanOperationInfo> operations;
+            /// @brief Owned persistent histories and bindings for compensated logical edges.
             std::vector<CompiledDelay> delays;
+            /// @brief Inclusive production-to-last-reader intervals for dense logical signals.
             std::vector<SignalLifetime> lifetimes;
+            /// @brief Slot reuse decisions for the generation's logical signals.
             SlotAssignment assignment;
+            /// @brief Retained plan-payload accounting accepted during preparation.
             PlanMemoryUsage memory;
 
+            /// @brief Rebuild sample pointers after pool/history copying; validate every delay binding.
             [[nodiscard]] Result rebindInternal() noexcept {
                 for (auto& task : tasks) {
                     for (std::size_t i = 0; i < task.inputs.size(); ++i)
@@ -201,6 +272,7 @@ export namespace mka::audio::dsp {
                 }
                 return {};
             }
+            /// @brief Clear callback-only physical views so no backend pointer survives execution.
             void clearBackend(const std::size_t inputs, const std::size_t outputs) noexcept {
                 for (std::size_t i = 0; i < inputs; ++i) backendInputs[i].buffer = nullptr;
                 for (std::size_t i = 0; i < outputs; ++i) backendOutputs[i].buffer = nullptr;
@@ -243,6 +315,7 @@ export namespace mka::audio::dsp {
             initializeStructuralIndices();
         }
 
+        /// @brief Copy plan buffers and histories on control; the same DSP Nodes remain borrowed from the DAG.
         ExecutionPlan(const ExecutionPlan& other)
             : plan_(other.plan_), layerIndices_(other.layerIndices_), borrows_(other.borrows_),
               taskInfos_(other.taskInfos_), executionTasks_(other.executionTasks_), taskIndices_(other.taskIndices_),
@@ -260,6 +333,7 @@ export namespace mka::audio::dsp {
                 bindTaskContexts();
             }
         }
+        /// @brief Replace buffers and histories with a control-side copy; DSP Nodes remain shared borrows.
         ExecutionPlan& operator=(const ExecutionPlan& other) {
             if (this != &other) {
                 ExecutionPlan replacement(other);
@@ -267,6 +341,7 @@ export namespace mka::audio::dsp {
             }
             return *this;
         }
+        /// @brief Transfer owned state on control; the source becomes empty and reusable.
         ExecutionPlan(ExecutionPlan&& other) noexcept
             : plan_(std::move(other.plan_)), layerIndices_(std::move(other.layerIndices_)),
               borrows_(std::move(other.borrows_)), taskInfos_(std::move(other.taskInfos_)),
@@ -282,6 +357,7 @@ export namespace mka::audio::dsp {
             other.sourceTasks_.clear();
             other.outputTasks_.clear();
         }
+        /// @brief Transfer owned state after quiescence.
         ExecutionPlan& operator=(ExecutionPlan&& other) noexcept {
             if (this != &other) {
                 ExecutionPlan replacement(std::move(other));
@@ -289,8 +365,10 @@ export namespace mka::audio::dsp {
             }
             return *this;
         }
+        /// @brief Release owned resources on control after all processing has quiesced.
         ~ExecutionPlan() = default; // Release resources/borrow tokens on control.
 
+        /// @brief Borrow the processing-order Node pointers; ownership remains with the DAG.
         [[nodiscard]] std::span<Node* const> tasks() const noexcept { return plan_; }
         /** Read-only task view, invalidated by control-side replacement/retirement. */
         [[nodiscard]] std::span<const TaskInfo> taskInfos() const noexcept {
@@ -311,13 +389,16 @@ export namespace mka::audio::dsp {
             if (found == taskIndices_.end() || found->first != id) return std::nullopt;
             return found->second;
         }
+        /// @brief Return the number of structural dependency layers.
         [[nodiscard]] std::size_t layerCount() const noexcept {
             return layerIndices_.empty() ? 0 : layerIndices_.size() - 1;
         }
+        /// @brief Borrow one dependency layer; index must be smaller than layerCount().
         [[nodiscard]] std::span<Node* const> layer(const std::size_t index) const noexcept {
             assert(index < layerCount());
             return tasks().subspan(layerIndices_[index], layerIndices_[index + 1] - layerIndices_[index]);
         }
+        /// @brief Report whether audio buffers and callback bindings have been prepared.
         [[nodiscard]] bool isBackendPrepared() const noexcept { return audio_ != nullptr; }
         /// Value snapshot; changes to this copy never change the prepared plan.
         [[nodiscard]] std::optional<BackendConfig> backendConfig() const noexcept {
@@ -328,12 +409,15 @@ export namespace mka::audio::dsp {
         [[nodiscard]] std::span<const SignalLifetime> signalLifetimes() const noexcept {
             return audio_ ? std::span<const SignalLifetime>{audio_->lifetimes} : std::span<const SignalLifetime>{};
         }
+        /// @brief Borrow the signal-to-slot assignment; the view expires with this prepared state.
         [[nodiscard]] std::span<const BufferId> signalSlots() const noexcept {
             return audio_ ? std::span<const BufferId>{audio_->assignment.slotOf} : std::span<const BufferId>{};
         }
+        /// @brief Return the number of retained temporary sample slots.
         [[nodiscard]] std::uint32_t bufferSlotCount() const noexcept {
             return audio_ ? audio_->pool.slotCapacity() : 0;
         }
+        /// @brief Return the retained payload accounting, excluding Nodes and allocator overhead.
         [[nodiscard]] PlanMemoryUsage preparedMemoryUsage() const noexcept {
             return audio_ ? audio_->memory : PlanMemoryUsage{};
         }
@@ -666,6 +750,7 @@ export namespace mka::audio::dsp {
         }
 
     private:
+        /// @brief Build task, source and output lookup tables from the structural schedule.
         void initializeStructuralIndices() {
             executionTasks_.reserve(plan_.size());
             borrows_.reserve(plan_.size());
@@ -683,6 +768,7 @@ export namespace mka::audio::dsp {
                 [](const auto& left, const auto& right) noexcept { return left.first < right.first; });
         }
 
+        /// @brief Capture the prepared source and output roles in each task descriptor.
         void refreshPreparedRoles() noexcept {
             assert(audio_ != nullptr);
             assert(sourceTasks_.capacity() >= plan_.size() && outputTasks_.capacity() >= plan_.size());
@@ -698,6 +784,7 @@ export namespace mka::audio::dsp {
         }
 
         // Called only after all descriptor/sample storage has reached its final address.
+        /// @brief Bind each task to its generation-owned logical descriptor arrays.
         void bindTaskContexts() noexcept {
             for (std::size_t i = 0; i < executionTasks_.size(); ++i) {
                 const auto& task = audio_->tasks[i];
@@ -707,10 +794,12 @@ export namespace mka::audio::dsp {
             }
         }
 
+        /// @brief Bound legacy-adapter writes by the requested and prepared frame counts.
         FrameCount legacyWritableFrames(const FrameCount frames) const noexcept {
             return audio_ ? std::min(frames,audio_->config.maxFrames) : 0;
         }
 
+        /// @brief Set a numeric diagnostic and silence only the announced writable sample range.
         template<typename OutputAt>
         bool rejectCallback(const CallbackDiagnostic diagnostic, const std::size_t outputCount,
             const FrameCount frames, OutputAt outputAt, const FrameCount outputCapacity) noexcept {
@@ -722,6 +811,8 @@ export namespace mka::audio::dsp {
             return false;
         }
 
+        /// @brief Validate callback shape, clear outputs, run prepared operations and release physical
+        /// views.
         template<typename InputAt, typename OutputAt>
         bool execute(const std::size_t inputCount, const std::size_t outputCount,
                      const FrameCount frames, InputAt inputAt, OutputAt outputAt,
@@ -778,6 +869,7 @@ export namespace mka::audio::dsp {
             return true;
         }
 
+        /// @brief Exchange all plan-owned state on control; no active callback may reference either plan.
         void swapContents(ExecutionPlan& other) noexcept {
             plan_.swap(other.plan_);
             layerIndices_.swap(other.layerIndices_);
@@ -792,15 +884,25 @@ export namespace mka::audio::dsp {
             diagnostics_.store(other.diagnostics_.load(std::memory_order_relaxed),std::memory_order_relaxed);
             other.diagnostics_.store(diagnostic,std::memory_order_relaxed);
         }
+        /// @brief Borrowed Node pointers in structural processing order.
         std::vector<Node*> plan_;
+        /// @brief Offsets delimiting structural dependency layers.
         std::vector<std::size_t> layerIndices_;
+        /// @brief Control-owned tokens retaining the Nodes referenced by this plan.
         std::vector<detail::NodeBorrowToken> borrows_;
+        /// @brief Immutable numeric identities and structural roles for each task.
         std::vector<TaskInfo> taskInfos_;
+        /// @brief Borrowed processor/context pairs used by the prepared schedule.
         std::vector<ExecutionTask> executionTasks_;
+        /// @brief Sorted identity-to-task-index lookup table.
         std::vector<std::pair<NodeID, std::size_t>> taskIndices_;
+        /// @brief Task positions that receive physical input descriptors.
         std::vector<std::size_t> sourceTasks_;
+        /// @brief Task positions authorized to write physical output descriptors.
         std::vector<std::size_t> outputTasks_;
+        /// @brief Stable heap owner of generation-specific audio buffers, descriptors and histories.
         std::unique_ptr<AudioState> audio_;
+        /// @brief Sticky numeric callback flags; formatted only on control.
         std::atomic<std::uint32_t> diagnostics_{0};
     };
 }

@@ -1,3 +1,8 @@
+/**
+ * @file connection.cppm
+ * @brief Value identities for logical producer-to-consumer edges.
+ * @author Mika
+ */
 export module mka.audio.dsp.connection;
 export import mka.audio.dsp.channel;
 
@@ -17,6 +22,7 @@ export namespace mka::audio::dsp {
         ChannelID from{}; ///< Producer's complete logical Out identity, stored by value.
         ChannelID to{};   ///< Consumer's complete logical In/Aux identity, stored by value.
 
+        /// @brief Compare all value fields for equality.
         constexpr bool operator==(const Connection&) const noexcept = default;
     };
 }

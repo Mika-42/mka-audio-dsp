@@ -1,3 +1,8 @@
+/**
+ * @file test_execution_tasks.cpp
+ * @brief Tests for execution tasks.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <cstddef>
@@ -18,31 +23,46 @@ namespace {
     static_assert(!std::is_polymorphic_v<ExecutionTask>);
     static_assert(std::same_as<decltype(ExecutionTask::node), Node*>);
     static_assert(std::same_as<decltype(ExecutionTask::context), ProcessContext>);
+    /// @brief Default task value used by compile-time aggregate checks.
     constexpr ExecutionTask empty{};
     static_assert(empty.node == nullptr && empty.context.frames == 0);
     // Exactly the two aggregate members required by the processing contract.
+    /// @brief Check the default two-field task aggregate in constant evaluation.
     constexpr bool twoMembers() {
         const auto [node, context] = ExecutionTask{};
         return node == nullptr && context.inputs.empty();
     }
     static_assert(twoMembers());
 
+    /// @brief Numeric callback observations retained without owning backend buffers.
     struct Observation {
+        /// @brief Prepared task descriptors in processing order.
         const ExecutionTask* tasks = nullptr;
+        /// @brief Node identities in the observed processing order.
         std::array<NodeID, 2> order{};
+        /// @brief Requested number of retained array elements.
         std::size_t count = 0;
+        /// @brief Owned input sample storage used by the fixture.
         const float* input = nullptr;
+        /// @brief Owned output sample storage or selected output-node identity.
         float* output = nullptr;
+        /// @brief Effective samples per channel for this processing block.
         FrameCount frames = 0;
+        /// @brief Accumulated result of numeric context, order or binding observations.
         bool correct = true;
     };
     // Test-only synchronous observer; the Node stores no callback pointers.
+    /// @brief Thread-local observer selected for the currently executing fixture task.
     thread_local Observation* observation = nullptr;
+    /// @brief Records its execution order and the context bound to a compiled task.
     class TaskNode final : public Node {
     public:
+        /// @brief Declare the input/output pair and optionally borrow its destruction counter.
         explicit TaskNode(NodeID id, unsigned* destroyed = nullptr)
             : Node(id, Config{.layoutInput={0},.layoutOutput={0}}), destroyed_(destroyed) {}
+        /// @brief Record fixture destruction and release owned state on the calling thread.
         ~TaskNode() override { if (destroyed_) ++*destroyed_; }
+        /// @brief Observe prepared task ordering, retain only numeric results and render the selected signal.
         void process(const ProcessContext& ctx) noexcept override {
             ++calls;
             if (observation) {
@@ -62,11 +82,14 @@ namespace {
                 for (const auto& out : ctx.backendOutputs) out.buffer[i] = sample;
             }
         }
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls = 0;
     private:
+        /// @brief Borrowed counter incremented when the processor is destroyed.
         unsigned* destroyed_;
     };
 
+    /// @brief Test case: stable owned contexts are processed exactly once even for zero frames.
     TEST(ExecutionTasks, StableOwnedContextsAreProcessedExactlyOnceEvenForZeroFrames) {
         DAG graph;
         const auto first=graph.add<TaskNode>(), second=graph.add<TaskNode>();
@@ -101,6 +124,7 @@ namespace {
         EXPECT_EQ(static_cast<TaskNode*>(graph.node(*second))->calls,3U);
     }
 
+    /// @brief Test case: copy and move keep internal contexts bound to their own descriptors.
     TEST(ExecutionTasks, CopyAndMoveKeepInternalContextsBoundToTheirOwnDescriptors) {
         DAG graph;
         const auto first=graph.add<TaskNode>(), second=graph.add<TaskNode>();
@@ -122,6 +146,7 @@ namespace {
         EXPECT_EQ(a[1].context.outputs[0].buffer[0],0.F);
     }
 
+    /// @brief Test case: removed nodes survive every borrowing generation until control retirement.
     TEST(ExecutionTasks, RemovedNodesSurviveEveryBorrowingGenerationUntilControlRetirement) {
         unsigned destroyed=0;
         DAG graph;

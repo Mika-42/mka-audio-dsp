@@ -1,3 +1,8 @@
+/**
+ * @file test_topological_order.cpp
+ * @brief Tests for topological order.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <concepts>
@@ -15,16 +20,22 @@ import mka.audio.dsp.topology;
 namespace {
     using namespace mka::audio::dsp;
 
+    /// @brief Records preparation and processing events during topological-order checks.
     struct OrderTrace {
+        /// Observed processing sequence of Node identities.
         std::array<NodeID, 3> calls{};
+        /// Next free position in the processing-order trace.
         std::size_t count = 0;
     };
 
+    /// @brief Records whether graph ordering invokes any processor behavior.
     class OrderNode final : public Node {
     public:
+        /// @brief Optionally borrow the processing-order observer while declaring no logical ports.
         explicit OrderNode(NodeID id, OrderTrace* trace = nullptr)
             : Node(id, Config{}), trace_(trace) {}
 
+        /// @brief Append the Node identity to the processing trace and render it into physical outputs.
         void process(const ProcessContext& context) noexcept override {
             ++calls;
             if (trace_ != nullptr && trace_->count < trace_->calls.size())
@@ -34,9 +45,11 @@ namespace {
                     output.buffer[frame] = static_cast<float>(id());
         }
 
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls = 0;
 
     private:
+        /// @brief Borrowed lifetime or binding trace; it must outlive the fixture processor.
         OrderTrace* trace_; // Test-owned events, never a backend/sample pointer.
     };
 
@@ -46,18 +59,21 @@ namespace {
                                    std::declval<const detail::GraphSnapshot&>())),
                                std::expected<std::vector<NodeID>, GraphError>>);
 
+    /// @brief Compare the complete topological order with the independent expected sequence.
     void expectOrder(const std::expected<std::vector<NodeID>, GraphError>& result,
                      const std::vector<NodeID>& expected) {
         ASSERT_TRUE(result);
         EXPECT_EQ(*result, expected);
     }
 
+    /// @brief Require the expected numeric error while preserving its node/channel context.
     void expectError(const std::expected<std::vector<NodeID>, GraphError>& result,
                      GraphError error) {
         ASSERT_FALSE(result);
         EXPECT_EQ(result.error().code, error.code);
     }
 
+    /// @brief Test case: empty and isolated nodes occur exactly once including identity gaps.
     TEST(StableTopologicalOrder, EmptyAndIsolatedNodesOccurExactlyOnceIncludingIdentityGaps) {
         DAG graph;
         ASSERT_NO_FATAL_FAILURE(expectOrder(topologicalOrder(graph), {}));
@@ -86,6 +102,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: newly available smaller identity precedes an older ready node and decides last writer.
     TEST(StableTopologicalOrder, NewlyAvailableSmallerIdentityPrecedesAnOlderReadyNodeAndDecidesLastWriter) {
         OrderTrace trace; // Outlives the DAG and its test processors.
         DAG graph;
@@ -124,6 +141,7 @@ namespace {
             EXPECT_EQ(static_cast<OrderNode*>(graph.node(id))->calls, 1U);
     }
 
+    /// @brief Test case: diamond fan out and parallel in aux edges ignore connection insertion order.
     TEST(StableTopologicalOrder, DiamondFanOutAndParallelInAuxEdgesIgnoreConnectionInsertionOrder) {
         DAG forward, reverse;
         std::array<NodeID, 5> ids{};
@@ -158,6 +176,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: non contiguous snapshot identities are independent of node container order.
     TEST(StableTopologicalOrder, NonContiguousSnapshotIdentitiesAreIndependentOfNodeContainerOrder) {
         detail::GraphSnapshot snapshot;
         snapshot.nodes = {3, 9, 20, 50};
@@ -173,6 +192,7 @@ namespace {
         } while (std::next_permutation(snapshot.nodes.begin(), snapshot.nodes.end()));
     }
 
+    /// @brief Test case: cyclic snapshot fixtures fail without mutating their owned values.
     TEST(StableTopologicalOrder, CyclicSnapshotFixturesFailWithoutMutatingTheirOwnedValues) {
         for (const NodeID count : {1U, 2U, 4U}) {
             SCOPED_TRACE(count);
@@ -192,6 +212,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: invalid snapshot fields return structured errors rather than partial orders.
     TEST(StableTopologicalOrder, InvalidSnapshotFieldsReturnStructuredErrorsRatherThanPartialOrders) {
         detail::GraphSnapshot snapshot;
         snapshot.nodes = {1, 2};

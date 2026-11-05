@@ -1,3 +1,8 @@
+/**
+ * @file delay_line.cppm
+ * @brief Persistent mono delay histories prepared outside the audio callback.
+ * @author Mika
+ */
 module;
 #include <algorithm>
 #include <cstddef>
@@ -16,7 +21,9 @@ export namespace mka::audio::dsp {
     /// Inclusive control-side limits for one history's requested float payload.
     /// The containing plan separately accounts for its aggregate retained memory.
     struct DelayLineLimits {
+        /// @brief Inclusive maximum delay-history length in samples.
         std::uint64_t maxDelaySamples=std::numeric_limits<std::uint64_t>::max();
+        /// @brief Inclusive retained-storage budget in bytes.
         std::size_t memoryBudgetBytes=std::numeric_limits<std::size_t>::max();
     };
 
@@ -33,13 +40,18 @@ export namespace mka::audio::dsp {
      */
     class DelayLine final {
     public:
+        /// @brief Construct an empty zero-delay pass-through line.
         DelayLine() noexcept=default;
+        /// @brief Copy owned state on control; sample histories and storage are independent.
         DelayLine(const DelayLine&)=default;
+        /// @brief Replace owned state with an independent control-side copy.
         DelayLine& operator=(const DelayLine&)=default;
+        /// @brief Transfer owned state on control; the source becomes empty and reusable.
         DelayLine(DelayLine&& other) noexcept
             : history_(std::move(other.history_)),cursor_(std::exchange(other.cursor_,0)) {
             other.history_.clear();
         }
+        /// @brief Transfer owned state after quiescence.
         DelayLine& operator=(DelayLine&& other) noexcept {
             if (this!=&other) {
                 history_=std::move(other.history_);
@@ -107,7 +119,9 @@ export namespace mka::audio::dsp {
         [[nodiscard]] std::size_t historyBytes() const noexcept { return history_.size()*sizeof(float); }
 
     private:
+        /// @brief Owned persistent delay samples, initialized to zero during preparation.
         std::vector<float> history_{};
+        /// @brief Position of the next oldest sample in the circular delay history.
         std::size_t cursor_=0;
     };
 }

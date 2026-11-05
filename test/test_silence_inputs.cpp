@@ -1,3 +1,8 @@
+/**
+ * @file test_silence_inputs.cpp
+ * @brief Tests for silence inputs.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <concepts>
@@ -11,10 +16,13 @@ namespace {
     using mka::audio::AudioProcessContext;
     static_assert(std::same_as<decltype(InputChannel::buffer),const float*>);
 
+    /// @brief Reads connected and unconnected ports to observe the shared silence buffer.
     class SilenceReader final : public Node {
     public:
+        /// @brief Declare the connected and unconnected port indices consumed by the silence fixture.
         explicit SilenceReader(NodeID id, const Config& config=Config{
             .layoutInput={4,5},.layoutAuxiliary={2,3},.layoutOutput={0,1}}) : Node(id,config) {}
+        /// @brief Capture connected and unconnected logical input samples, including shared silence.
         void process(const ProcessContext& ctx) noexcept override {
             ++calls; inputCount=ctx.inputs.size(); auxiliaryCount=ctx.auxiliary.size();
             for (const auto& in : ctx.inputs)
@@ -25,12 +33,17 @@ namespace {
             for (const auto& out : ctx.outputs)
                 for (FrameCount i=0;i<ctx.frames;++i) out.buffer[i]=7.F;
         }
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls=0;
-        std::size_t inputCount=0, auxiliaryCount=0;
-        bool allInputsZero=true, allAuxiliaryZero=true;
+        std::size_t inputCount=0 /**< Number of input descriptors observed during the callback. */,
+             auxiliaryCount=0 /**< Auxiliary count retained by the fixture. */;
+        bool allInputsZero=true /**< All inputs zero retained by the fixture. */,
+             allAuxiliaryZero=true /**< All auxiliary zero retained by the fixture. */;
+        /// @brief First logical input sample observed by the silence reader.
         float firstInputSample=0;
     };
 
+    /// @brief Test case: undeclared dependencies bind every unconnected declared in and aux to one const slot.
     TEST(SilenceInputs, UndeclaredDependenciesBindEveryUnconnectedDeclaredInAndAuxToOneConstSlot) {
         DAG graph;
         const auto source=graph.add<SilenceReader>(), first=graph.add<SilenceReader>(), second=graph.add<SilenceReader>();
@@ -69,6 +82,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: empty graph with no source silences only the requested physical samples.
     TEST(SilenceInputs, EmptyGraphWithNoSourceSilencesOnlyTheRequestedPhysicalSamples) {
         DAG graph;
         auto plan=graph.compile(BackendConfig{.maxFrames=128,.outputChannels=2}); ASSERT_TRUE(plan);
@@ -83,6 +97,7 @@ namespace {
         EXPECT_TRUE(plan->executionTasks().empty());
     }
 
+    /// @brief Test case: zero capacity and empty layouts execute zero frames without sample access.
     TEST(SilenceInputs, ZeroCapacityAndEmptyLayoutsExecuteZeroFramesWithoutSampleAccess) {
         DAG graph;
         const auto source=graph.add<SilenceReader>(Config{}), sink=graph.add<SilenceReader>();

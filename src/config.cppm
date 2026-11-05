@@ -1,3 +1,8 @@
+/**
+ * @file config.cppm
+ * @brief Ordered logical port layouts and allocation-free layout validation.
+ * @author Mika
+ */
 module;
 
 #include <bitset>
@@ -34,6 +39,7 @@ export namespace mka::audio::dsp {
 
 namespace mka::audio::dsp {
     namespace {
+        /// @brief Reject duplicate indices or layouts larger than the logical channel domain.
         Result validateLayout(const std::vector<ChannelIndex>& layout) noexcept {
             if (layout.size() > maxLayoutChannels) {
                 return std::unexpected(ErrorType::LayoutCapacityExceeded);

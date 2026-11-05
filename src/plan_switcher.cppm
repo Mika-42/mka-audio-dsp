@@ -1,3 +1,8 @@
+/**
+ * @file plan_switcher.cppm
+ * @brief Two-slot plan publication, audio-boundary adoption and control retirement.
+ * @author Mika
+ */
 module;
 #include <algorithm>
 #include <array>
@@ -14,10 +19,30 @@ export module mka.audio.dsp.plan_switcher;
 export import mka.audio.dsp.dag;
 
 export namespace mka::audio::dsp {
+    /// @brief Monotonic 64-bit identity of one prepared graph generation.
     using GenerationID = std::uint64_t;
-    enum class HandshakeState : std::uint8_t { Idle, Pending, Acknowledged };
+    /// @brief Atomic publication state shared by the audio and control threads.
+    enum class HandshakeState : std::uint8_t {
+        /// @brief No generation is awaiting audio adoption or predecessor retirement.
+        Idle,
+        /// @brief B is published and must be acquired at an audio block boundary.
+        Pending,
+        /// @brief Audio has adopted B and control may reclaim A.
+        Acknowledged
+    };
     /// Control-side slot roles; separate from the publication handshake.
-    enum class PlanSlotState : std::uint8_t { Free, Ready, Pending, Active, Retired };
+    enum class PlanSlotState : std::uint8_t {
+        /// @brief Control may prepare a new generation in this slot.
+        Free,
+        /// @brief A candidate is prepared but has not been published.
+        Ready,
+        /// @brief B is published and must be acquired at an audio block boundary.
+        Pending,
+        /// @brief The slot contains the current processing generation.
+        Active,
+        /// @brief The previous generation is being reclaimed on control.
+        Retired
+    };
 
     /**
      * @brief Two persistent plans owned/retired on control, borrowed by one audio thread.
@@ -29,21 +54,39 @@ export namespace mka::audio::dsp {
      * Stop/join the backend before destruction; no future callback may enter.
      */
     class PlanSwitcher final {
-        enum class CallbackGate : std::uint8_t { Stopped, Ready, Executing };
+        /// @brief Single-callback admission state; closing it requires external backend quiescence.
+        enum class CallbackGate : std::uint8_t {
+            /// @brief No callback may enter until control explicitly resumes admission.
+            Stopped,
+            /// @brief The audio callback may enter; no callback currently owns the gate.
+            Ready,
+            /// @brief One callback currently owns the processing admission gate.
+            Executing
+        };
         static_assert(std::atomic<CallbackGate>::is_always_lock_free);
         static_assert(std::atomic<HandshakeState>::is_always_lock_free);
+        /// @brief One stable plan object and its control-owned generation metadata.
         struct Slot {
+            /// @brief Owned plan whose storage remains stable while control and audio exchange its role.
             ExecutionPlan plan;
+            /// @brief Monotonic identity of the prepared graph snapshot.
             GenerationID generation=0;
+            /// @brief Control-owned role of this stable plan slot.
             PlanSlotState role=PlanSlotState::Free;
         };
 
     public:
+        /// @brief Construct two empty slots; initialize them before starting the backend.
         PlanSwitcher() noexcept = default;
+        /// @brief Disable copying to preserve stable ownership and borrowed addresses.
         PlanSwitcher(const PlanSwitcher&)=delete;
+        /// @brief Disable copying to preserve stable ownership and borrowed addresses.
         PlanSwitcher& operator=(const PlanSwitcher&)=delete;
+        /// @brief Disable moving to preserve stable ownership and borrowed addresses.
         PlanSwitcher(PlanSwitcher&&)=delete;
+        /// @brief Disable moving to preserve stable ownership and borrowed addresses.
         PlanSwitcher& operator=(PlanSwitcher&&)=delete;
+        /// @brief Destroy both slots on control after the backend has stopped and joined.
         ~PlanSwitcher() { assert(gate_.load(std::memory_order_relaxed)!=CallbackGate::Executing); }
 
         /** Install the initial generation before starting the backend. Control only. */
@@ -100,11 +143,13 @@ export namespace mka::audio::dsp {
         [[nodiscard]] GenerationID audioGeneration() const noexcept {
             return slots_[audioActive_].generation;
         }
+        /// @brief Return the unpublished Ready generation, or no value if none exists.
         [[nodiscard]] std::optional<GenerationID> readyGeneration() const noexcept {
             if (!readyPlan()) return std::nullopt;
             return slots_[1-controlActive_].generation;
         }
 
+        /// @brief Check every atomic used by callback admission, publication and diagnostics.
         [[nodiscard]] bool lockFreeAtomics() const noexcept {
             return gate_.is_lock_free() && state_.is_lock_free() && diagnostics_.is_lock_free();
         }
@@ -255,6 +300,7 @@ export namespace mka::audio::dsp {
         }
 
     private:
+        /// @brief Adopt B at the audio boundary and release ACK before any B processing starts.
         bool adoptPending() noexcept {
             if (state_.load(std::memory_order_acquire)!=HandshakeState::Pending) return false;
             audioActive_=pendingIndex_;
@@ -263,6 +309,7 @@ export namespace mka::audio::dsp {
             state_.store(HandshakeState::Acknowledged,std::memory_order_release);
             return true;
         }
+        /// @brief Compile and prepare a candidate in a free control-owned slot before committing it.
         [[nodiscard]] Result prepareSlot(const std::uint8_t index,const DAG& graph,
                                          const BackendConfig& backend,const CompileConfig& limits) {
             if (generationCounter_==std::numeric_limits<GenerationID>::max())
@@ -276,25 +323,35 @@ export namespace mka::audio::dsp {
             slot.role=PlanSlotState::Ready;
             return {};
         }
+        /// @brief Release a quiescent slot's plan and reset its generation and role on control.
         static void clearSlot(Slot& slot) noexcept {
             slot.plan=ExecutionPlan{};
             slot.generation=0;
             slot.role=PlanSlotState::Free;
         }
+        /// @brief Silence only the announced non-null physical outputs within their sample capacity.
         static void silenceRejected(const mka::audio::AudioProcessContext& io) noexcept {
             const auto frames=std::min(io.frames,io.outputCapacityFrames);
             if (frames) for (auto* output : io.outputs) if (output) std::fill_n(output,frames,0.F);
         }
 
+        /// @brief Two stable plan objects whose storage is never relocated during publication.
         std::array<Slot,2> slots_;
+        /// @brief Atomic single-callback admission state.
         std::atomic<CallbackGate> gate_{CallbackGate::Stopped};
+        /// @brief Release/acquire publication handshake shared by control and audio.
         std::atomic<HandshakeState> state_{HandshakeState::Idle};
+        /// @brief Sticky numeric callback flags; formatted only on control.
         std::atomic<std::uint32_t> diagnostics_{0};
         // Each index has one writer. No control method reads audioActive_ while audio runs.
-        std::uint8_t controlActive_=0,audioActive_=0;
+        std::uint8_t controlActive_=0 /**< Control-owned active slot and audio-owned selected slot indices. */,
+            audioActive_=0 /**< Audio-owned index of the adopted slot; read by control only after backend quiescence. */;
         // Published via Pending release; read by audio only before its ACK release.
+        /// @brief Published destination slot; read only after acquiring Pending.
         std::uint8_t pendingIndex_=1;
+        /// @brief Control-owned generation allocator.
         GenerationID generationCounter_=0;
+        /// @brief Whether the switcher owns an initialized active generation.
         bool initialized_=false;
     };
 }

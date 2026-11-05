@@ -1,3 +1,8 @@
+/**
+ * @file test_config.cpp
+ * @brief Tests for config.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <cstddef>
@@ -33,9 +38,11 @@ namespace {
     static_assert(std::same_as<decltype(std::declval<const Node&>().config()), const Config&>);
     static_assert(noexcept(std::declval<const Node&>().config()));
 
+    /// @brief Exposes configuration or latency snapshots for preparation-time checks.
     class SnapshotNode final : public Node {
     public:
         using Node::Node;
+        /// @brief Leave sample buffers unchanged; this processor supplies structural metadata only.
         void process(const ProcessContext&) noexcept override {}
     };
 
@@ -44,39 +51,51 @@ namespace {
     static_assert(std::is_constructible_v<SnapshotNode, NodeID, const Config&>);
     static_assert(!std::is_nothrow_constructible_v<SnapshotNode, NodeID, const Config&>);
 
+    /// @brief Exercises a processor with no declared logical channels.
     class EmptyLayoutNode final : public Node {
     public:
+        /// @brief Declare the processor logical ports under the supplied stable Node identity.
         explicit EmptyLayoutNode(const NodeID id) : Node(id, Config{}) {}
+        /// @brief Leave sample buffers unchanged; this processor supplies structural metadata only.
         void process(const ProcessContext&) noexcept override {}
     };
 
+    /// @brief Exercises independently ordered, noncontiguous logical port indices.
     class SparseLayoutNode final : public Node {
     public:
+        /// @brief Declare the processor logical ports under the supplied stable Node identity.
         explicit SparseLayoutNode(const NodeID id)
             : Node(id, Config{.layoutInput = {0}, .layoutAuxiliary = {1}, .layoutOutput = {2}}) {}
+        /// @brief Leave sample buffers unchanged; this processor supplies structural metadata only.
         void process(const ProcessContext&) noexcept override {}
     };
 
+    /// Pointer to one ordered logical port layout inside Config.
     using LayoutMember = std::vector<ChannelIndex> Config::*;
+    /// @brief Member pointers selecting each ordered Config port layout.
     constexpr std::array<LayoutMember, 3> layouts{
         &Config::layoutInput, &Config::layoutAuxiliary, &Config::layoutOutput};
 
+    /// @brief Compare each ordered main, auxiliary and output layout with the expected values.
     void expectSameConfig(const Config& actual, const Config& expected) {
         EXPECT_EQ(actual.layoutInput, expected.layoutInput);
         EXPECT_EQ(actual.layoutAuxiliary, expected.layoutAuxiliary);
         EXPECT_EQ(actual.layoutOutput, expected.layoutOutput);
     }
 
+    /// @brief Require the expected numeric error while preserving its node/channel context.
     void expectError(const Result& result, const ErrorType error) {
         ASSERT_FALSE(result.has_value());
         EXPECT_EQ(result.error().code, error.code);
     }
 
+    /// @brief Check whether the exact requested connection was removed.
     void expectDisconnect(const std::expected<bool, GraphError>& result, const bool removed) {
         ASSERT_TRUE(result.has_value());
         EXPECT_EQ(*result, removed);
     }
 
+    /// @brief Build a control-side corpus containing every representable logical channel index.
     std::vector<ChannelIndex> allChannelIndices() {
         std::vector<ChannelIndex> values;
         values.reserve(maxLayoutChannels);
@@ -87,6 +106,7 @@ namespace {
         return values;
     }
 
+    /// @brief Test case: defaults to three empty layouts.
     TEST(ConfigLayouts, DefaultsToThreeEmptyLayouts) {
         const Config config;
         EXPECT_TRUE(config.layoutInput.empty());
@@ -95,6 +115,7 @@ namespace {
         EXPECT_TRUE(validateConfig(config));
     }
 
+    /// @brief Test case: accepts sparse unsorted layouts and preserves boundary indices.
     TEST(ConfigLayouts, AcceptsSparseUnsortedLayoutsAndPreservesBoundaryIndices) {
         const Config config{.layoutInput = {65535, 0, 7},
                             .layoutAuxiliary = {42, 0},
@@ -104,6 +125,7 @@ namespace {
         expectSameConfig(config, before);
     }
 
+    /// @brief Test case: allows the same indices across independent ports.
     TEST(ConfigLayouts, AllowsTheSameIndicesAcrossIndependentPorts) {
         const Config config{.layoutInput = {0, 65535},
                             .layoutAuxiliary = {0, 65535},
@@ -111,6 +133,7 @@ namespace {
         EXPECT_TRUE(validateConfig(config));
     }
 
+    /// @brief Test case: rejects adjacent and separated duplicates in each port without mutation.
     TEST(ConfigLayouts, RejectsAdjacentAndSeparatedDuplicatesInEachPortWithoutMutation) {
         const std::array<std::vector<ChannelIndex>, 3> duplicates{
             std::vector<ChannelIndex>{0, 0, 65535},
@@ -128,6 +151,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: each port accepts all65536 distinct indices without A combined limit.
     TEST(ConfigLayouts, EachPortAcceptsAll65536DistinctIndicesWithoutACombinedLimit) {
         const auto all = allChannelIndices();
         ASSERT_EQ(all.size(), 65536U);
@@ -144,6 +168,7 @@ namespace {
         EXPECT_TRUE(validateConfig(full));
     }
 
+    /// @brief Test case: rejects65537 entries before duplicate checks within each port.
     TEST(ConfigLayouts, Rejects65537EntriesBeforeDuplicateChecksWithinEachPort) {
         for (std::size_t port = 0; port < layouts.size(); ++port) {
             SCOPED_TRACE(port);
@@ -155,6 +180,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: full capacity does not hide A repeated index.
     TEST(ConfigLayouts, FullCapacityDoesNotHideARepeatedIndex) {
         const auto all = allChannelIndices();
         for (std::size_t port = 0; port < layouts.size(); ++port) {
@@ -169,6 +195,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: copies own independent vector storage.
     TEST(ConfigLayouts, CopiesOwnIndependentVectorStorage) {
         const Config original{.layoutInput = {0, 1},
                               .layoutAuxiliary = {2},
@@ -186,6 +213,7 @@ namespace {
         EXPECT_EQ(original.layoutOutput, (std::vector<ChannelIndex>{3, 65535}));
     }
 
+    /// @brief Test case: owns A read only copy unaffected by caller edits.
     TEST(ConfigNodeSnapshot, OwnsAReadOnlyCopyUnaffectedByCallerEdits) {
         Config caller{.layoutInput = {0, 65535},
                       .layoutAuxiliary = {7},
@@ -204,6 +232,7 @@ namespace {
         EXPECT_TRUE(validateConfig(node.config()));
     }
 
+    /// @brief Test case: remains valid after the caller temporary is destroyed.
     TEST(ConfigNodeSnapshot, RemainsValidAfterTheCallerTemporaryIsDestroyed) {
         const SnapshotNode node{42, Config{.layoutInput = {65535},
                                           .layoutAuxiliary = {},
@@ -215,6 +244,7 @@ namespace {
         EXPECT_TRUE(validateConfig(node.config()));
     }
 
+    /// @brief Test case: empty layouts do not reject logical connections.
     TEST(ConfigGraphContract, EmptyLayoutsDoNotRejectLogicalConnections) {
         DAG graph;
         const auto addedSource = graph.add<EmptyLayoutNode>();
@@ -233,6 +263,7 @@ namespace {
                                            source.channel(PortType::Out, 65535)), false);
     }
 
+    /// @brief Test case: sparse layouts do not filter undeclared main or auxiliary channels.
     TEST(ConfigGraphContract, SparseLayoutsDoNotFilterUndeclaredMainOrAuxiliaryChannels) {
         DAG graph;
         const auto addedSource = graph.add<SparseLayoutNode>();

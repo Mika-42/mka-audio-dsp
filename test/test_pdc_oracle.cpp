@@ -1,3 +1,8 @@
+/**
+ * @file test_pdc_oracle.cpp
+ * @brief Tests for pdc oracle.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -21,34 +26,52 @@ namespace {
 
     // Analysis-only test double: rendering is covered by the sample oracles in
     // PdcEdges/Fanout/Outputs/Budget with real, independently owned DSP delays.
+    /// @brief Processor carrying declared metadata for an independently computed oracle.
     class OracleNode final : public Node {
     public:
+        /// @brief Install the identity and metadata required by the independent graph oracle.
         OracleNode(NodeID id,LatencySamples latency,Config config) : Node(id,config),latency_(latency) {}
+        /// @brief Return the fixed algorithmic delay declared by this fixture processor.
         LatencySamples latencySamples() const noexcept override { ++queries; return latency_; }
+        /// @brief Leave sample buffers unchanged; this processor supplies structural metadata only.
         void process(const ProcessContext&) noexcept override {}
+        /// @brief Number of control-side latency queries observed by the fixture.
         mutable unsigned queries=0;
     private:
+        /// @brief Fixed intrinsic algorithmic latency declared by the processor.
         const LatencySamples latency_;
     };
-    struct ModelNode { NodeID id; LatencySamples intrinsic; Config config; };
+    /// @brief Identity, configuration and intrinsic latency in the independent PDC model.
+    struct ModelNode { /** Stable logical node identity. */ NodeID id; /** Algorithmic latency declared by the processor. */ LatencySamples intrinsic; /** Owned or captured processor/backend configuration used by this record. */ Config config; };
+    /// @brief Logical connection and materialization rules in the independent PDC model.
     struct ModelEdge {
-        NodeID from,to;
+        NodeID from /**< Complete logical producer identity in this reference edge. */,
+            to /**< Complete logical consumer identity in this reference edge. */;
+        /// @brief Logical main, output or auxiliary port category.
         PortType port;
-        ChannelIndex sourceIndex,destinationIndex;
+        ChannelIndex sourceIndex /**< Source index retained by the fixture. */,
+            destinationIndex /**< Destination index retained by the fixture. */;
+        /// @brief Return the complete logical connection identity stored in this model edge.
         Connection identity() const {
             return {encode(from,PortType::Out,sourceIndex),encode(to,port,destinationIndex)};
         }
     };
+    /// @brief Independent numeric graph model used to compare compiled behavior.
     struct Model {
+        /// @brief Owned desired DAG or detached graph values used by this fixture.
         DAG graph;
+        /// @brief Node identities or independently owned node metadata belonging to this snapshot.
         std::vector<ModelNode> nodes;
+        /// @brief Complete logical connections retained by the graph snapshot or reference model.
         std::vector<ModelEdge> edges;
+        /// @brief Insert a fixture processor and retain its identity for later graph construction.
         NodeID add(LatencySamples p,Config cfg={.layoutInput={0,1,2,3,4,5,6,7},
                                                .layoutAuxiliary={0,1,2,3,4,5,6,7},.layoutOutput={0}}) {
             const auto id=graph.add<OracleNode>(p,cfg);
             if (!id) return invalidNodeID;
             nodes.push_back({*id,p,cfg}); return *id;
         }
+        /// @brief Connect the selected logical channels and propagate any graph-edit error.
         Result link(NodeID from,NodeID to,PortType port=PortType::In,
                     ChannelIndex destinationIndex=0,ChannelIndex sourceIndex=0) {
             const ModelEdge edge{from,to,port,sourceIndex,destinationIndex};
@@ -57,9 +80,11 @@ namespace {
             if (result) edges.push_back(edge);
             return result;
         }
+        /// @brief Look up the independent model's metadata for the requested node identity.
         const ModelNode& node(NodeID id) const {
             return *std::find_if(nodes.begin(),nodes.end(),[id](const auto& value) { return value.id==id; });
         }
+        /// @brief Report whether an edge connects channels actually processed by both layouts.
         bool audio(const ModelEdge& edge) const {
             // Independent test-model rule. No compiled signal/slot/PDC table
             // or production filter/topological helper participates in this oracle.
@@ -70,7 +95,10 @@ namespace {
                 std::count(consumer.begin(),consumer.end(),edge.destinationIndex)!=0;
         }
     };
-    struct Reference { LatencySamples p; std::uint64_t a,l; };
+    /// @brief Expected signal timing or sample data computed independently of the plan.
+    struct Reference { /** Intrinsic latency assigned by the independent reference calculation. */ LatencySamples p; std::uint64_t a /**< A retained by the fixture. */,
+                                             l /**< L retained by the fixture. */; };
+    /// @brief Compute expected arrival times and cumulative latencies without using compiled tables.
     std::map<NodeID,Reference> reference(const Model& model) {
         // Recursive longest-path evaluation differs from the production's
         // iterative topological pass and never asks a Node for its declaration.
@@ -93,6 +121,7 @@ namespace {
         return result;
     }
 
+    /// @brief Compare the compiled result with the independently computed graph oracle.
     void compare(const Model& model,const ExecutionPlan& plan) {
         const auto expected=reference(model);
         const auto* snapshot=plan.latencySnapshot(); ASSERT_NE(snapshot,nullptr);
@@ -126,6 +155,7 @@ namespace {
         EXPECT_EQ(plan.preparedMemoryUsage().historyBytes,historySamples*sizeof(float));
     }
 
+    /// @brief Test case: every four node dag in all twenty four identity orders matches every node and exact edge.
     TEST(PdcOracle, EveryFourNodeDagInAllTwentyFourIdentityOrdersMatchesEveryNodeAndExactEdge) {
         std::array<unsigned,4> permutation{0,1,2,3};
         unsigned cases=0;
@@ -154,6 +184,7 @@ namespace {
         EXPECT_EQ(cases,1536U);
     }
 
+    /// @brief Test case: four way join fanout two logical outputs ignored ports and identity gaps match reference.
     TEST(PdcOracle, FourWayJoinFanoutTwoLogicalOutputsIgnoredPortsAndIdentityGapsMatchReference) {
         Model model;
         const auto gap=model.graph.add<OracleNode>(0U,Config{}); ASSERT_TRUE(gap); ASSERT_TRUE(model.graph.remove(*gap));
@@ -176,6 +207,7 @@ namespace {
         EXPECT_EQ(plan->pdcAnalysis()->find(pdc_test::edge(sources[0],other))->samples,64U);
     }
 
+    /// @brief Test case: zero latency diamond and nonzero latency chain are independent of container order.
     TEST(PdcOracle, ZeroLatencyDiamondAndNonzeroLatencyChainAreIndependentOfContainerOrder) {
         for (const auto intrinsic : {0U,3U,8U}) {
             Model model;
@@ -198,6 +230,7 @@ namespace {
         EXPECT_EQ(plan->pdcAnalysis()->find(sink)->cumulative,523U);
     }
 
+    /// @brief Test case: wide cumulative table and rejected huge history preserve the previous generation.
     TEST(PdcOracle, WideCumulativeTableAndRejectedHugeHistoryPreserveThePreviousGeneration) {
         Model model;
         const auto fast=model.add(0),a=model.add(UINT32_MAX),b=model.add(UINT32_MAX),sink=model.add(0);
@@ -219,6 +252,7 @@ namespace {
         EXPECT_EQ(plan->delayTaskCount(),0U); ASSERT_TRUE(plan->exec(BackendBlock{.frames=4}));
     }
 
+    /// @brief Test case: uint64 boundary results and errors match independent known sums.
     TEST(PdcOracle, Uint64BoundaryResultsAndErrorsMatchIndependentKnownSums) {
         constexpr auto m=std::numeric_limits<std::uint64_t>::max();
         using Case=std::tuple<std::uint64_t,std::uint64_t,bool,std::uint64_t>;
@@ -233,6 +267,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: concurrent automatic candidates and swaps keep tables coherent and audio bounded.
     TEST(PdcOracle, ConcurrentAutomaticCandidatesAndSwapsKeepTablesCoherentAndAudioBounded) {
         DAG graph; PlanSwitcher switcher;
         const auto a=graph.add<pdc_test::UniformDelayNode>(3U),b=graph.add<pdc_test::UniformDelayNode>(8U);

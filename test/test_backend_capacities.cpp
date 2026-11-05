@@ -1,3 +1,8 @@
+/**
+ * @file test_backend_capacities.cpp
+ * @brief Tests for backend capacities.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <cstdint>
@@ -16,6 +21,7 @@ namespace {
     static_assert(std::same_as<decltype(BackendConfig::sampleRate),std::uint32_t>);
     static_assert(makeBackendConfig(6,6,48000,128)->sampleRate==48000);
 
+    /// @brief Test case: fixed zero one two six channel snapshots survive caller edits and address changes.
     TEST(BackendCapacities, FixedZeroOneTwoSixChannelSnapshotsSurviveCallerEditsAndAddressChanges) {
         for (const std::uint32_t count : {0U,1U,2U,6U}) {
             SCOPED_TRACE(count);
@@ -46,6 +52,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: shape mismatch and null or oversized blocks reject without processing or writing past capacity.
     TEST(BackendCapacities, ShapeMismatchAndNullOrOversizedBlocksRejectWithoutProcessingOrWritingPastCapacity) {
         Observation observation;
         DAG graph; const auto id=graph.add<ProbeNode>(observation); ASSERT_TRUE(id);
@@ -75,6 +82,7 @@ namespace {
         EXPECT_EQ(observation.calls,1U);
     }
 
+    /// @brief Test case: wide values are rejected before any narrowing and failed preparation keeps the snapshot.
     TEST(BackendCapacities, WideValuesAreRejectedBeforeAnyNarrowingAndFailedPreparationKeepsTheSnapshot) {
         constexpr std::uint64_t excessive=std::uint64_t{UINT32_MAX}+1;
         const std::array<std::array<std::uint64_t,4>,4> cases{{{excessive,0,0,0},{0,excessive,0,0},

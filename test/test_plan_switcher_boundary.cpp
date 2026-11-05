@@ -1,3 +1,8 @@
+/**
+ * @file test_plan_switcher_boundary.cpp
+ * @brief Tests for plan switcher boundary.
+ * @author Mika
+ */
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -13,6 +18,7 @@ namespace {
     using namespace mka::audio::dsp;
     using namespace switcher_test;
 
+    /// @brief Test case: ten thousand swaps render exactly one generation per block.
     TEST(PlanSwitcherBoundary, TenThousandSwapsRenderExactlyOneGenerationPerBlock) {
         DAG graph; PlanSwitcher switcher;
         const auto id=graph.add<GenerationNode>(switcher); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
@@ -33,10 +39,13 @@ namespace {
 
     // This test-only Node is deliberately paused to force a publication during
     // process. The pause is harness synchronization, never part of the RT probe.
+    /// @brief Pauses inside processing so a test can observe the adoption boundary.
     class PausedGeneration final : public Node {
     public:
+        /// @brief Declare the processor logical ports under the supplied stable Node identity.
         PausedGeneration(NodeID id,PlanSwitcher& switcher,std::atomic<bool>& entered,std::atomic<bool>& release)
             : Node(id,Config{}),switcher_(switcher),entered_(entered),release_(release) {}
+        /// @brief Hold processing behind the test gate and observe whether reentrant adoption is refused.
         void process(const ProcessContext& ctx) noexcept override {
             before=switcher_.audioGeneration();
             entered_.store(true,std::memory_order_release);
@@ -46,11 +55,14 @@ namespace {
                 output.buffer[f]=static_cast<float>(before);
             after=switcher_.audioGeneration();
         }
-        GenerationID before=0,after=0; bool swapped=true;
+        GenerationID before=0 /**< Optional noexcept hook opening the thread-local measurement window. */,
+            after=0 /**< Optional noexcept hook closing the window and accumulating its event counts. */; /** Whether a reentrant boundary-adoption attempt unexpectedly succeeded. */ bool swapped=true;
     private:
-        PlanSwitcher& switcher_; std::atomic<bool>& entered_; std::atomic<bool>& release_;
+        /// @brief Borrowed switcher used to observe the current audio generation.
+        PlanSwitcher& switcher_; /** Borrowed atomic signal indicating that the held callback has entered processing. */ std::atomic<bool>& entered_; /** Borrowed atomic gate released by control to let the held callback finish. */ std::atomic<bool>& release_;
     };
 
+    /// @brief Test case: pending published during process waits for the next callback.
     TEST(PlanSwitcherBoundary, PendingPublishedDuringProcessWaitsForTheNextCallback) {
         std::atomic<bool> entered{false},release{false};
         DAG graph; PlanSwitcher switcher;

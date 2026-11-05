@@ -1,3 +1,8 @@
+/**
+ * @file dag.cppm
+ * @brief Node ownership, desired graph edits and transactional plan compilation.
+ * @author Mika
+ */
 module;
 
 #include <algorithm>
@@ -33,14 +38,17 @@ export namespace mka::audio::dsp::detail {
      */
     class NodeIDSequence {
     public:
+        /// @brief Start identity allocation at the supplied wide value without narrowing it.
         explicit NodeIDSequence(const std::uint64_t first = 1) noexcept : next_(first) {}
 
+        /// @brief Return the next valid identity, or CapacityExceeded without consuming it.
         [[nodiscard]] std::expected<NodeID, GraphError> candidate() const noexcept {
             if (next_ == invalidNodeID || next_ > maxNodeID)
                 return std::unexpected(Error{ErrorCode::CapacityExceeded});
             return static_cast<NodeID>(next_);
         }
 
+        /// @brief Advance the identity sequence after a successful insertion.
         void commit() noexcept {
             if (next_ != invalidNodeID && next_ <= maxNodeID) ++next_;
         }
@@ -67,13 +75,18 @@ namespace mka::audio::dsp {
      */
     export class DAG final {
     public:
+        /// Construct an empty owner with the default live-and-retired Node quota.
         DAG() = default;
         /** Maximum simultaneously owned Nodes, including deferred retirements. */
         explicit DAG(const std::size_t maxOwnedNodes) noexcept : maxOwnedNodes_(maxOwnedNodes) {}
+        /// @brief Disable copying to preserve stable ownership and borrowed addresses.
         DAG(const DAG&) = delete;
+        /// Disable copy assignment so existing Node identities and borrows keep their owner.
         DAG& operator=(const DAG&) = delete;
         // Keep ownership stable while plans or external pointers borrow Nodes.
+        /// @brief Disable moving to preserve stable ownership and borrowed addresses.
         DAG(DAG&&) = delete;
+        /// Disable move assignment while stable Node addresses may be borrowed by plans.
         DAG& operator=(DAG&&) = delete;
 
         /**
@@ -510,6 +523,7 @@ namespace mka::audio::dsp {
 
         }
 
+        /// @brief Check whether the wide identity names a desired Node, before narrowing it.
         [[nodiscard]] bool nodeExists(const std::uint64_t id) const {
             const auto nodeIt = std::ranges::find(nodes_, id, &Node::id);
             return nodeIt != nodes_.end();
@@ -553,16 +567,19 @@ namespace mka::audio::dsp {
             return false;
         }
 
-        // Sole control-owned storage; only unique_ptr handles move, never Nodes.
+        /// Sole control-owned storage; only unique_ptr handles move, never Nodes.
         std::vector<std::unique_ptr<Node> > nodes_;
-        // Removed Nodes remain owned until every plan borrow retires on control.
+        /// Removed Nodes remain owned until every plan borrow retires on control.
         std::vector<std::unique_ptr<Node>> retiredNodes_;
         std::vector<Connection> connections_; ///< Control-owned logical values, no sample pointers.
+        /// Desired output-role identities, captured separately by each prepared plan.
         std::vector<NodeID> outputsNodes_;
         detail::NodeIDSequence identities_; ///< Committed IDs never become available again.
         std::size_t maxOwnedNodes_ = maxNodeID; ///< Live + retired quota; immutable after construction.
     };
 
+    /// @brief Return the smallest available NodeID at each topological step, without preparing or
+    /// processing DSP.
     [[nodiscard]] std::expected<std::vector<NodeID>, GraphError>
     topologicalOrder(const DAG& graph) try {
         return detail::topologicalOrder(graph.structuralSnapshot());

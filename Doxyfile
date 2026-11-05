@@ -1,18 +1,30 @@
+# Author: Mika
 PROJECT_NAME = "mka-audio-dsp V1"
 OUTPUT_DIRECTORY = build/docs
-INPUT = src docs/API_V1.md
-FILE_PATTERNS = *.cppm *.md
+INPUT = src exemple bench test docs/API_V1.md docs/DOXYGEN.md
+FILE_PATTERNS = *.cppm *.cpp *.hpp *.md
 EXTENSION_MAPPING = cppm=C++
 RECURSIVE = YES
-EXTRACT_ALL = YES
-EXTRACT_PRIVATE = NO
+EXTRACT_ALL = NO
+EXTRACT_PRIVATE = YES
+EXTRACT_STATIC = YES
+EXTRACT_ANON_NSPACES = YES
+MACRO_EXPANSION = YES
+EXPAND_ONLY_PREDEF = YES
+PREDEFINED = "TEST(suite,name)=void suite##_##name()" \
+             "TEST_F(suite,name)=void suite##_##name()" \
+             "TEST_P(suite,name)=void suite##_##name()" \
+             "INSTANTIATE_TEST_SUITE_P(...)= "
+SKIP_FUNCTION_MACROS = NO
 GENERATE_HTML = YES
 GENERATE_XML = YES
 GENERATE_LATEX = NO
 HAVE_DOT = NO
 QUIET = YES
 WARN_AS_ERROR = YES
-WARN_IF_UNDOCUMENTED = NO
+WARN_IF_UNDOCUMENTED = YES
 WARN_IF_DOC_ERROR = YES
 WARN_LOGFILE = build/docs/warnings.log
 USE_MDFILE_AS_MAINPAGE = docs/API_V1.md
+SOURCE_BROWSER = YES
+GENERATE_TREEVIEW = YES

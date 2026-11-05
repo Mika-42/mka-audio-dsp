@@ -1,3 +1,8 @@
+/**
+ * @file process_context.cppm
+ * @brief Borrowed logical processing views and context validation helpers.
+ * @author Mika
+ */
 module;
 
 #include <cstddef>
@@ -26,10 +31,15 @@ export namespace mka::audio::dsp {
      * be accessed for frames == 0. This aggregate owns and allocates nothing.
      */
     struct ProcessContext {
+        /// @brief Read-only physical inputs for a source, or logical main inputs for other Nodes.
         std::span<const InputChannel> inputs;
+        /// @brief Borrowed auxiliary-channel descriptors in configured port order.
         std::span<const InputChannel> auxiliary;
+        /// @brief Writable logical output views backed by the prepared sample pool.
         std::span<const OutputChannel> outputs;
+        /// @brief Borrowed physical outputs, available only during a marked Node's callback.
         std::span<const OutputChannel> backendOutputs;
+        /// @brief Effective samples per channel for this processing block.
         FrameCount frames = 0;
     };
 
@@ -45,13 +55,21 @@ export namespace mka::audio::dsp {
      * cannot prove sample extents, lifetime or aliasing safety.
      */
     struct PreparedContextBindings {
+        /// @brief Borrowed fixed main-input descriptors used to validate and rebind a context.
         std::span<const InputChannel> inputs;
+        /// @brief Borrowed auxiliary-channel descriptors in configured port order.
         std::span<const InputChannel> auxiliary;
+        /// @brief Output channel descriptors or physical sample pointers used by this state.
         std::span<const OutputChannel> outputs;
+        /// @brief Prepared maximum samples per channel.
         FrameCount maxFrames = 0;
+        /// @brief Prepared upper bound on physical input descriptors.
         std::size_t maxBackendInputChannels = 0;
+        /// @brief Prepared upper bound on physical output descriptors.
         std::size_t maxBackendOutputChannels = 0;
+        /// @brief Whether the task receives physical inputs as a topological source.
         bool isSource = false;
+        /// @brief Whether the task may write the physical output views.
         bool isOutput = false;
     };
 

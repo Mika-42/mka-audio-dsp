@@ -1,3 +1,8 @@
+/**
+ * @file test_physical_input_views.cpp
+ * @brief Tests for physical input views.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <span>
@@ -12,9 +17,12 @@ namespace {
     static_assert(std::same_as<decltype(InputChannel::buffer),const float*>);
     static_assert(std::same_as<decltype(ProcessContext::inputs),std::span<const InputChannel>>);
 
+    /// @brief Records borrowed physical inputs and preserves their read-only samples.
     class PhysicalReader final : public Node {
     public:
+        /// @brief Declare the processor logical ports under the supplied stable Node identity.
         PhysicalReader(NodeID id,Config cfg) : Node(id,cfg) {}
+        /// @brief Inspect direct read-only physical inputs without changing their sample storage.
         void process(const ProcessContext& ctx) noexcept override {
             ++calls; count=ctx.inputs.size();
             if (currentIO) {
@@ -28,11 +36,15 @@ namespace {
                 for (const auto& output : ctx.backendOutputs) output.buffer[f]=sample;
             }
         }
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls=0;
+        /// @brief Requested number of retained array elements.
         std::size_t count=0;
+        /// @brief Whether physical input pointers were forwarded without copying or remapping.
         bool direct=true;
     };
 
+    /// @brief Test case: multiple sources borrow every physical channel regardless of their input layouts.
     TEST(PhysicalInputViews, MultipleSourcesBorrowEveryPhysicalChannelRegardlessOfTheirInputLayouts) {
         for (const std::uint32_t count : {0U,1U,2U,6U}) {
             SCOPED_TRACE(count);
@@ -68,6 +80,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: exact zero frame shape accepts null pointers and does not retain callback views.
     TEST(PhysicalInputViews, ExactZeroFrameShapeAcceptsNullPointersAndDoesNotRetainCallbackViews) {
         DAG graph;
         const auto a=graph.add<PhysicalReader>(Config{.layoutOutput={9}}); ASSERT_TRUE(a);

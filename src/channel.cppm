@@ -1,6 +1,8 @@
-//
-// Created by mika on 10/16/26.
-//
+/**
+ * @file channel.cppm
+ * @brief Logical channel identities, port categories and borrowed sample views.
+ * @author Mika
+ */
 module;
 #include <cstdint>
 #include <expected>
@@ -12,13 +14,21 @@ export import mka.audio.dsp.types;
 export namespace mka::audio::dsp {
 
     namespace Port {
+        /// @brief Conventional front-left logical channel index; it does not select a physical lane.
         constexpr std::uint32_t FL   = 0;
+        /// @brief Conventional front-right logical channel index; it does not select a physical lane.
         constexpr std::uint32_t FR   = 1;
+        /// @brief Conventional front-center logical channel index; it does not select a physical lane.
         constexpr std::uint32_t FC   = 2;
+        /// @brief Conventional low-frequency logical channel index; it does not select a physical lane.
         constexpr std::uint32_t LFE  = 3;
+        /// @brief Conventional side-left logical channel index; it does not select a physical lane.
         constexpr std::uint32_t SL   = 4;
+        /// @brief Conventional side-right logical channel index; it does not select a physical lane.
         constexpr std::uint32_t SR   = 5;
+        /// @brief Conventional back-left logical channel index; it does not select a physical lane.
         constexpr std::uint32_t BL   = 6;
+        /// @brief Conventional back-right logical channel index; it does not select a physical lane.
         constexpr std::uint32_t BR   = 7;
     }
 
@@ -196,11 +206,16 @@ export namespace mka::audio::dsp {
         return {};
     }
 
+    /// @brief Legacy numeric channel fields; prefer encoded ChannelID values for graph edges.
     struct Channel {
+        /// @brief Legacy wide node field; this value alone does not validate a live identity.
         std::uint64_t nodeID;
+        /// @brief Logical channel number or encoded identity; it is not a physical lane address.
         std::uint64_t channel;
+        /// @brief Logical main, output or auxiliary port category.
         PortType port;
-        
+
+        /// @brief Compare all value fields for equality.
         bool operator==(const Channel&) const = default;
     };
 }

@@ -1,3 +1,8 @@
+/**
+ * @file test_plan_switcher_edits.cpp
+ * @brief Tests for plan switcher edits.
+ * @author Mika
+ */
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -11,9 +16,12 @@ import mka.audio.dsp.plan_switcher;
 namespace {
     using namespace mka::audio::dsp;
     using namespace switcher_test;
+    /// @brief Produces a fixed scalar value to distinguish compiled graph generations.
     class ValueNode final : public Node {
     public:
+        /// @brief Store the immutable scalar and declare the logical output channel.
         ValueNode(NodeID id,float value) : Node(id,Config{.layoutOutput={0}}),value_(value) {}
+        /// @brief Produce the immutable scalar distinguishing this compiled generation.
         void process(const ProcessContext& ctx) noexcept override {
             for (FrameCount f=0;f<ctx.frames;++f) {
                 ctx.outputs[0].buffer[f]=value_;
@@ -21,9 +29,11 @@ namespace {
             }
         }
     private:
+        /// @brief Immutable scalar signal produced by this processor.
         const float value_;
     };
 
+    /// @brief Test case: pending snapshot stays immutable while desired C changes and its compilation fails.
     TEST(PlanSwitcherEdits, PendingSnapshotStaysImmutableWhileDesiredCChangesAndItsCompilationFails) {
         DAG graph; PlanSwitcher switcher;
         const BackendConfig cfg{.maxFrames=4,.inputChannels=1,.outputChannels=1};
@@ -49,6 +59,7 @@ namespace {
         ASSERT_TRUE(switcher.retireAcknowledgedPlan());
     }
 
+    /// @brief Test case: shared node configuration cannot be mutated while any generation borrows it.
     TEST(PlanSwitcherEdits, SharedNodeConfigurationCannotBeMutatedWhileAnyGenerationBorrowsIt) {
         DAG graph; PlanSwitcher switcher;
         const auto id=graph.add<SignalNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));

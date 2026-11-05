@@ -1,3 +1,8 @@
+/**
+ * @file test_plan_switcher_storage.cpp
+ * @brief Tests for plan switcher storage.
+ * @author Mika
+ */
 #include <array>
 #include <atomic>
 #include <expected>
@@ -13,6 +18,7 @@ namespace {
     static_assert(std::is_final_v<PlanSwitcher> && !std::is_polymorphic_v<PlanSwitcher>);
     static_assert(!std::is_move_constructible_v<PlanSwitcher> && !std::is_copy_constructible_v<PlanSwitcher>);
 
+    /// @brief Test case: stable slots have independent descriptors samples and delay histories.
     TEST(PlanSwitcherStorage, StableSlotsHaveIndependentDescriptorsSamplesAndDelayHistories) {
         DAG graph; PlanSwitcher switcher;
         std::array<NodeID,2> ids; Connection edge;
@@ -43,6 +49,7 @@ namespace {
         EXPECT_EQ(switcher.slotState(1),PlanSlotState::Free);
     }
 
+    /// @brief Test case: failed candidate and busy slot preserve the active generation.
     TEST(PlanSwitcherStorage, FailedCandidateAndBusySlotPreserveTheActiveGeneration) {
         DAG graph; PlanSwitcher switcher;
         const auto id=graph.add<SignalNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));

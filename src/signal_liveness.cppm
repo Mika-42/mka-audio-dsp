@@ -1,3 +1,8 @@
+/**
+ * @file signal_liveness.cppm
+ * @brief Signal read/write lifetimes and reusable sample-slot assignments.
+ * @author Mika
+ */
 module;
 #include <algorithm>
 #include <cstddef>
@@ -15,28 +20,51 @@ export import mka.audio.dsp.buffer_pool;
 export namespace mka::audio::dsp {
     /// Dense control-side production identity; not a public ChannelID or history ID.
     using SignalID = std::size_t;
-    enum class OperationKind { Node, Delay, Readback };
+    /// @brief Distinguishes DSP calls, compensation delays and signal readback operations.
+    enum class OperationKind {
+        /// @brief Invoke a prepared DSP processor.
+        Node,
+        /// @brief Process a persistent logical-edge compensation history.
+        Delay,
+        /// @brief Retain a logical signal until the scheduled observation has consumed it.
+        Readback
+    };
 
     /** Final serial operation after delay insertion; lists every actual read/write. */
     struct SignalOperation {
+        /// @brief Operation or fixture behavior selected for this record.
         OperationKind kind = OperationKind::Node;
+        /// @brief Dense logical signals consumed by the operation.
         std::vector<SignalID> reads;
+        /// @brief Dense logical signals produced by the operation.
         std::vector<SignalID> writes;
     };
 
     /// Inclusive interval; a production with no reader expires after its producer.
     struct SignalLifetime {
+        /// @brief Operation index where this logical signal is written.
         std::size_t producedAt = 0;
+        /// @brief Inclusive operation index of this signal's final reader.
         std::size_t lastUse = 0;
+        /// @brief Compare all value fields for equality.
         bool operator==(const SignalLifetime&) const noexcept = default;
     };
 
-    enum class SlotStrategy { Reuse, Unique };
+    /// @brief Selects lifetime-based slot reuse or distinct slots for diagnostics.
+    enum class SlotStrategy {
+        /// @brief Recycle slots after the previous signal's final inclusive reader.
+        Reuse,
+        /// @brief Assign separate slots to signals for diagnostic comparison.
+        Unique
+    };
 
     /** Frozen control result; peakSlots is the physical capacity to prepare. */
     struct SlotAssignment {
+        /// @brief Temporary slot assigned to each dense logical signal.
         std::vector<BufferId> slotOf;
+        /// @brief Number of physical sample slots retained by this assignment.
         std::uint32_t peakSlots = 0;
+        /// @brief Maximum number of simultaneously live logical signals.
         std::size_t peakLiveSlots = 0;
     };
 

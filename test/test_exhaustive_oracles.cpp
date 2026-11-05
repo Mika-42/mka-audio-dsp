@@ -1,3 +1,8 @@
+/**
+ * @file test_exhaustive_oracles.cpp
+ * @brief Tests for exhaustive oracles.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -18,10 +23,14 @@ namespace {
     using namespace mka::audio::dsp;
     namespace reference = four_node_oracle;
 
+    /// @brief Minimal processor used by exhaustive graph-state oracles.
     class ExhaustiveNode final : public Node {
     public:
+        /// @brief Declare the processor logical ports under the supplied stable Node identity.
         explicit ExhaustiveNode(NodeID id) : Node(id, Config{}) {}
+        /// @brief Count callbacks to detect unintended processing during structural graph validation.
         void process(const ProcessContext&) noexcept override { ++processCalls; }
+        /// @brief Number of processing calls observed by the fixture.
         unsigned processCalls = 0;
     };
 
@@ -40,8 +49,11 @@ namespace {
         return GraphError::InvalidDirection;
     }
 
+    /// @brief Counts accepted and rejected edits in an exhaustive corpus.
     struct AttemptCounts {
+        /// @brief Total attempted edits or cases counted in the exhaustive corpus.
         std::size_t total = 0;
+        /// @brief Counts indexed by the independent graph decision category.
         std::array<std::size_t, 7> decisions{};
     };
 
@@ -51,12 +63,17 @@ namespace {
      * prepares backend samples or retains collection spans across mutations.
      */
     struct Baseline {
+        /// @brief Owned desired DAG or detached graph values used by this fixture.
         DAG graph;
+        /// @brief Processor addresses retained to verify stable ownership across edits.
         std::array<Node*, reference::nodeCount> addresses{};
+        /// @brief Topological order captured before the candidate graph mutation.
         std::vector<NodeID> oldOrder;
+        /// @brief Retained structural plan that must survive desired-graph edits.
         std::optional<ExecutionPlan> oldPlan;
     };
 
+    /// @brief Populate a production baseline from the independent graph model without processing audio.
     void initialize(Baseline& state, const reference::Graph& model) {
         for (std::size_t i = 0; i < model.nodes.size(); ++i) {
             const auto added = state.graph.add<ExhaustiveNode>();
@@ -106,6 +123,7 @@ namespace {
             EXPECT_EQ(state.oldPlan->tasks()[i]->id(), state.oldOrder[i]);
     }
 
+    /// @brief Compare the complete topological order with the independent expected sequence.
     void expectOrder(const DAG& graph, const reference::Graph& model) {
         const auto expected = model.lexicographicOrder();
         ASSERT_EQ(expected.size(), reference::nodeCount);
@@ -114,6 +132,7 @@ namespace {
         EXPECT_EQ(*actual, expected);
     }
 
+    /// @brief Compare insertion outcome, graph values and retained snapshots for one candidate edge.
     void verifyCandidate(Baseline& state, const reference::Graph& model,
                          const reference::Edge& candidate, AttemptCounts& counts) {
         SCOPED_TRACE(::testing::Message() << "from=0x" << std::hex << candidate.from
@@ -139,6 +158,7 @@ namespace {
         ASSERT_NO_FATAL_FAILURE(expectOrder(state.graph, model));
     }
 
+    /// @brief Test case: every structural channel partition and order matches independent models.
     TEST(ExhaustiveDAGOracles, EveryStructuralChannelPartitionAndOrderMatchesIndependentModels) {
         AttemptCounts counts;
         unsigned graphs = 0;
@@ -172,6 +192,7 @@ namespace {
             EXPECT_GT(counts.decisions[static_cast<std::size_t>(decision)], 0U);
     }
 
+    /// @brief Test case: all official directions malformed ports and missing nodes preserve refused state.
     TEST(ExhaustiveDAGOracles, AllOfficialDirectionsMalformedPortsAndMissingNodesPreserveRefusedState) {
         AttemptCounts counts;
         unsigned graphs = 0;

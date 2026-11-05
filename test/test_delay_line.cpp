@@ -1,3 +1,8 @@
+/**
+ * @file test_delay_line.cpp
+ * @brief Tests for delay line.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <concepts>
@@ -19,6 +24,7 @@ namespace {
         std::expected<void,PrepareError>>);
     static_assert(std::is_nothrow_move_constructible_v<DelayLine> && std::is_nothrow_move_assignable_v<DelayLine>);
 
+    /// @brief Test case: default and prepared zero copy without history and permit identical pointer.
     TEST(DelayLine, DefaultAndPreparedZeroCopyWithoutHistoryAndPermitIdenticalPointer) {
         DelayLine line;
         const std::array<float,4> input{1,2,3,4}; std::array<float,4> output{};
@@ -28,6 +34,7 @@ namespace {
         line.process(nullptr,nullptr,0);
     }
 
+    /// @brief Test case: three samples persist across the two reference blocks.
     TEST(DelayLine, ThreeSamplesPersistAcrossTheTwoReferenceBlocks) {
         DelayLine line; ASSERT_TRUE(line.prepare(3));
         const std::array<float,4> first{1,2,3,4},second{5,6,7,8}; std::array<float,4> output{};
@@ -37,6 +44,7 @@ namespace {
         EXPECT_EQ(line.delaySamples(),3U); EXPECT_EQ(line.historyBytes(),12U);
     }
 
+    /// @brief Test case: delay one and delay longer than every block follow absolute stream time.
     TEST(DelayLine, DelayOneAndDelayLongerThanEveryBlockFollowAbsoluteStreamTime) {
         for (const std::uint64_t delay : {1U,3U,256U}) {
             SCOPED_TRACE(delay); DelayLine line; ASSERT_TRUE(line.prepare(delay));
@@ -52,6 +60,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: overflow and quota failures preserve the previous cursor and samples.
     TEST(DelayLine, OverflowAndQuotaFailuresPreserveThePreviousCursorAndSamples) {
         DelayLine line; ASSERT_TRUE(line.prepare(3));
         const std::array<float,4> first{1,2,3,4},second{5,6,7,8}; std::array<float,4> output{};
@@ -65,6 +74,7 @@ namespace {
         EXPECT_EQ(line.historyBytes(),256U);
     }
 
+    /// @brief Test case: successful preparation explicitly resets history and can release it.
     TEST(DelayLine, SuccessfulPreparationExplicitlyResetsHistoryAndCanReleaseIt) {
         DelayLine line; ASSERT_TRUE(line.prepare(3));
         const std::array<float,4> input{1,2,3,4}; std::array<float,4> output{};
@@ -76,6 +86,7 @@ namespace {
         line.process(input.data(),output.data(),4); EXPECT_EQ(output,input);
     }
 
+    /// @brief Test case: copies own independent history and moves preserve the stream cursor.
     TEST(DelayLine, CopiesOwnIndependentHistoryAndMovesPreserveTheStreamCursor) {
         DelayLine original; ASSERT_TRUE(original.prepare(3));
         const std::array<float,4> first{1,2,3,4},second{5,6,7,8},third{9,10,11,12};

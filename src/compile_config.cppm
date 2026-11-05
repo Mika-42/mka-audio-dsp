@@ -1,3 +1,8 @@
+/**
+ * @file compile_config.cppm
+ * @brief Control-side limits for structural graph compilation.
+ * @author Mika
+ */
 module;
 #include <cstddef>
 #include <limits>
@@ -14,8 +19,11 @@ export namespace mka::audio::dsp {
      * A default configuration imposes no additional application limit.
      */
     struct CompileConfig {
+        /// @brief Inclusive limit on the number of Nodes admitted to structural compilation.
         std::size_t maxNodes = std::numeric_limits<std::size_t>::max();
+        /// @brief Inclusive limit on logical connections admitted to structural compilation.
         std::size_t maxConnections = std::numeric_limits<std::size_t>::max();
+        /// @brief Inclusive retained-storage budget in bytes.
         std::size_t memoryBudgetBytes = std::numeric_limits<std::size_t>::max();
     };
 }

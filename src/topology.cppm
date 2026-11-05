@@ -1,3 +1,8 @@
+/**
+ * @file topology.cppm
+ * @brief Deterministic topological ordering of logical graph snapshots.
+ * @author Mika
+ */
 module;
 #include <cstddef>
 #include <expected>

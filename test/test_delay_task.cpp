@@ -1,3 +1,8 @@
+/**
+ * @file test_delay_task.cpp
+ * @brief Tests for delay task.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <concepts>
@@ -23,9 +28,12 @@ namespace {
     static_assert(std::same_as<decltype(&DelayTask::execute),void (DelayTask::*)(FrameCount) noexcept>);
     static_assert(std::is_nothrow_move_constructible_v<DelayTask>);
 
+    /// @brief Forwards one logical signal to its output without changing its samples.
     class ForwardNode final : public Node {
     public:
+        /// @brief Declare one main input and logical output for pass-through rendering.
         explicit ForwardNode(NodeID id) : Node(id,Config{.layoutInput={0},.layoutOutput={0}}) {}
+        /// @brief Forward the first main input into all logical and physical outputs.
         void process(const ProcessContext& ctx) noexcept override {
             for (FrameCount f=0;f<ctx.frames;++f) {
                 const auto value=ctx.inputs.empty() ? 0.F : ctx.inputs[0].buffer[f];
@@ -35,6 +43,7 @@ namespace {
         }
     };
 
+    /// @brief Test case: positive delays persist and render exactly across many short blocks.
     TEST(DelayTask, PositiveDelaysPersistAndRenderExactlyAcrossManyShortBlocks) {
         for (const std::uint64_t delay : {1U,3U,256U}) {
             SCOPED_TRACE(delay); DelayTask task; ASSERT_TRUE(task.prepare(delay));
@@ -53,6 +62,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: reference blocks share the same history including zero frame executions.
     TEST(DelayTask, ReferenceBlocksShareTheSameHistoryIncludingZeroFrameExecutions) {
         DelayTask task; ASSERT_TRUE(task.prepare(3)); std::array<float,4> input{1,2,3,4},output{};
         ASSERT_TRUE(task.bind(input.data(),output.data(),4));
@@ -61,6 +71,7 @@ namespace {
         EXPECT_EQ(output,(std::array<float,4>{2,3,4,5}));
     }
 
+    /// @brief Test case: invalid null identical partial and overflowing bindings preserve the old views and history.
     TEST(DelayTask, InvalidNullIdenticalPartialAndOverflowingBindingsPreserveTheOldViewsAndHistory) {
         DelayTask task; ASSERT_TRUE(task.prepare(3));
         std::array<float,4> input{1,2,3,4},output{}; std::array<float,8> shared{};
@@ -79,6 +90,7 @@ namespace {
         EXPECT_TRUE(detail::validateDelayBinding(shared.data()+4,shared.data(),4));
     }
 
+    /// @brief Test case: rejected preparation preserves both declared delay and running history.
     TEST(DelayTask, RejectedPreparationPreservesBothDeclaredDelayAndRunningHistory) {
         DelayTask task; std::array<float,4> input{1,2,3,4},output{};
         EXPECT_EQ(task.bind(input.data(),output.data(),4).error().code,ErrorCode::InvalidParameter);
@@ -91,6 +103,7 @@ namespace {
         input={5,6,7,8}; task.execute(4); EXPECT_EQ(output,(std::array<float,4>{2,3,4,5}));
     }
 
+    /// @brief Test case: copies and moves own independent history and can rebind their borrowed views.
     TEST(DelayTask, CopiesAndMovesOwnIndependentHistoryAndCanRebindTheirBorrowedViews) {
         DelayTask original; ASSERT_TRUE(original.prepare(3));
         std::array<float,4> input{1,2,3,4},a{},b{};
@@ -104,12 +117,14 @@ namespace {
         EXPECT_EQ(a,(std::array<float,4>{0,9,10,11}));
     }
 
+    /// @brief Test case: zero capacity permits null views but no nonempty callback can use them.
     TEST(DelayTask, ZeroCapacityPermitsNullViewsButNoNonemptyCallbackCanUseThem) {
         DelayTask task; ASSERT_TRUE(task.prepare(256)); ASSERT_TRUE(task.bind(nullptr,nullptr,0));
         task.execute(0); EXPECT_EQ(task.line.delaySamples(),256U);
         EXPECT_FALSE(task.bind(nullptr,nullptr,1));
     }
 
+    /// @brief Test case: plan copies rebind to independent pools and wrapper moves keep stable internal pointers.
     TEST(DelayTask, PlanCopiesRebindToIndependentPoolsAndWrapperMovesKeepStableInternalPointers) {
         DAG graph; const auto source=graph.add<ForwardNode>(),sink=graph.add<ForwardNode>();
         ASSERT_TRUE(source); ASSERT_TRUE(sink); ASSERT_TRUE(graph.markAsOutput(*sink));
@@ -134,6 +149,7 @@ namespace {
         EXPECT_NE(stable,input.data()); EXPECT_NE(stable,a.data()); EXPECT_NE(stable,b.data());
     }
 
+    /// @brief Test case: zero requested delay remains A direct plan binding without task or history.
     TEST(DelayTask, ZeroRequestedDelayRemainsADirectPlanBindingWithoutTaskOrHistory) {
         DAG graph; const auto source=graph.add<ForwardNode>(),sink=graph.add<ForwardNode>(); ASSERT_TRUE(source); ASSERT_TRUE(sink);
         const Connection edge{encode(*source,PortType::Out,0),encode(*sink,PortType::In,0)};

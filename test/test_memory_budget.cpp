@@ -1,3 +1,8 @@
+/**
+ * @file test_memory_budget.cpp
+ * @brief Tests for memory budget.
+ * @author Mika
+ */
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -7,8 +12,10 @@ import mka.audio.dsp.memory_budget;
 
 namespace {
     using namespace mka::audio::dsp;
+    /// @brief Compile-time sample capacity of each fake-backend channel.
     constexpr auto maximum = std::numeric_limits<std::size_t>::max();
 
+    /// @brief Test case: exact budget includes silence histories metadata and padding.
     TEST(PlanMemory, ExactBudgetIncludesSilenceHistoriesMetadataAndPadding) {
         const std::array<std::uint64_t,2> histories{3, 256};
         const std::array metadata{MemoryArray{3, 1, 8}, MemoryArray{2, 16, 16}};
@@ -30,6 +37,7 @@ namespace {
         EXPECT_EQ(silence->totalBytes, 4096U * 4);
     }
 
+    /// @brief Test case: overflow is distinct from capacity and budget before any allocation.
     TEST(PlanMemory, OverflowIsDistinctFromCapacityAndBudgetBeforeAnyAllocation) {
         EXPECT_TRUE(checkedSizeMultiply(maximum, 1));
         EXPECT_FALSE(checkedSizeMultiply(maximum, 2));
@@ -49,6 +57,7 @@ namespace {
         EXPECT_FALSE(measurePlanMemory({.metadata = padding}));
     }
 
+    /// @brief Test case: near size max and dominant history need no arbitrary ceiling.
     TEST(PlanMemory, NearSizeMaxAndDominantHistoryNeedNoArbitraryCeiling) {
         const std::array<std::uint64_t,1> histories{maximum / 4};
         const auto usage = measurePlanMemory({.delaySamples = histories}); ASSERT_TRUE(usage);

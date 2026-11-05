@@ -1,3 +1,8 @@
+/**
+ * @file test_realtime_execution.cpp
+ * @brief Tests for realtime execution.
+ * @author Mika
+ */
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -11,13 +16,18 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
     using mka::audio::AudioProcessContext;
-    struct Trace { std::array<NodeID,3> order{}; std::size_t count=0; };
+    /// @brief Collects numeric callback, binding or lifetime observations for the fixture.
+    struct Trace { /** Node identities in the observed processing order. */ std::array<NodeID,3> order{}; /** Requested number of retained array elements. */ std::size_t count=0; };
+    /// @brief Externally observed lifetime, order or context data used by this fixture.
     thread_local Trace* trace=nullptr;
+    /// @brief Records callback ordering and bindings without acquiring resources in audio.
     class RealtimeNode final : public Node {
     public:
+        /// @brief Select source/consumer layouts and whether the processor performs physical writes.
         RealtimeNode(NodeID id, bool consumer=false, bool writer=true)
             : Node(id,consumer ? Config{.layoutInput={0},.layoutOutput={0}} : Config{.layoutOutput={0}}),
               consumer_(consumer),writer_(writer) {}
+        /// @brief Record processing order and physical views while rendering the selected fixture signal.
         void process(const ProcessContext& ctx) noexcept override {
             ++calls; frames=ctx.frames; physicalOutputs=ctx.backendOutputs.size();
             if (trace) trace->order[trace->count++]=id();
@@ -29,15 +39,22 @@ namespace {
                     ctx.backendOutputs[0].buffer[i]=consumer_ ? 5.F : 2.F;
             }
         }
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls=0;
+        /// @brief Effective samples per channel for this processing block.
         FrameCount frames=0;
+        /// @brief Number of physical output descriptors observed by the fixture.
         std::size_t physicalOutputs=0;
+        /// @brief Initial hardware sample observed before later writers run.
         float firstPhysicalSample=0;
+        /// @brief Whether borrowed read-only input samples kept their original values.
         bool inputIntact=true;
     private:
-        bool consumer_,writer_;
+        bool consumer_ /**< Consumer retained by the fixture. */,
+            writer_ /**< Writer retained by the fixture. */;
     };
 
+    /// @brief Test case: canonical callbacks follow compiled order and per sample last writer wins.
     TEST(RealtimeExecution, CanonicalCallbacksFollowCompiledOrderAndPerSampleLastWriterWins) {
         DAG graph;
         const auto source=graph.add<RealtimeNode>(), sink=graph.add<RealtimeNode>(true), observer=graph.add<RealtimeNode>(false,false);
@@ -84,6 +101,7 @@ namespace {
         EXPECT_EQ(plan->callbackDiagnostics(),0U);
     }
 
+    /// @brief Test case: invalid shapes silence only announced writable samples and run no task.
     TEST(RealtimeExecution, InvalidShapesSilenceOnlyAnnouncedWritableSamplesAndRunNoTask) {
         DAG graph;
         const auto id=graph.add<RealtimeNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
@@ -98,7 +116,8 @@ namespace {
         const auto* logical=plan->executionTasks()[0].context.outputs[0].buffer;
         const std::array<const float*,2> nullInput{nullptr,nullptr};
         const std::array<float*,2> nullOutput{outputs[0],nullptr};
-        struct Case { AudioProcessContext io; CallbackDiagnostic diagnostic; FrameCount cleared; };
+        /// @brief Input values and expected behavior for one table-driven test case.
+        struct Case { /** Borrowed callback buffers and capacities for the malformed-context case. */ AudioProcessContext io; /** Numeric callback flag expected for the supplied malformed context. */ CallbackDiagnostic diagnostic; /** Number of physical samples that may safely be silenced after rejection. */ FrameCount cleared; };
         const std::array cases{
             Case{AudioProcessContext{normalInputs,normalOutputs,4,3,3},CallbackDiagnostic::FrameCapacityExceeded,3},
             Case{AudioProcessContext{inputs,normalOutputs,2},CallbackDiagnostic::ChannelCapacityExceeded,2},
@@ -127,6 +146,7 @@ namespace {
         EXPECT_EQ(plan->callbackDiagnostics(),0U);
     }
 
+    /// @brief Test case: unprepared plans reject with bounded silence and diagnostic.
     TEST(RealtimeExecution, UnpreparedPlansRejectWithBoundedSilenceAndDiagnostic) {
         ExecutionPlan plan;
         std::array<float,5> output{99,99,99,99,99}; const std::array outputs{output.data()+1};
@@ -136,6 +156,7 @@ namespace {
         EXPECT_EQ(plan.callbackDiagnostics(),0U);
     }
 
+    /// @brief Test case: diagnostic copies moves and preparation are generation local.
     TEST(RealtimeExecution, DiagnosticCopiesMovesAndPreparationAreGenerationLocal) {
         DAG graph;
         const auto id=graph.add<RealtimeNode>(); ASSERT_TRUE(id);
@@ -152,6 +173,7 @@ namespace {
         ASSERT_TRUE(moved.prepareBackend(config,{},{})); EXPECT_EQ(moved.callbackDiagnostics(),0U);
     }
 
+    /// @brief Test case: control can drain atomic diagnostics during rejected audio callbacks.
     TEST(RealtimeExecution, ControlCanDrainAtomicDiagnosticsDuringRejectedAudioCallbacks) {
         DAG graph;
         const auto id=graph.add<RealtimeNode>(); ASSERT_TRUE(id);

@@ -1,3 +1,8 @@
+/**
+ * @file test_backend_io.cpp
+ * @brief Tests for backend io.
+ * @author Mika
+ */
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -15,26 +20,51 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
 
+    /// @brief Expected physical addresses and binding roles for a synchronous callback.
     struct PointerOracle {
+        /// @brief Input channel descriptors or physical sample pointers used by this state.
         std::span<const float* const> inputs;
+        /// @brief Output channel descriptors or physical sample pointers used by this state.
         std::span<float* const> outputs;
+        /// @brief Identity of the Node expected to receive physical output descriptors.
         NodeID outputNode = 0;
+        /// @brief Identity of the source expected to receive physical input descriptors.
         NodeID inputNode = 0;
+        /// @brief Address of the retained logical output pointer inspected by the oracle.
         float** logicalOutput = nullptr;
+        /// @brief Address of the retained read-only input pointer inspected by the oracle.
         const float** logicalInput = nullptr;
     };
+    /// @brief Borrowed pointer oracle installed for one synchronous callback.
     thread_local const PointerOracle* oracle = nullptr;
+    /// @brief Temporarily installs the pointer oracle and restores the previous observer.
     struct OracleScope {
+        /// @brief Observer restored when the scoped oracle leaves scope.
         const PointerOracle* previous;
+        /// @brief Install the pointer oracle and save the previous synchronous observer.
         explicit OracleScope(const PointerOracle& current) : previous(std::exchange(oracle, &current)) {}
+        /// @brief Restore the previously selected synchronous observation scope.
         ~OracleScope() { oracle = previous; }
     };
 
-    enum class Mode { Copy, Constant, Auxiliary, NoWrite };
+    /// @brief Selects the processing behavior used by the fixture.
+    enum class Mode {
+        /// @brief Forward the selected input samples without gain.
+        Copy,
+        /// @brief Produce the configured constant sample value.
+        Constant,
+        /// @brief Select the auxiliary fixture case.
+        Auxiliary,
+        /// @brief Select the no write fixture case.
+        NoWrite
+    };
+    /// @brief Configurable fixture DSP used to observe routing, latency and lifetime behavior.
     class Processor : public Node {
     public:
+        /// @brief Select the processor role and initialize its logical layouts and observation state.
         explicit Processor(const NodeID id)
             : Processor(id, Config{.layoutInput = {0}, .layoutAuxiliary = {0}, .layoutOutput = {0}}) {}
+        /// @brief Observe context forwarding and render the selected copy, gain or constant routing policy.
         void process(const ProcessContext& context) noexcept override {
             ++calls;
             inputCount = context.inputs.size();
@@ -91,40 +121,67 @@ namespace {
             }
         }
 
+        /// @brief Control-selected fixture behavior for the next processing invocation.
         Mode mode = Mode::Copy;
+        /// @brief Configured scalar signal value or expected value for this fixture case.
         float value = 1.F;
+        /// @brief Scalar multiplication factor configured for this fixture path.
         float gain = 1.F;
+        /// @brief Offset distinguishing physical writes from the logical output signal.
         float backendBias = 0.F;
+        /// @brief Physical input lane selected by a source-role fixture processor.
         std::size_t inputLane = 0;
+        /// @brief Physical output lane selected by the fixture writer.
         std::size_t outputLane = 0;
+        /// @brief Optional additional physical input lane; the maximum value disables it.
         std::size_t secondInputLane = std::numeric_limits<std::size_t>::max();
+        /// @brief Optional additional physical output lane; the maximum value disables it.
         std::size_t secondOutputLane = std::numeric_limits<std::size_t>::max();
+        /// @brief Whether physical writes select only alternating sample positions.
         bool alternateFrames = false;
+        /// @brief Whether the fixture writes its logical output in addition to physical samples.
         bool writeLogical = true;
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls = 0;
-        std::size_t inputCount = 0, auxiliaryCount = 0, logicalOutputCount = 0, backendOutputCount = 0;
-        ChannelID inputChannel = 0, outputChannel = 0;
-        bool directViews = false, viewsDistinct = false, physicalIDsZero = false, physicalInitiallyZero = false;
+        std::size_t inputCount = 0 /**< Number of input descriptors observed during the callback. */,
+             auxiliaryCount = 0 /**< Auxiliary count retained by the fixture. */,
+             logicalOutputCount = 0 /**< Logical output count retained by the fixture. */,
+             backendOutputCount = 0 /**< Number of physical output views observed by the context fixture. */;
+        ChannelID inputChannel = 0 /**< Input channel retained by the fixture. */,
+             outputChannel = 0 /**< Output channel retained by the fixture. */;
+        bool directViews = false /**< Direct views retained by the fixture. */,
+             viewsDistinct = false /**< Views distinct retained by the fixture. */,
+             physicalIDsZero = false /**< Whether every physical descriptor uses the required zero logical identity. */,
+             physicalInitiallyZero = false /**< Physical initially zero retained by the fixture. */;
+        /// @brief Externally observed lifetime, order or context data used by this fixture.
         NodeID* trace = nullptr; // Test event buffer, never a backend sample pointer.
+        /// @brief Borrowed insertion cursor for the processing-order trace.
         std::size_t* traceSize = nullptr;
     protected:
+        /// @brief Select the processor role and initialize its logical layouts and observation state.
         Processor(const NodeID id, const Config& config) : Node(id, config) {}
     };
+    /// @brief Provides a structural graph node without reading or writing samples.
     class EmptyProcessor final : public Processor {
     public:
+        /// @brief Declare the processor logical ports under the supplied stable Node identity.
         explicit EmptyProcessor(const NodeID id) : Processor(id, Config{}) {}
     };
+    /// @brief Exercises logical layouts whose channel numbers are sparse.
     class SparseProcessor final : public Processor {
     public:
+        /// @brief Declare the processor logical ports under the supplied stable Node identity.
         explicit SparseProcessor(const NodeID id)
             : Processor(id, Config{.layoutInput = {65535}, .layoutAuxiliary = {2}, .layoutOutput = {42}}) {}
     };
 
+    /// @brief Require the expected numeric error while preserving its node/channel context.
     void expectError(const Result& result, const ErrorType error) {
         ASSERT_FALSE(result.has_value());
         EXPECT_EQ(result.error().code, error.code);
     }
 
+    /// @brief Test case: marking rejects missing nodes and is idempotent.
     TEST(BackendRoles, MarkingRejectsMissingNodesAndIsIdempotent) {
         DAG graph;
         const auto addedWriter = graph.add<EmptyProcessor>();
@@ -145,6 +202,7 @@ namespace {
         EXPECT_EQ(samples, (std::array<float, 2>{5.F, 5.F}));
     }
 
+    /// @brief Test case: removing A node clears its output marker before the next compilation.
     TEST(BackendRoles, RemovingANodeClearsItsOutputMarkerBeforeTheNextCompilation) {
         DAG graph;
         const auto addedRemoved = graph.add<EmptyProcessor>();
@@ -167,6 +225,7 @@ namespace {
         EXPECT_EQ(output, 0);
     }
 
+    /// @brief Test case: empty layout source and output sees all six physical lanes directly.
     TEST(BackendRoles, EmptyLayoutSourceAndOutputSeesAllSixPhysicalLanesDirectly) {
         DAG graph;
         const auto addedNode = graph.add<EmptyProcessor>();
@@ -206,6 +265,7 @@ namespace {
         EXPECT_EQ(inputs[0], (std::array<float, 3>{1, 2, 3}));
     }
 
+    /// @brief Test case: an unmarked source cannot write the backend.
     TEST(BackendRoles, AnUnmarkedSourceCannotWriteTheBackend) {
         DAG graph;
         const auto addedNode = graph.add<Processor>();
@@ -224,6 +284,7 @@ namespace {
         EXPECT_EQ(output, (std::array<float, 2>{}));
     }
 
+    /// @brief Test case: marked non source executes after its producer even with lower node ID.
     TEST(BackendRouting, MarkedNonSourceExecutesAfterItsProducerEvenWithLowerNodeID) {
         DAG graph;
         const auto addedSink = graph.add<Processor>();
@@ -253,6 +314,7 @@ namespace {
         EXPECT_EQ(sink.backendOutputCount, 2U);
     }
 
+    /// @brief Test case: marked source retains distinct logical outputs for its successor.
     TEST(BackendRouting, MarkedSourceRetainsDistinctLogicalOutputsForItsSuccessor) {
         DAG graph;
         const auto addedSink = graph.add<Processor>();
@@ -282,6 +344,7 @@ namespace {
         EXPECT_EQ(output, (std::array<float, 2>{18, 24})); // Reads 6/8, never 106/108.
     }
 
+    /// @brief Test case: same lane uses the last effective write without mixing or intermediate clears.
     TEST(BackendRouting, SameLaneUsesTheLastEffectiveWriteWithoutMixingOrIntermediateClears) {
         DAG graph;
         const auto addedFirst = graph.add<EmptyProcessor>();
@@ -313,6 +376,7 @@ namespace {
         EXPECT_EQ(trace, (std::array<NodeID, 2>{first.id(), second.id()}));
     }
 
+    /// @brief Test case: empty graph still clears all physical outputs for actual frames only.
     TEST(BackendRouting, EmptyGraphStillClearsAllPhysicalOutputsForActualFramesOnly) {
         DAG graph;
         auto plan = graph.compile(BackendConfig{.maxFrames = 4, .outputChannels = 2});
@@ -324,6 +388,7 @@ namespace {
         EXPECT_EQ(second, (std::array<float, 3>{0, 0, 43}));
     }
 
+    /// @brief Test case: every callback uses its current addresses and channel counts.
     TEST(BackendLifetime, EveryCallbackUsesItsCurrentAddressesAndChannelCounts) {
         DAG graph;
         const auto addedNode = graph.add<EmptyProcessor>();
@@ -366,6 +431,7 @@ namespace {
         EXPECT_EQ(firstOutput, previous);
     }
 
+    /// @brief Test case: rejected blocks silence their known capacity and the next valid callback recovers.
     TEST(BackendGuards, RejectedBlocksSilenceTheirKnownCapacityAndTheNextValidCallbackRecovers) {
         DAG graph;
         const auto addedNode = graph.add<EmptyProcessor>();
@@ -395,6 +461,7 @@ namespace {
         EXPECT_EQ(output, (std::array<float, 3>{3, 5, 47}));
     }
 
+    /// @brief Test case: structural plans reject backend execution until prepared.
     TEST(BackendPreparation, StructuralPlansRejectBackendExecutionUntilPrepared) {
         DAG graph;
         const auto addedNode = graph.add<EmptyProcessor>();
@@ -407,6 +474,7 @@ namespace {
         EXPECT_EQ(node.calls, 0U);
     }
 
+    /// @brief Test case: zero maximum frames calls tasks without accessing samples.
     TEST(BackendPreparation, ZeroMaximumFramesCallsTasksWithoutAccessingSamples) {
         DAG graph;
         const auto addedNode = graph.add<Processor>();
@@ -422,6 +490,7 @@ namespace {
         EXPECT_EQ(node.calls, 1U);
     }
 
+    /// @brief Test case: markers are snapshotted without changing existing plans.
     TEST(BackendRoles, MarkersAreSnapshottedWithoutChangingExistingPlans) {
         DAG graph;
         const auto addedNode = graph.add<EmptyProcessor>();
@@ -443,6 +512,7 @@ namespace {
         EXPECT_EQ(output[0], 0);
     }
 
+    /// @brief Test case: any incoming aux edge prevents source status even outside the layout.
     TEST(BackendRouting, AnyIncomingAuxEdgePreventsSourceStatusEvenOutsideTheLayout) {
         DAG graph;
         const auto addedSource = graph.add<EmptyProcessor>();
@@ -468,6 +538,7 @@ namespace {
         EXPECT_EQ(output, 7);
     }
 
+    /// @brief Test case: unproduced logical channels read silence instead of physical inputs.
     TEST(BackendRouting, UnproducedLogicalChannelsReadSilenceInsteadOfPhysicalInputs) {
         DAG graph;
         const auto addedSource = graph.add<EmptyProcessor>();
@@ -491,6 +562,7 @@ namespace {
         EXPECT_EQ(output, 0);
     }
 
+    /// @brief Test case: unwritten internal outputs are reset for each callback.
     TEST(BackendRouting, UnwrittenInternalOutputsAreResetForEachCallback) {
         DAG graph;
         const auto addedSource = graph.add<Processor>();
@@ -514,6 +586,7 @@ namespace {
         EXPECT_EQ(output, 0);
     }
 
+    /// @brief Test case: sparse logical indices bind by identity instead of array position.
     TEST(BackendRouting, SparseLogicalIndicesBindByIdentityInsteadOfArrayPosition) {
         DAG graph;
         const auto addedSource = graph.add<SparseProcessor>();
@@ -539,6 +612,7 @@ namespace {
         EXPECT_EQ(source.outputChannel, source.channel(PortType::Out, 42));
     }
 
+    /// @brief Test case: connected auxiliary receives logical samples and makes A non source.
     TEST(BackendRouting, ConnectedAuxiliaryReceivesLogicalSamplesAndMakesANonSource) {
         DAG graph;
         const auto addedSource = graph.add<SparseProcessor>();
@@ -565,6 +639,7 @@ namespace {
         EXPECT_EQ(sink.auxiliaryCount, 1U);
     }
 
+    /// @brief Test case: logical fan out feeds independent writers without reserving physical lanes.
     TEST(BackendRouting, LogicalFanOutFeedsIndependentWritersWithoutReservingPhysicalLanes) {
         DAG graph;
         const auto addedSource = graph.add<Processor>();
@@ -594,6 +669,7 @@ namespace {
         EXPECT_EQ(right, 12);
     }
 
+    /// @brief Test case: copies own independent logical storage and moves transfer preparation.
     TEST(BackendLifetime, CopiesOwnIndependentLogicalStorageAndMovesTransferPreparation) {
         DAG graph;
         const auto addedSource = graph.add<Processor>();
@@ -660,6 +736,7 @@ namespace {
         EXPECT_EQ(result, 12);
     }
 
+    /// @brief Test case: semantic failures preserve previously prepared state.
     TEST(BackendPreparation, SemanticFailuresPreservePreviouslyPreparedState) {
         DAG graph;
         const auto addedA = graph.add<EmptyProcessor>();
@@ -693,6 +770,7 @@ namespace {
         EXPECT_EQ(output, 5);
     }
 
+    /// @brief Test case: unencodable legacy indices are rejected before narrowing.
     TEST(BackendPreparation, UnencodableLegacyIndicesAreRejectedBeforeNarrowing) {
         DAG graph;
         const auto addedA = graph.add<Processor>();
@@ -709,6 +787,7 @@ namespace {
         ASSERT_TRUE(graph.remove(a.id())); // Rejected insertion retained no borrow.
     }
 
+    /// @brief Test case: descriptor views use physical inputs and backend outputs only.
     TEST(BackendCallbackAdapter, DescriptorViewsUsePhysicalInputsAndBackendOutputsOnly) {
         DAG graph;
         const auto addedNode = graph.add<EmptyProcessor>();

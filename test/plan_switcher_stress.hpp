@@ -1,3 +1,8 @@
+/**
+ * @file plan_switcher_stress.hpp
+ * @brief Test fixtures for plan switcher stress.
+ * @author Mika
+ */
 #pragma once
 #include <array>
 #include <atomic>
@@ -12,29 +17,64 @@
 #include "plan_switcher_fixture.hpp"
 
 namespace switcher_test {
-    struct HeapTotals { std::size_t allocations=0,deallocations=0,mutexAttempts=0; };
+    /// @brief Aggregates heap and mutex events observed inside measured callback windows.
+    struct HeapTotals { std::size_t allocations=0 /**< Number of heap acquisitions recorded inside the measured window. */,
+                            deallocations=0 /**< Number of measured releases of non-null allocated storage. */,
+                            mutexAttempts=0 /**< Number of direct mutex acquisition attempts inside the measurement window. */; };
+    /// @brief Optional measurement callbacks invoked around each stress-test audio execution.
     struct StressHooks {
+        /// @brief Optional noexcept hook opening the thread-local measurement window.
         void (*before)() noexcept=nullptr;
+        /// @brief Optional noexcept hook closing the window and accumulating its event counts.
         void (*after)(HeapTotals&) noexcept=nullptr;
     };
+    /// @brief Summary of generation, output and resource checks from a threaded stress run.
     struct StressResult {
-        unsigned swaps=0,published=0,canceled=0,failedCandidates=0,busyRefusals=0,stops=0,edits=0;
-        unsigned failures=0,errorStep=0,created=0,destroyed=0,destroyedOnAudio=0;
-        std::uint64_t callbacks=0,samples=0;
+        unsigned swaps=0 /**< Swaps retained by the fixture. */,
+            published=0 /**< Number of candidates published to the audio thread. */,
+            canceled=0 /**< Number of Pending candidates canceled after backend quiescence. */,
+            failedCandidates=0 /**< Number of deliberately refused candidate preparations. */,
+            busyRefusals=0 /**< Number of plan transitions refused while the publication state was busy. */,
+            stops=0 /**< Number of backend stop/join cycles exercised by the stress run. */,
+            edits=0 /**< Number of desired-graph mutations performed during the stress run. */;
+        unsigned failures=0 /**< Atomic count of mismatches reported by the audio-side oracle. */,
+            errorStep=0 /**< Stress operation index retained to identify the first failure. */,
+            created=0 /**< Number of processor instances constructed on control. */,
+            destroyed=0 /**< Number of processor instances destroyed on control or during the measured scope. */,
+            destroyedOnAudio=0 /**< Number of destructor events recorded inside an audio callback. */;
+        std::uint64_t callbacks=0 /**< Callbacks retained by the fixture. */,
+            samples=0 /**< Whole-sample latency or sample values retained by the record. */;
+        /// @brief Counts of prepared plans grouped by the exercised delay lengths.
         std::array<unsigned,3> delayPlans{};
+        /// @brief Aggregated heap and mutex measurements from callback windows.
         HeapTotals heap;
     };
-    struct StressTrace : LifetimeTrace { std::atomic<unsigned> created{0}; };
-    struct CallbackObservation { GenerationID first=0,last=0; bool midSwap=false; };
-    enum class StressRole { Source,Sink,Extra };
+    /// @brief Counts processor lifetime events during the two-thread publication stress.
+    struct StressTrace : LifetimeTrace { /** Number of processor instances constructed on control. */ std::atomic<unsigned> created{0}; };
+    /// @brief Numeric audio-side observation transferred to the stress-test oracle.
+    struct CallbackObservation { GenerationID first=0 /**< Generation observed at the first processing observation in a callback. */,
+                                     last=0 /**< Generation observed at the final processing observation in a callback. */; /** Whether a forbidden reentrant adoption attempt was observed inside processing. */ bool midSwap=false; };
+    /// @brief Selects each processor's role in the publication stress signal path.
+    enum class StressRole {
+        /// @brief Produce the fixture's source signal.
+        Source,
+        /// @brief Consume a logical signal and expose physical output samples.
+        Sink,
+        /// @brief Provide an additional structural processor for edit/lifetime checks.
+        Extra
+    };
 
+    /// @brief Renders a stress-test signal and records generation and lifetime observations.
     class StressNode final : public Node {
     public:
+        /// @brief Select the processing role and borrow generation and lifetime observation state.
         StressNode(NodeID id,PlanSwitcher& switcher,StressRole role,CallbackObservation& observed,StressTrace& trace)
             : Node(id,role==StressRole::Source ? Config{.layoutOutput={0}} :
                       role==StressRole::Sink ? Config{.layoutInput={0}} : Config{}),
               switcher_(switcher),role_(role),observed_(observed),trace_(trace) { ++trace_.created; }
+        /// @brief Record fixture destruction and release owned state on the calling thread.
         ~StressNode() override { ++trace_.destroyed; if (onAudio) ++trace_.destroyedOnAudio; }
+        /// @brief Render the selected stress role and record generation, binding and lifetime observations.
         void process(const ProcessContext& ctx) noexcept override {
             if (role_==StressRole::Extra) return;
             const auto generation=switcher_.audioGeneration();
@@ -51,7 +91,8 @@ namespace switcher_test {
             }
         }
     private:
-        PlanSwitcher& switcher_; StressRole role_; CallbackObservation& observed_; StressTrace& trace_;
+        /// @brief Borrowed switcher used to observe the current audio generation.
+        PlanSwitcher& switcher_; /** Immutable processor role selecting this fixture's signal behavior. */ StressRole role_; /** Borrowed numeric observations updated by this processor. */ CallbackObservation& observed_; /** Borrowed lifetime or binding trace; it must outlive the fixture processor. */ StressTrace& trace_;
     };
 
     /**
@@ -67,19 +108,31 @@ namespace switcher_test {
         DAG graph; PlanSwitcher switcher;
         CallbackObservation observed;
         std::array<FrameCount,infoCapacity> delayOf{};
+        /// @brief Owns sample buffers and callback views that remain stable for one render call.
         struct Bank {
+            /// @brief Owned input sample storage used by the fixture.
             std::array<float,6> input{};
+            /// @brief Owned output sample storage or selected output-node identity.
             std::array<std::array<float,6>,2> output{};
+            /// @brief Input channel descriptors or physical sample pointers used by this state.
             std::array<const float*,1> inputs{input.data()+1};
+            /// @brief Output channel descriptors or physical sample pointers used by this state.
             std::array<float*,2> outputs{output[0].data()+1,output[1].data()+1};
         };
         std::array<Bank,2> banks;
+        /// @brief Tracks the expected generation and sample stream across callbacks.
         struct AudioOracle {
+            /// @brief Monotonic identity of the prepared graph snapshot.
             GenerationID generation=0;
+            /// @brief Persistent sample values retained by the independent stream oracle.
             std::array<float,256> history{};
+            /// @brief Current sample cursor in the fixture or independent circular history.
             std::size_t position=0;
+            /// @brief Atomic count of mismatches reported by the audio-side oracle.
             std::atomic<unsigned> failures{0};
-            std::uint64_t callbacks=0,samples=0;
+            std::uint64_t callbacks=0 /**< Callbacks retained by the fixture. */,
+                samples=0 /**< Whole-sample latency or sample values retained by the record. */;
+            /// @brief Aggregated heap and mutex measurements from callback windows.
             HeapTotals heap;
         } oracle;
         CallbackThread backend;

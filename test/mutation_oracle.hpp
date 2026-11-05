@@ -1,3 +1,8 @@
+/**
+ * @file mutation_oracle.hpp
+ * @brief Test fixtures for mutation oracle.
+ * @author Mika
+ */
 #pragma once
 
 #include <algorithm>
@@ -14,60 +19,116 @@
  * this model neither borrows Node addresses nor touches audio sample storage.
  */
 namespace mutation_oracle {
+    /// @brief Independent reference-model node identity type.
     using NodeId = std::uint32_t;
+    /// @brief Independent reference-model numeric channel identity type.
     using ChannelId = std::uint64_t;
-    inline constexpr std::uint16_t in = 0, out = 1, aux = 2;
+    inline constexpr std::uint16_t in = 0 /**< Raw main-input port code used by the independent model. */,
+         out = 1 /**< Raw output port code used by the independent model. */,
+         aux = 2 /**< Raw auxiliary port code used by the independent model. */;
+    /// @brief Maximum number of live identities admitted by the independent mutation model.
     inline constexpr std::size_t maxLive = 12;
 
+    /// @brief Expected outcome of an edit in the independent graph model.
     enum class Decision : std::uint16_t {
-        Accepted, InvalidPort, InvalidDirection, NodeNotFound,
-        ConnectionExists, InputOccupied, CycleDetected
-    };
-    enum class Kind : std::uint16_t { Add, Connect, Disconnect, Remove, Mark, Unmark };
+        /// @brief The independent model accepts the requested graph edit.
+        Accepted,
+        /// @brief A port code is outside the supported main/output/auxiliary domain.
+        InvalidPort,
+        /// @brief The proposed edge is not Out to In or Aux.
+        InvalidDirection,
+        /// @brief A required logical node identity is absent.
+        NodeNotFound,
+        /// @brief The exact logical connection is already present.
+        ConnectionExists,
+        /// @brief Another producer already feeds this complete destination channel.
+        InputOccupied,
+        /// @brief The desired dependency relation contains a cycle.
+        CycleDetected
 
+    };
+    /// @brief Selects insertion, connection, removal or output-role mutation in the reference model.
+    enum class Kind : std::uint16_t {
+        /// @brief Insert a processor into the desired node set.
+        Add,
+        /// @brief Insert a complete logical producer-to-consumer edge.
+        Connect,
+        /// @brief Remove only the exact requested logical edge.
+        Disconnect,
+        /// @brief Remove a desired processor, its connections and its output marker.
+        Remove,
+        /// @brief Enable the desired physical-output role for a processor.
+        Mark,
+        /// @brief Disable the desired physical-output role for a processor.
+        Unmark
+    };
+
+    /// @brief Numeric source and destination used by the independent graph model.
     struct Edge {
+        /// @brief Complete logical producer identity in this reference edge.
         ChannelId from{};
+        /// @brief Complete logical consumer identity in this reference edge.
         ChannelId to{};
+        /// @brief Compare all value fields for equality.
         constexpr bool operator==(const Edge&) const noexcept = default;
     };
+    /// @brief One reproducible graph edit and its numeric operands.
     struct Operation {
+        /// @brief Operation or fixture behavior selected for this record.
         Kind kind;
+        /// @brief Stable logical node identity.
         NodeId id{};
+        /// @brief Borrowed producer sample pointer or identity selected for this operation.
         ChannelId source{};
+        /// @brief Borrowed writable sample buffer for the delayed signal.
         ChannelId destination{};
     };
+    /// @brief Result category and structural effects predicted by the mutation model.
     struct Outcome {
+        /// @brief Predicted numeric outcome of the attempted graph mutation.
         Decision decision{Decision::Accepted};
         bool value = false; ///< Exact presence/removal for Disconnect.
         NodeId id = 0;      ///< Proposed identity for Add, not a published Node.
     };
 
+    /// @brief Encode the reference model's node, port and index without using production helpers.
     [[nodiscard]] constexpr ChannelId channel(NodeId node, std::uint16_t port,
                                                std::uint16_t index) noexcept {
         return (ChannelId{node} << 32U) | (ChannelId{port} << 16U) | ChannelId{index};
     }
+    /// @brief Extract the reference model's node field from a numeric channel identity.
     [[nodiscard]] constexpr NodeId nodeOf(ChannelId value) noexcept {
         return static_cast<NodeId>(value >> 32U);
     }
+    /// @brief Extract the reference model's port field without normalizing undefined values.
     [[nodiscard]] constexpr std::uint16_t portOf(ChannelId value) noexcept {
         return static_cast<std::uint16_t>((value >> 16U) & ChannelId{0xFFFF});
     }
+    /// @brief Extract the raw low 16-bit channel index for independent model validation.
     [[nodiscard]] constexpr std::uint16_t indexOf(ChannelId value) noexcept {
         return static_cast<std::uint16_t>(value & ChannelId{0xFFFF});
     }
 
+    /// @brief Independent numeric graph model used to compare compiled behavior.
     struct Model {
+        /// @brief Boolean transitive-reachability matrix used by the independent graph model.
         using Closure = std::array<std::array<bool, maxLive>, maxLive>;
 
+        /// @brief Next monotonic identity allocated by the independent model.
         NodeId nextID = 1;
+        /// @brief Node identities or independently owned node metadata belonging to this snapshot.
         std::vector<NodeId> nodes;
+        /// @brief Complete logical connections retained by the graph snapshot or reference model.
         std::vector<Edge> edges;
+        /// @brief Output channel descriptors or physical sample pointers used by this state.
         std::vector<NodeId> outputs;
 
+        /// @brief Check whether the independent desired-node set contains the requested identity.
         [[nodiscard]] bool contains(NodeId id) const noexcept {
             return std::find(nodes.begin(), nodes.end(), id) != nodes.end();
         }
 
+        /// @brief Return a node's position in the independent model's identity sequence.
         [[nodiscard]] std::size_t position(NodeId id) const noexcept {
             const auto found = std::find(nodes.begin(), nodes.end(), id);
             return static_cast<std::size_t>(found - nodes.begin());
@@ -96,6 +157,8 @@ namespace mutation_oracle {
             return reach;
         }
 
+        /// @brief Report whether the independently computed reachability matrix has no self-reachable
+        /// vertex.
         [[nodiscard]] bool acyclic() const noexcept {
             const auto reachable = closure();
             for (std::size_t i = 0; i < nodes.size(); ++i)

@@ -1,3 +1,8 @@
+/**
+ * @file test_pool_integration.cpp
+ * @brief Tests for pool integration.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -13,6 +18,7 @@ namespace {
     using namespace mka::audio::dsp;
     using mka::audio::AudioProcessContext;
 
+    /// @brief Test case: chain uses four mono slots with stable bindings and exact stereo render.
     TEST(PoolIntegration, ChainUsesFourMonoSlotsWithStableBindingsAndExactStereoRender) {
         pool_test::Pipeline p;
         auto previous = p.add();
@@ -50,6 +56,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: fanout aux multiple sources output successor and explicit delay execute the final order.
     TEST(PoolIntegration, FanoutAuxMultipleSourcesOutputSuccessorAndExplicitDelayExecuteTheFinalOrder) {
         pool_test::Pipeline p;
         const auto a=p.add(), b=p.add(), early=p.add(), late=p.add(), sink=p.add();
@@ -84,6 +91,7 @@ namespace {
         EXPECT_EQ(output,expected);
     }
 
+    /// @brief Test case: budget and capacity refusal keep active storage and exact budget succeeds.
     TEST(PoolIntegration, BudgetAndCapacityRefusalKeepActiveStorageAndExactBudgetSucceeds) {
         pool_test::Pipeline p;
         const auto a=p.add(), b=p.add();

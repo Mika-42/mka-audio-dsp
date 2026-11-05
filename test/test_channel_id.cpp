@@ -1,3 +1,8 @@
+/**
+ * @file test_channel_id.cpp
+ * @brief Tests for channel id.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <cstdint>
@@ -13,6 +18,8 @@ import mka.audio.dsp.channel;
 namespace {
     using namespace mka::audio::dsp;
 
+    /// Exact noexcept signature of the logical channel encoder.
+    /// Exact noexcept signature of the logical channel encoder.
     using EncodeFunction = ChannelID (*)(NodeID, PortType, ChannelIndex) noexcept;
     static_assert(std::same_as<decltype(&encode), EncodeFunction>);
     static_assert(std::same_as<decltype(&decodeNode), NodeID (*)(ChannelID) noexcept>);
@@ -30,6 +37,7 @@ namespace {
     static_assert(!isValidPort(decodePort(UINT64_MAX)));
     static_assert(!isValidPort(decodePort(0x123456780003ABCDULL)));
 
+    /// @brief Test case: matches independent numeric golden values.
     TEST(ChannelIDCodec, MatchesIndependentNumericGoldenValues) {
         EXPECT_EQ(encode(0x12345678U, PortType::Out, 0xABCDU), 0x123456780001ABCDULL);
         EXPECT_EQ(encode(0, PortType::In, 65535), 0x000000000000FFFFULL);
@@ -39,6 +47,7 @@ namespace {
         EXPECT_EQ(encode(UINT32_MAX, PortType::Aux, UINT16_MAX), 0xFFFFFFFF0002FFFFULL);
     }
 
+    /// @brief Test case: round trips all boundary combinations.
     TEST(ChannelIDCodec, RoundTripsAllBoundaryCombinations) {
         constexpr std::array<NodeID, 3> nodes{0, 1, UINT32_MAX};
         constexpr std::array ports{PortType::In, PortType::Out, PortType::Aux};
@@ -60,9 +69,13 @@ namespace {
         }
     }
 
+    /// @brief Test case: preserves every channel index without field collisions.
     TEST(ChannelIDCodec, PreservesEveryChannelIndexWithoutFieldCollisions) {
+        /// @brief Fields used to construct a family of encoded channel identities.
         struct Prefix {
+            /// @brief Logical main, output or auxiliary port category.
             PortType port;
+            /// @brief Expected numeric value or identity for the current table-driven case.
             ChannelID expected;
         };
         constexpr std::array prefixes{
@@ -83,6 +96,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: extracts each of the sixty four bits from only its own field.
     TEST(ChannelIDCodec, ExtractsEachOfTheSixtyFourBitsFromOnlyItsOwnField) {
         for (unsigned bit = 0; bit < 64; ++bit) {
             SCOPED_TRACE(bit);
@@ -100,6 +114,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: distinct node port and index tuples never collide.
     TEST(ChannelIDCodec, DistinctNodePortAndIndexTuplesNeverCollide) {
         constexpr std::array<NodeID, 8> nodes{
             0, 1, 0x0000FFFFU, 0x00010000U, 0x55555555U, 0x80000000U,
@@ -120,6 +135,7 @@ namespace {
         EXPECT_EQ(seen.size(), nodes.size() * ports.size() * indices.size());
     }
 
+    /// @brief Test case: preserves and rejects every undefined decoded port code.
     TEST(ChannelIDCodec, PreservesAndRejectsEveryUndefinedDecodedPortCode) {
         for (std::uint32_t code = 3; code <= 65535; ++code) {
             // Construct malformed identifiers directly: encode requires a valid port.
@@ -134,6 +150,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: arbitrary identifiers decode and recombine without losing bits.
     TEST(ChannelIDCodec, ArbitraryIdentifiersDecodeAndRecombineWithoutLosingBits) {
         constexpr std::array<ChannelID, 8> identifiers{
             0, UINT64_MAX, 0x0123456789ABCDEFULL, 0xFEDCBA9876543210ULL,
@@ -161,6 +178,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: encoder preserves every node bit including the highest.
     TEST(ChannelIDCodec, EncoderPreservesEveryNodeBitIncludingTheHighest) {
         for (unsigned bit = 0; bit < 32; ++bit) {
             SCOPED_TRACE(bit);

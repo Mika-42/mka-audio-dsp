@@ -1,3 +1,8 @@
+/**
+ * @file test_plan_switcher_node_lifetime.cpp
+ * @brief Tests for plan switcher node lifetime.
+ * @author Mika
+ */
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -12,6 +17,7 @@ namespace {
     using namespace mka::audio::dsp;
     using namespace switcher_test;
 
+    /// @brief Test case: external generation keeps A removed node alive after both manager slots release it.
     TEST(PlanSwitcherNodeLifetime, ExternalGenerationKeepsARemovedNodeAliveAfterBothManagerSlotsReleaseIt) {
         LifetimeTrace trace;
         DAG graph; PlanSwitcher switcher;
@@ -30,6 +36,7 @@ namespace {
         EXPECT_EQ(trace.destroyedOnAudio.load(),0U);
     }
 
+    /// @brief Test case: removal with A failed replacement still renders the old node until successful retirement.
     TEST(PlanSwitcherNodeLifetime, RemovalWithAFailedReplacementStillRendersTheOldNodeUntilSuccessfulRetirement) {
         LifetimeTrace trace;
         DAG graph; PlanSwitcher switcher;
@@ -50,6 +57,7 @@ namespace {
         EXPECT_EQ(graph.collectRetiredNodes(),1U); EXPECT_EQ(trace.destroyed.load(),1U);
     }
 
+    /// @brief Test case: repeated add remove never destroys on audio or reuses live identity.
     TEST(PlanSwitcherNodeLifetime, RepeatedAddRemoveNeverDestroysOnAudioOrReusesLiveIdentity) {
         LifetimeTrace trace;
         DAG graph; PlanSwitcher switcher;
