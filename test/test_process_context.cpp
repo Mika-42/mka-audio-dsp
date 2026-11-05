@@ -1,3 +1,8 @@
+/**
+ * @file test_process_context.cpp
+ * @brief Tests for process context.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <cstddef>
@@ -32,10 +37,12 @@ namespace {
     static_assert(std::same_as<decltype(std::declval<const ProcessContext&>().backendOutputs[0].buffer[0]),
                                float&>);
 
+    /// @brief Whether a const processing context permits rebinding an input pointer.
     template<typename Context>
     concept RebindableInput = requires(const Context& ctx, const float* pointer) {
         ctx.inputs[0].buffer = pointer;
     };
+    /// @brief Whether a const processing context permits rebinding logical or physical outputs.
     template<typename Context>
     concept RebindableOutput = requires(const Context& ctx, float* pointer) {
         ctx.outputs[0].buffer = pointer;
@@ -43,6 +50,7 @@ namespace {
     };
     static_assert(!RebindableInput<ProcessContext> && !RebindableOutput<ProcessContext>);
 
+    /// @brief Check the default context aggregate shape in constant evaluation.
     constexpr bool hasExactlyFiveDefaultFields() {
         const auto [inputs, auxiliary, outputs, backendOutputs, frames] = ProcessContext{};
         return inputs.empty() && auxiliary.empty() && outputs.empty() &&
@@ -53,15 +61,22 @@ namespace {
     static_assert(std::same_as<
         decltype(validateContextBindings(std::declval<const PreparedContextBindings&>())), Result>);
 
+    /// @brief Callable satisfying the void/noexcept processing-context contract.
     struct NothrowConsumer {
+        /// @brief Provide the fixture's callable signature for compile-time context-consumer validation.
         void operator()(const ProcessContext&) const noexcept {}
     };
+    /// @brief Callable that intentionally lacks noexcept for a compile-time constraint check.
     struct ThrowingConsumer {
+        /// @brief Provide the fixture's callable signature for compile-time context-consumer validation.
         void operator()(const ProcessContext&) const {}
     };
+    /// @brief Callable returning a value to exercise the void-return constraint.
     struct NonVoidConsumer {
+        /// @brief Provide the fixture's callable signature for compile-time context-consumer validation.
         int operator()(const ProcessContext&) const noexcept { return 0; }
     };
+    /// @brief Whether the consumer satisfies the context adapter's void/noexcept contract.
     template<typename Consumer>
     concept AcceptedContextConsumer = requires(const PreparedContextBindings& bindings, Consumer&& consume) {
         withProcessContext(bindings, std::span<const InputChannel>{},
@@ -78,6 +93,7 @@ namespace {
         std::span<const InputChannel>{}, std::span<const OutputChannel>{},
         FrameCount{}, NothrowConsumer{})), bool>);
 
+    /// @brief Check the numeric InvalidParameter error for a consumed null sample pointer.
     void expectNullBuffer(const Result& result) {
         ASSERT_FALSE(result.has_value());
         EXPECT_EQ(result.error(), ErrorType::NullBuffer);
@@ -85,12 +101,15 @@ namespace {
 
     // Concrete Node used only to exercise the public context API. Roles are
     // prepared explicitly; this does not implement DAG role detection/routing.
+    /// @brief Applies a scalar gain and optionally writes the physical output views.
     class ContextNode final : public Node {
     public:
+        /// @brief Store the scalar gain and optional physical-output policy for context binding cases.
         explicit ContextNode(const NodeID id, const float gain = 1.F,
                              const bool writeBackend = false)
             : Node(id, Config{}), gain_(gain), writeBackend_(writeBackend) {}
 
+        /// @brief Render gain from the selected main input and optionally write a distinct physical value.
         void process(const ProcessContext& ctx) noexcept override {
             ++calls;
             inputCount = ctx.inputs.size();
@@ -105,15 +124,21 @@ namespace {
             }
         }
 
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls = 0;
+        /// @brief Number of input descriptors observed during the callback.
         std::size_t inputCount = 0;
+        /// @brief Number of physical output views observed by the context fixture.
         std::size_t backendOutputCount = 0;
 
     private:
+        /// @brief Fixed multiplication factor applied by the processor.
         float gain_;
+        /// @brief Whether this processor also writes the borrowed physical outputs.
         bool writeBackend_;
     };
 
+    /// @brief Test case: defaults to five empty non owning fields.
     TEST(ProcessContextViews, DefaultsToFiveEmptyNonOwningFields) {
         const ProcessContext ctx{};
         EXPECT_TRUE(ctx.inputs.empty());
@@ -123,6 +148,7 @@ namespace {
         EXPECT_EQ(ctx.frames, 0);
     }
 
+    /// @brief Test case: validates internal pointers without mutating bindings.
     TEST(ProcessContextPreparation, ValidatesInternalPointersWithoutMutatingBindings) {
         const std::array<float, 2> input{2.F, 3.F};
         std::array<float, 2> output{7.F, 11.F};
@@ -148,6 +174,7 @@ namespace {
         EXPECT_EQ(output, (std::array<float, 2>{7.F, 11.F}));
     }
 
+    /// @brief Test case: source ignores unused internal inputs and zero maximum allows preparation nulls.
     TEST(ProcessContextPreparation, SourceIgnoresUnusedInternalInputsAndZeroMaximumAllowsPreparationNulls) {
         const std::array nullInputs{InputChannel{}};
         const std::array nullOutputs{OutputChannel{}};
@@ -160,6 +187,7 @@ namespace {
         EXPECT_TRUE(validateContextBindings(zero));
     }
 
+    /// @brief Test case: ordinary node uses all internal views and ignores unused backend data.
     TEST(ProcessContextViews, OrdinaryNodeUsesAllInternalViewsAndIgnoresUnusedBackendData) {
         const std::array<float, 2> samples{3.F, 5.F};
         const std::array<float, 2> auxSamples{7.F, 11.F};
@@ -186,6 +214,7 @@ namespace {
         EXPECT_EQ(node.calls, 1U);
     }
 
+    /// @brief Test case: source alone receives every physical input despite empty layout.
     TEST(ProcessContextViews, SourceAloneReceivesEveryPhysicalInputDespiteEmptyLayout) {
         const std::array<std::array<float, 2>, 3> samples{{{1.F, 2.F}, {3.F, 4.F}, {5.F, 6.F}}};
         std::array<float, 2> logicalOutput{0.F, 19.F};
@@ -213,6 +242,7 @@ namespace {
         EXPECT_EQ(logicalOutput, (std::array<float, 2>{5.F, 19.F}));
     }
 
+    /// @brief Test case: output alone receives every backend output alongside logical outputs.
     TEST(ProcessContextViews, OutputAloneReceivesEveryBackendOutputAlongsideLogicalOutputs) {
         const std::array<float, 2> input{2.F, 4.F};
         std::array<float, 2> logicalOutput{};
@@ -242,6 +272,7 @@ namespace {
         EXPECT_EQ(node.backendOutputCount, 2U);
     }
 
+    /// @brief Test case: source and output roles are independent on the same node.
     TEST(ProcessContextViews, SourceAndOutputRolesAreIndependentOnTheSameNode) {
         const std::array<float, 2> first{1.F, 2.F};
         const std::array<float, 2> second{7.F, 8.F};
@@ -268,6 +299,7 @@ namespace {
         EXPECT_EQ(backendOutput, (std::array<float, 2>{107.F, 108.F}));
     }
 
+    /// @brief Test case: output node keeps its logical buffer for A successor.
     TEST(ProcessContextViews, OutputNodeKeepsItsLogicalBufferForASuccessor) {
         const std::array<float, 2> samples{3.F, 4.F};
         std::array<float, 2> logicalOutput{};
@@ -305,6 +337,7 @@ namespace {
         EXPECT_EQ(successor.calls, 1U);
     }
 
+    /// @brief Test case: zero frames skip the consumer even with null descriptors.
     TEST(ProcessContextGuards, ZeroFramesSkipTheConsumerEvenWithNullDescriptors) {
         const std::array nullInputs{InputChannel{}};
         const std::array nullOutputs{OutputChannel{}};
@@ -318,6 +351,7 @@ namespace {
         EXPECT_EQ(calls, 0U);
     }
 
+    /// @brief Test case: zero channels allow A positive frame context.
     TEST(ProcessContextGuards, ZeroChannelsAllowAPositiveFrameContext) {
         const PreparedContextBindings bindings{.maxFrames = 2, .isSource = true, .isOutput = true};
         ASSERT_TRUE(validateContextBindings(bindings));
@@ -334,6 +368,7 @@ namespace {
         EXPECT_EQ(calls, 1U);
     }
 
+    /// @brief Test case: excessive frames skip samples and the next callback uses fresh views.
     TEST(ProcessContextGuards, ExcessiveFramesSkipSamplesAndTheNextCallbackUsesFreshViews) {
         const std::array<float, 2> oldInput{2.F, 3.F};
         std::array<float, 2> oldOutput{11.F, 13.F};
@@ -365,6 +400,7 @@ namespace {
         EXPECT_EQ(oldOutput, (std::array<float, 2>{11.F, 13.F}));
     }
 
+    /// @brief Test case: backend input count overflow skips the consumer.
     TEST(ProcessContextGuards, BackendInputCountOverflowSkipsTheConsumer) {
         const std::array<float, 1> samples{2.F};
         const std::array tooMany{InputChannel{0, samples.data()}, InputChannel{0, samples.data()}};
@@ -379,6 +415,7 @@ namespace {
         EXPECT_EQ(calls, 1U);
     }
 
+    /// @brief Test case: backend output count overflow skips the consumer and leaves samples untouched.
     TEST(ProcessContextGuards, BackendOutputCountOverflowSkipsTheConsumerAndLeavesSamplesUntouched) {
         std::array<float, 2> samples{17.F, 19.F};
         const std::array tooMany{OutputChannel{0, &samples[0]}, OutputChannel{0, &samples[1]}};
@@ -394,6 +431,7 @@ namespace {
         EXPECT_EQ(calls, 1U);
     }
 
+    /// @brief Test case: null pointers in every selected view reject before the consumer.
     TEST(ProcessContextGuards, NullPointersInEverySelectedViewRejectBeforeTheConsumer) {
         const std::array<float, 1> inputSample{2.F};
         std::array<float, 1> outputSample{7.F};
@@ -429,6 +467,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: successive callbacks borrow only their current descriptor storage.
     TEST(ProcessContextLifetime, SuccessiveCallbacksBorrowOnlyTheirCurrentDescriptorStorage) {
         const PreparedContextBindings bindings{.maxFrames = 2,
             .maxBackendInputChannels = 1, .maxBackendOutputChannels = 1,

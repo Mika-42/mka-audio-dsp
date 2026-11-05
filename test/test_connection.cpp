@@ -1,3 +1,8 @@
+/**
+ * @file test_connection.cpp
+ * @brief Tests for connection.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <cstddef>
@@ -15,14 +20,19 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
 
+    /// @brief Minimal processor used by logical-edge identity tests.
     class ConnectionNode final : public Node {
     public:
+        /// @brief Declare the processor logical ports under the supplied stable Node identity.
         explicit ConnectionNode(const NodeID id) : Node(id, Config{}) {}
+        /// @brief Record the call and input-descriptor count without touching samples.
         void process(const ProcessContext& context) noexcept override {
             inputCount = context.inputs.size();
             ++calls;
         }
+        /// @brief Number of input descriptors observed during the callback.
         std::size_t inputCount = 0;
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls = 0;
     };
 
@@ -43,11 +53,13 @@ namespace {
     static_assert(!std::is_assignable_v<
         decltype((std::declval<std::span<const Connection>>()[0].from)), ChannelID>);
 
+    /// @brief Require the expected numeric error while preserving its node/channel context.
     void expectError(const Result& result, const GraphError error) {
         ASSERT_FALSE(result);
         EXPECT_EQ(result.error().code, error.code);
     }
 
+    /// @brief Test case: defaults to zero and copies can be edited independently.
     TEST(ConnectionValue, DefaultsToZeroAndCopiesCanBeEditedIndependently) {
         const Connection empty;
         EXPECT_EQ(empty.from, 0U);
@@ -62,6 +74,7 @@ namespace {
         EXPECT_NE(copy, original);
     }
 
+    /// @brief Test case: equality uses both full width identities rather than node pairs.
     TEST(ConnectionValue, EqualityUsesBothFullWidthIdentitiesRatherThanNodePairs) {
         constexpr Connection edge{
             encode(maxNodeID, PortType::Out, maxChannelIndex),
@@ -79,6 +92,7 @@ namespace {
         EXPECT_EQ(arbitrary.from, std::numeric_limits<ChannelID>::max());
     }
 
+    /// @brief Test case: same nodes keep distinct channels and ports in insertion order outside layouts.
     TEST(ConnectionStorage, SameNodesKeepDistinctChannelsAndPortsInInsertionOrderOutsideLayouts) {
         DAG graph;
         const auto source = graph.add<ConnectionNode>();
@@ -106,6 +120,7 @@ namespace {
         EXPECT_EQ(plan->tasks()[1], graph.node(*sink));
     }
 
+    /// @brief Test case: exact duplicate refusal preserves the stored value and allows other channels.
     TEST(ConnectionStorage, ExactDuplicateRefusalPreservesTheStoredValueAndAllowsOtherChannels) {
         DAG graph;
         const auto source = graph.add<ConnectionNode>();
@@ -127,6 +142,7 @@ namespace {
         EXPECT_EQ(graph.connections()[0], edge);
     }
 
+    /// @brief Test case: fan out shares the producer but every destination has one owner.
     TEST(ConnectionStorage, FanOutSharesTheProducerButEveryDestinationHasOneOwner) {
         DAG graph;
         const auto source = graph.add<ConnectionNode>();
@@ -146,6 +162,7 @@ namespace {
         EXPECT_EQ(graph.connections()[1], (Connection{out, aux}));
     }
 
+    /// @brief Test case: output markers do not create hardware edges and zero cannot name A backend node.
     TEST(ConnectionStorage, OutputMarkersDoNotCreateHardwareEdgesAndZeroCannotNameABackendNode) {
         DAG graph;
         const auto source = graph.add<ConnectionNode>();
@@ -161,6 +178,7 @@ namespace {
         EXPECT_TRUE(graph.connections().empty());
     }
 
+    /// @brief Test case: node storage growth and unrelated removal do not change connection values.
     TEST(ConnectionStorage, NodeStorageGrowthAndUnrelatedRemovalDoNotChangeConnectionValues) {
         DAG graph;
         const auto source = graph.add<ConnectionNode>();
@@ -186,6 +204,7 @@ namespace {
         EXPECT_EQ(graph.connections()[0], edge);
     }
 
+    /// @brief Test case: growing the edge container preserves every pair and detached copies.
     TEST(ConnectionStorage, GrowingTheEdgeContainerPreservesEveryPairAndDetachedCopies) {
         DAG graph;
         const auto source = graph.add<ConnectionNode>();
@@ -213,6 +232,7 @@ namespace {
         EXPECT_NE(detached, graph.connections()[0]);
     }
 
+    /// @brief Test case: legacy wide fields are rejected before narrowing or creating aliased edges.
     TEST(ConnectionStorage, LegacyWideFieldsAreRejectedBeforeNarrowingOrCreatingAliasedEdges) {
         DAG graph;
         const auto source = graph.add<ConnectionNode>();
@@ -237,6 +257,7 @@ namespace {
                                                      encode(*sink, PortType::In, 65535)}));
     }
 
+    /// @brief Test case: detached value remains usable after its graph and nodes are destroyed.
     TEST(ConnectionStorage, DetachedValueRemainsUsableAfterItsGraphAndNodesAreDestroyed) {
         Connection detached;
         {
@@ -253,6 +274,7 @@ namespace {
         EXPECT_EQ(detached.to, 0x0000000200020017ULL);
     }
 
+    /// @brief Test case: editing desired edges preserves the previously prepared plan snapshot.
     TEST(ConnectionStorage, EditingDesiredEdgesPreservesThePreviouslyPreparedPlanSnapshot) {
         DAG graph;
         const auto source = graph.add<ConnectionNode>();

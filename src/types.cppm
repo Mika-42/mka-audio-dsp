@@ -1,3 +1,8 @@
+/**
+ * @file types.cppm
+ * @brief Checked conversion to logical channel indices.
+ * @author Mika
+ */
 module;
 
 #include <concepts>

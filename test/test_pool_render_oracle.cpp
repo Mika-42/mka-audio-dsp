@@ -1,3 +1,8 @@
+/**
+ * @file test_pool_render_oracle.cpp
+ * @brief Tests for pool render oracle.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -15,10 +20,14 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
     using mka::audio::AudioProcessContext;
+    /// @brief Compile-time sample capacity of each fake-backend channel.
     constexpr FrameCount maximum = 4096;
+    /// @brief Sample value marking untouched storage outside the rendered region.
     constexpr float sentinel = -87654.F;
+    /// Independent stereo sample streams used by the reference renderer.
     using Samples = std::array<std::vector<float>,2>;
 
+    /// @brief Create sample storage initialized to the fixture's boundary sentinel.
     Samples guardedSamples() {
         return {std::vector<float>(maximum+2, sentinel), std::vector<float>(maximum+2, sentinel)};
     }
@@ -31,14 +40,22 @@ namespace {
      * known producer-first order; edges always go from a lower to a higher id.
      */
     struct ReferenceRenderer {
+        /// @brief Borrowed graph fixture whose values seed the independent rendering model.
         const pool_test::Pipeline& pipeline;
+        /// @brief Complete logical connections retained by the graph snapshot or reference model.
         std::vector<Connection> edges;
+        /// @brief Snapshot of desired output-node identities used by the reference renderer.
         std::vector<NodeID> marked;
+        /// @brief Owned persistent histories and bindings for compensated logical edges.
         std::vector<ConnectionDelay> delays;
+        /// @brief Persistent sample values retained by the independent stream oracle.
         std::vector<std::vector<float>> history;
+        /// @brief Per-processor sample arrays retained independently of reused plan slots.
         std::vector<Samples> produced;
+        /// @brief Captured physical output samples for independent rendering comparisons.
         Samples physical = guardedSamples();
 
+        /// @brief Capture graph values and allocate independent per-signal sample histories.
         ReferenceRenderer(const pool_test::Pipeline& p, std::span<const ConnectionDelay> requested)
             : pipeline(p), edges(p.graph.connections().begin(),p.graph.connections().end()),
               marked(p.graph.outputNodes().begin(),p.graph.outputNodes().end()),
@@ -47,6 +64,7 @@ namespace {
             for (const auto& delay : delays) history.emplace_back(delay.samples,0.F);
         }
 
+        /// @brief Render the requested block through the fixture or independent sample model.
         void render(const std::span<const float* const> inputs, FrameCount frames) {
             for (auto& channel : physical) {
                 std::fill(channel.begin(),channel.end(),sentinel);
@@ -94,6 +112,7 @@ namespace {
         }
     };
 
+    /// @brief Render the waveform corpus and compare each logical and physical sample.
     void checkCorpus(pool_test::Pipeline& p, const std::span<const ConnectionDelay> delays={}) {
         BackendConfig config{.maxFrames=maximum,.inputChannels=2,.outputChannels=2,.connectionDelays=delays};
         auto optimized=p.graph.compile(config); ASSERT_TRUE(optimized);
@@ -163,6 +182,7 @@ namespace {
         for (const auto id : p.ids) static_cast<pool_test::SumNode*>(p.graph.node(id))->capture={};
     }
 
+    /// @brief Test case: long chain and diamond keep every intermediate sample.
     TEST(PoolRenderOracle, LongChainAndDiamondKeepEveryIntermediateSample) {
         {
             pool_test::Pipeline p;
@@ -182,6 +202,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: ten way fanout late readers aux and multiple backend writers.
     TEST(PoolRenderOracle, TenWayFanoutLateReadersAuxAndMultipleBackendWriters) {
         pool_test::Pipeline p;
         const auto source=p.add();
@@ -198,6 +219,7 @@ namespace {
         checkCorpus(p);
     }
 
+    /// @brief Test case: delays zero three and256 have independent persistent histories.
     TEST(PoolRenderOracle, DelaysZeroThreeAnd256HaveIndependentPersistentHistories) {
         for (const std::uint64_t delay : {0U,3U,256U}) {
             SCOPED_TRACE(delay);
@@ -212,6 +234,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: undeclared edges silence multiple sources and missing ports remain safe.
     TEST(PoolRenderOracle, UndeclaredEdgesSilenceMultipleSourcesAndMissingPortsRemainSafe) {
         pool_test::Pipeline p;
         const auto a=p.add(), b=p.add(), silence=p.add(), output=p.add();
@@ -221,6 +244,7 @@ namespace {
         checkCorpus(p);
     }
 
+    /// @brief Test case: deterministic generated graphs cover different liveness and delay shapes.
     TEST(PoolRenderOracle, DeterministicGeneratedGraphsCoverDifferentLivenessAndDelayShapes) {
         std::uint32_t state=0x51A7E5U;
         const auto next=[&]() { state=state*1664525U+1013904223U; return state; };

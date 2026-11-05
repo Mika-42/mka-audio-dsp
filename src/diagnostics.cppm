@@ -1,3 +1,8 @@
+/**
+ * @file diagnostics.cppm
+ * @brief Control-side formatting of numeric graph errors and callback flags.
+ * @author Mika
+ */
 module;
 #include <array>
 #include <cstdint>

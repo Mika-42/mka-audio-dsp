@@ -1,3 +1,8 @@
+/**
+ * @file test_control_diagnostics.cpp
+ * @brief Tests for control diagnostics.
+ * @author Mika
+ */
 #include <array>
 #include <atomic>
 #include <cstdint>
@@ -13,6 +18,7 @@ import mka.audio.dsp.diagnostics;
 #include "v1_fixture.hpp"
 namespace {
     using namespace mka::audio::dsp;
+    /// @brief Test case: every stable category and unknown value keeps numeric context.
     TEST(ControlDiagnostics, EveryStableCategoryAndUnknownValueKeepsNumericContext) {
         for (unsigned i=0;i<14;++i) {
             const Error e{static_cast<ErrorCode>(i),42,encode(42,PortType::Aux,7)};
@@ -26,6 +32,7 @@ namespace {
         EXPECT_EQ(formatCallbackDiagnostics(0),"None");
         EXPECT_NE(formatCallbackDiagnostics(1U<<31).find("2147483648"),std::string::npos);
     }
+    /// @brief Test case: switcher flags survive retirement and drain without callback formatting.
     TEST(ControlDiagnostics, SwitcherFlagsSurviveRetirementAndDrainWithoutCallbackFormatting) {
         v1_test::Graph g; ASSERT_TRUE(g.make(0)); PlanSwitcher sw; v1_test::Bank bank; bank.fill(128);
         v1_test::callback(sw,bank.io(1));
@@ -43,6 +50,7 @@ namespace {
         EXPECT_EQ(sw.takeCallbackDiagnostics(),0U);
         EXPECT_EQ(g.trace.destroyedInAudio.load(),0U);
     }
+    /// @brief Test case: concurrent control drain and invalid callbacks use only atomic flags.
     TEST(ControlDiagnostics, ConcurrentControlDrainAndInvalidCallbacksUseOnlyAtomicFlags) {
         PlanSwitcher sw; std::atomic<bool> running{true};
         std::thread audio([&] { v1_test::Bank bank; bank.fill(1); for (unsigned i=0;i<10000;++i) sw.exec(bank.io(1)); running.store(false); });

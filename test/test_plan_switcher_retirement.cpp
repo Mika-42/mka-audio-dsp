@@ -1,3 +1,8 @@
+/**
+ * @file test_plan_switcher_retirement.cpp
+ * @brief Tests for plan switcher retirement.
+ * @author Mika
+ */
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -12,6 +17,7 @@ namespace {
     using namespace mka::audio::dsp;
     using namespace switcher_test;
 
+    /// @brief Test case: no ack means no release and an acknowledged slot is cleared exactly once.
     TEST(PlanSwitcherRetirement, NoAckMeansNoReleaseAndAnAcknowledgedSlotIsClearedExactlyOnce) {
         LifetimeTrace trace;
         DAG graph; PlanSwitcher switcher;
@@ -34,6 +40,7 @@ namespace {
         EXPECT_EQ(trace.destroyedOnAudio.load(),0U);
     }
 
+    /// @brief Test case: shared node survives the first ack until every generation releases its borrow.
     TEST(PlanSwitcherRetirement, SharedNodeSurvivesTheFirstAckUntilEveryGenerationReleasesItsBorrow) {
         LifetimeTrace trace;
         DAG graph; PlanSwitcher switcher;

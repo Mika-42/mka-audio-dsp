@@ -1,6 +1,8 @@
-//
-// Created by mika on 10/16/26.
-//
+/**
+ * @file node.cppm
+ * @brief DSP processor contracts and control-side configuration borrow tracking.
+ * @author Mika
+ */
 module;
 #include <cstdint>
 #include <expected>
@@ -15,11 +17,16 @@ export import mka.audio.dsp.process_context;
 // forward declarations to the Node module. Tokens borrow; they do not own Node.
 export namespace mka::audio::dsp::detail {
     // Only serialized control accesses these fields. Audio never reads them.
+    /// @brief Control-owned latency and sample-rate snapshot shared by plan borrow tokens.
     struct NodeBorrowState {
+        /// @brief Whether the current borrow epoch has a frozen intrinsic-latency snapshot.
         mutable bool hasLatency = false;
+        /// @brief Intrinsic algorithmic delay in whole samples.
         mutable LatencySamples latency = 0;
+        /// @brief Sampling rate at which the current intrinsic-latency snapshot was frozen.
         mutable std::uint32_t sampleRate = 0;
     };
+    /// @brief Shared control-side token retaining the Node's frozen metadata epoch.
     using NodeBorrowToken = std::shared_ptr<const NodeBorrowState>;
     struct NodeBorrowAccess;
     struct NodeConfigAccess;
@@ -52,9 +59,13 @@ export namespace mka::audio::dsp {
          */
         explicit Node(const NodeID id, const Config &cfg) : id_(id), config_(cfg) {}
 
+        /// @brief Disable copying to preserve stable ownership and borrowed addresses.
         Node(const Node&) = delete;
+        /// @brief Disable copying to preserve stable ownership and borrowed addresses.
         Node& operator=(const Node&) = delete;
+        /// @brief Disable moving to preserve stable ownership and borrowed addresses.
         Node(Node&&) = delete;
+        /// @brief Disable moving to preserve stable ownership and borrowed addresses.
         Node& operator=(Node&&) = delete;
 
         /**
@@ -114,8 +125,11 @@ export namespace mka::audio::dsp {
     private:
         friend struct detail::NodeBorrowAccess;
         friend struct detail::NodeConfigAccess;
+        /// @brief Stable identity assigned by the owning DAG.
         NodeID id_{};
+        /// @brief Owned ordered logical layouts, unchanged while a plan borrows the Node.
         Config config_{};
+        /// @brief Shared control-side token state keeping layout and latency metadata frozen.
         detail::NodeBorrowToken borrowState_ = std::make_shared<detail::NodeBorrowState>();
     };
 }
@@ -123,11 +137,13 @@ export namespace mka::audio::dsp {
 export namespace mka::audio::dsp::detail {
     /** Internal control-side borrow tracking; never copied/released in process. */
     struct NodeBorrowAccess {
+        /// @brief Acquire a control-side borrow token and start a fresh metadata epoch when unshared.
         static NodeBorrowToken retain(const Node& node) noexcept {
             // A new borrow epoch may observe a newly prepared DSP declaration.
             if (node.borrowState_.use_count() == 1) node.borrowState_->hasLatency = false;
             return node.borrowState_;
         }
+        /// @brief Report whether a plan still borrows this Node.
         static bool inUse(const Node& node) noexcept {
             return node.borrowState_.use_count() > 1;
         }
@@ -146,6 +162,7 @@ export namespace mka::audio::dsp::detail {
             return node.latencySamples(); // Exclusive/quiescent first preparation.
         }
 
+        /// @brief Store the immutable latency/rate snapshot accepted for the current borrow epoch.
         static void freezeLatency(const Node& node, const std::uint32_t sampleRate,
                                   const LatencySamples latency) noexcept {
             node.borrowState_->latency = latency;
@@ -163,6 +180,7 @@ export namespace mka::audio::dsp::detail {
      * Old vector storage is released on control. Not a public Node editing API.
      */
     struct NodeConfigAccess {
+        /// @brief Install an owned replacement layout after validation and the final plan borrow.
         static void replaceConfig(Node& node, Config replacement) noexcept {
             node.config_ = std::move(replacement);
         }

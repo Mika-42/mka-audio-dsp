@@ -1,3 +1,8 @@
+/**
+ * @file test_logical_output_clearing.cpp
+ * @brief Tests for logical output clearing.
+ * @author Mika
+ */
 #include <array>
 #include <cstddef>
 #include <gtest/gtest.h>
@@ -6,11 +11,22 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
     using mka::audio::AudioProcessContext;
-    enum class WriteMode { Full,Partial,None };
+    /// @brief Selects which logical samples a producer writes in one callback.
+    enum class WriteMode {
+        /// @brief Write all logical sample positions in the callback.
+        Full,
+        /// @brief Select the partial fixture case.
+        Partial,
+        /// @brief No callback diagnostics are set.
+        None
+    };
+    /// @brief Writes only selected logical samples to exercise pre-call clearing.
     class PartialProducer final : public Node {
     public:
+        /// @brief Declare the processor logical ports under the supplied stable Node identity.
         PartialProducer(NodeID id,float initial=90.F)
             : Node(id,Config{.layoutInput={0},.layoutAuxiliary={0},.layoutOutput={0,1}}),base(initial) {}
+        /// @brief Write only the configured logical sample positions, leaving the rest to plan clearing.
         void process(const ProcessContext& ctx) noexcept override {
             ++calls;
             for (FrameCount i=0;i<ctx.frames;++i) {
@@ -23,14 +39,20 @@ namespace {
                 }
             }
         }
+        /// @brief Control-selected fixture behavior for the next processing invocation.
         WriteMode mode=WriteMode::Full;
+        /// @brief Base scalar written by the partial logical-output producer.
         float base;
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls=0;
     };
+    /// @brief Records or forwards a producer's logical output after partial writes.
     class OutputObserver final : public Node {
     public:
+        /// @brief Declare the processor logical ports under the supplied stable Node identity.
         OutputObserver(NodeID id,std::size_t lane)
             : Node(id,Config{.layoutInput={0},.layoutAuxiliary={0},.layoutOutput={0}}),lane_(lane) {}
+        /// @brief Observe and forward the logical samples left by the preceding partial producer.
         void process(const ProcessContext& ctx) noexcept override {
             ++calls;
             for (FrameCount i=0;i<ctx.frames;++i) {
@@ -40,16 +62,20 @@ namespace {
                 ctx.backendOutputs[lane_+1].buffer[i]=b;
             }
         }
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls=0;
     private:
+        /// @brief Logical or physical lane selected by this processor.
         std::size_t lane_;
     };
+    /// @brief Connect the fixture's logical producer and consumer channel.
     void wire(DAG& graph,NodeID source,NodeID sink) {
         ASSERT_TRUE(graph.connect(encode(sink,PortType::In,0),encode(source,PortType::Out,0)));
         ASSERT_TRUE(graph.connect(encode(sink,PortType::Aux,0),encode(source,PortType::Out,1)));
         ASSERT_TRUE(graph.markAsOutput(sink));
     }
 
+    /// @brief Test case: reused multi output storage has zeros in every unwritten sample across callbacks.
     TEST(LogicalOutputClearing, ReusedMultiOutputStorageHasZerosInEveryUnwrittenSampleAcrossCallbacks) {
         DAG graph;
         const auto producer=graph.add<PartialProducer>(), first=graph.add<OutputObserver>(0), second=graph.add<OutputObserver>(2);
@@ -90,6 +116,7 @@ namespace {
         EXPECT_EQ(node.calls,9U);
     }
 
+    /// @brief Test case: non source outputs are cleared without destroying still live predecessor fan out.
     TEST(LogicalOutputClearing, NonSourceOutputsAreClearedWithoutDestroyingStillLivePredecessorFanOut) {
         DAG graph;
         const auto source=graph.add<PartialProducer>(90.F), middle=graph.add<PartialProducer>(300.F);

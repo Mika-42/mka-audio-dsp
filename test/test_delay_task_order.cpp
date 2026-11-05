@@ -1,3 +1,8 @@
+/**
+ * @file test_delay_task_order.cpp
+ * @brief Tests for delay task order.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -13,6 +18,7 @@ import mka.audio.dsp.plan_switcher;
 namespace {
     using namespace mka::audio::dsp;
     using namespace pdc_test;
+    /// @brief Find the final schedule position of the selected Node operation.
     std::size_t nodeOperation(const ExecutionPlan& plan,NodeID id) {
         const auto sequence=plan.operationSchedule();
         const auto found=std::find_if(sequence.begin(),sequence.end(),[id](const auto& op) {
@@ -20,6 +26,7 @@ namespace {
         });
         return static_cast<std::size_t>(found-sequence.begin());
     }
+    /// @brief Check that the compensation operation runs between its producer and every consuming read.
     void verifyOrder(const ExecutionPlan& plan,Connection edge,std::uint64_t delay) {
         SCOPED_TRACE(::testing::Message()<<"from="<<edge.from<<" to="<<edge.to<<" D="<<delay);
         const auto sequence=plan.operationSchedule();
@@ -40,6 +47,7 @@ namespace {
         EXPECT_EQ(matches,delay==0 ? 0U : 1U);
     }
 
+    /// @brief Test case: chain one three and512 has strict producer delay consumer order and exact persistent render.
     TEST(DelayTaskOrder, ChainOneThreeAnd512HasStrictProducerDelayConsumerOrderAndExactPersistentRender) {
         DAG graph; std::array<NodeID,4> ids{};
         for (unsigned i=0;i<4;++i) {
@@ -75,6 +83,7 @@ namespace {
         for (const auto id : ids) EXPECT_EQ(node(graph,id).seen,640U);
     }
 
+    /// @brief Test case: diamond compensates auxiliary after its producer and leaves the longest main path direct.
     TEST(DelayTaskOrder, DiamondCompensatesAuxiliaryAfterItsProducerAndLeavesTheLongestMainPathDirect) {
         DAG graph;
         const auto source=graph.add<UniformDelayNode>(0U),a=graph.add<UniformDelayNode>(1U);
@@ -100,6 +109,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: shared out has distinct one three and512 edge productions and A late direct reader.
     TEST(DelayTaskOrder, SharedOutHasDistinctOneThreeAnd512EdgeProductionsAndALateDirectReader) {
         DAG graph; const auto source=graph.add<UniformDelayNode>(0U); ASSERT_TRUE(source);
         std::array<NodeID,3> slow{},joins{}; constexpr std::array<LatencySamples,3> delay{1,3,512};
@@ -132,6 +142,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: candidate failure leaves active schedule and history untouched.
     TEST(DelayTaskOrder, CandidateFailureLeavesActiveScheduleAndHistoryUntouched) {
         DAG graph; PlanSwitcher switcher;
         const auto source=graph.add<UniformDelayNode>(0U),sink=graph.add<UniformDelayNode>(0U,ports(),0U);

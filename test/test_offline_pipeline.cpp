@@ -1,3 +1,8 @@
+/**
+ * @file test_offline_pipeline.cpp
+ * @brief Tests for offline pipeline.
+ * @author Mika
+ */
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -13,6 +18,7 @@ namespace {
     using namespace mka::audio::dsp;
     using namespace offline_test;
 
+    /// @brief Test case: one structural compilation renders stereo across prepared shapes and fresh backend buffers.
     TEST(OfflinePipeline, OneStructuralCompilationRendersStereoAcrossPreparedShapesAndFreshBackendBuffers) {
         DAG graph;
         std::array<NodeID,3> ids{}; ASSERT_TRUE(buildPipeline(graph,ids));
@@ -51,6 +57,7 @@ namespace {
         EXPECT_EQ(plan->callbackDiagnostics(),0U);
     }
 
+    /// @brief Test case: capacity failure is bounded and zero frame null buffers then valid audio recover.
     TEST(OfflinePipeline, CapacityFailureIsBoundedAndZeroFrameNullBuffersThenValidAudioRecover) {
         DAG graph;
         std::array<NodeID,3> ids{}; ASSERT_TRUE(buildPipeline(graph,ids));

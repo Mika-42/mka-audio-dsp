@@ -1,3 +1,8 @@
+/**
+ * @file test_delay_audio_oracle.cpp
+ * @brief Tests for delay audio oracle.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -15,11 +20,17 @@ import mka.audio.dsp.plan_switcher;
 namespace {
     using namespace mka::audio::dsp;
     using namespace audio_pdc_test;
+    /// @brief Owns the sample buffers and observed results of one oracle rendering.
     struct Render {
+        /// @brief Captured physical output samples for independent rendering comparisons.
         std::array<std::vector<float>,2> physical;
+        /// @brief Captured logical signals, separate from arbitrary physical routing.
         std::vector<std::vector<float>> logical;
+        /// @brief Number of sample slots retained by the rendered plan.
         std::uint32_t slots=0;
     };
+    /// @brief Render a graph scenario with the chosen block partition and retain physical and logical
+    /// samples.
     void run(Scenario scenario,SlotStrategy strategy,std::span<const FrameCount> sizes,Render& result) {
         Matrix model; ASSERT_TRUE(model.make(scenario));
         const BackendConfig cfg{.maxFrames=128,.inputChannels=2,.outputChannels=2,.sampleRate=48000,.slotStrategy=strategy};
@@ -74,6 +85,7 @@ namespace {
         EXPECT_EQ(plan->callbackDiagnostics(),0U);
     }
 
+    /// @brief Test case: P01 P02 P03 stereo mono paths match every internal and physical impulse sample.
     TEST(DelayAudioPdc, P01P02P03StereoMonoPathsMatchEveryInternalAndPhysicalImpulseSample) {
         const std::array<FrameCount,7> sizes{0,1,2,7,128,0,7};
         for (const auto scenario : {Scenario::Zero,Scenario::Parallel,Scenario::Chain}) {
@@ -82,6 +94,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: fixed variable and non recycling renders are identical across every callback partition.
     TEST(DelayAudioPdc, FixedVariableAndNonRecyclingRendersAreIdenticalAcrossEveryCallbackPartition) {
         const std::array<FrameCount,1> fixed{128};
         const std::array<FrameCount,6> variable{1,0,2,7,128,0};
@@ -95,6 +108,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: P04 P05 three samples render the exact two reference blocks through A compiled plan.
     TEST(DelayAudioPdc, P04P05ThreeSamplesRenderTheExactTwoReferenceBlocksThroughACompiledPlan) {
         DAG graph; const auto source=graph.add<MonoPlugin>(0U,0U),sink=graph.add<MonoPlugin>(0U,noLane,0U);
         ASSERT_TRUE(source); ASSERT_TRUE(sink); const auto connection=edge(*source,*sink);
@@ -109,6 +123,7 @@ namespace {
         EXPECT_EQ(output,(std::array<float,4>{2,3,4,5}));
     }
 
+    /// @brief Test case: errors preserve A and boundary publication starts B with its own zero filled history.
     TEST(DelayAudioPdc, ErrorsPreserveAAndBoundaryPublicationStartsBWithItsOwnZeroFilledHistory) {
         DAG graph; PlanSwitcher switcher;
         const auto source=graph.add<MonoPlugin>(0U,0U),sink=graph.add<MonoPlugin>(0U,noLane,0U);
@@ -134,6 +149,7 @@ namespace {
         input={13,14,15,16}; callback(); EXPECT_EQ(output,(std::array<float,4>{10,11,12,13}));
     }
 
+    /// @brief Test case: concurrent automatic stereo candidates keep shared DSP and private histories race free.
     TEST(DelayAudioPdc, ConcurrentAutomaticStereoCandidatesKeepSharedDSPAndPrivateHistoriesRaceFree) {
         Matrix model; ASSERT_TRUE(model.make(Scenario::Chain)); PlanSwitcher switcher;
         const BackendConfig cfg{.maxFrames=7,.inputChannels=2,.outputChannels=2,.sampleRate=48000};

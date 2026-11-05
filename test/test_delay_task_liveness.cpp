@@ -1,3 +1,8 @@
+/**
+ * @file test_delay_task_liveness.cpp
+ * @brief Tests for delay task liveness.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -15,6 +20,7 @@ namespace {
     using namespace mka::audio::dsp;
     using namespace pdc_test;
 
+    /// @brief Compare compiled producer/reader intervals against the complete final operation schedule.
     void compareAllLifetimes(const ExecutionPlan& plan,std::span<const Connection> edges) {
         const auto absent=std::numeric_limits<std::size_t>::max();
         const auto sequence=plan.operationSchedule();
@@ -50,10 +56,14 @@ namespace {
         }
     }
 
-    struct Rendered { std::array<std::vector<float>,3> channels; std::uint32_t slots=0; };
+    /// @brief Sample data retained for comparing different slot-assignment strategies.
+    struct Rendered { /** Captured per-channel sample streams used to compare slot policies. */ std::array<std::vector<float>,3> channels; /** Number of sample slots retained by the rendered plan. */ std::uint32_t slots=0; };
+    /// @brief Return a delayed reference ramp with the requested scalar gain.
     float ramp(std::size_t n,std::size_t delay,float gain=1.F) {
         return n<delay ? 0.F : gain*static_cast<float>(n-delay+1);
     }
+    /// @brief Render the corpus with the selected slot policy and compare against independent sample
+    /// values.
     void renderAndVerify(SlotStrategy strategy,Rendered& result) {
         DAG graph;
         const auto root=graph.add<UniformDelayNode>(0U),fast=graph.add<UniformDelayNode>(3U),slow=graph.add<UniformDelayNode>(8U);
@@ -130,6 +140,7 @@ namespace {
         ASSERT_NO_FATAL_FAILURE(compareAllLifetimes(*plan,edges));
     }
 
+    /// @brief Test case: recycled and unique pools match an independent sample and last reader oracle.
     TEST(DelayTaskLiveness, RecycledAndUniquePoolsMatchAnIndependentSampleAndLastReaderOracle) {
         Rendered recycled,unique;
         ASSERT_NO_FATAL_FAILURE(renderAndVerify(SlotStrategy::Reuse,recycled));
@@ -138,6 +149,7 @@ namespace {
         for (unsigned c=0;c<3;++c) EXPECT_EQ(recycled.channels[c],unique.channels[c]);
     }
 
+    /// @brief Test case: rejects premature release same operation alias and malformed delay productions.
     TEST(DelayTaskLiveness, RejectsPrematureReleaseSameOperationAliasAndMalformedDelayProductions) {
         const std::vector<SignalOperation> ops{{OperationKind::Node,{}, {0}},
             {OperationKind::Delay,{0},{1}},{OperationKind::Node,{1},{2}}};

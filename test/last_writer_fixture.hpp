@@ -1,9 +1,16 @@
+/**
+ * @file last_writer_fixture.hpp
+ * @brief Test fixtures for last writer fixture.
+ * @author Mika
+ */
 #pragma once
 #include <array>
 #include <expected>
 #include "backend_routing_fixture.hpp"
 
 namespace backend_test {
+    /// @brief Build ordered physical writers and a logical successor with independently configured write
+    /// policies.
     inline Result buildLastWriters(DAG& graph,std::array<NodeID,5>& ids,
         std::array<Observation,5>& seen,std::array<WritePolicy,4>& policies,bool reversed=false) {
         policies[0]={.lanes=1U,.begin=2,.end=6,.stride=2,.physicalValue=20.F,.logicalValue=22.F};

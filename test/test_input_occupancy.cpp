@@ -1,3 +1,8 @@
+/**
+ * @file test_input_occupancy.cpp
+ * @brief Tests for input occupancy.
+ * @author Mika
+ */
 #include <array>
 #include <cstddef>
 #include <span>
@@ -10,30 +15,39 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
 
+    /// @brief Minimal processor used to exercise destination input occupancy.
     class OccupancyNode final : public Node {
     public:
+        /// @brief Create a metadata-only processor for destination-occupancy cases.
         explicit OccupancyNode(const NodeID id) : Node(id, Config{}) {}
+        /// @brief Record callback and descriptor counts without touching samples.
         void process(const ProcessContext& context) noexcept override {
             ++calls;
             inputCount = context.inputs.size();
             backendCount = context.backendOutputs.size();
         }
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls = 0;
+        /// @brief Number of input descriptors observed during the callback.
         std::size_t inputCount = 0;
+        /// @brief Number of physical output descriptors observed during the callback.
         std::size_t backendCount = 0;
     };
 
+    /// @brief Require the expected numeric error while preserving its node/channel context.
     void expectError(const Result& result, const GraphError error) {
         ASSERT_FALSE(result.has_value());
         EXPECT_EQ(result.error().code, error.code);
     }
 
+    /// @brief Compare the desired logical-edge set with the expected connections.
     void expectEdges(const DAG& graph, const std::span<const Connection> expected) {
         ASSERT_EQ(graph.connections().size(), expected.size());
         for (std::size_t i = 0; i < expected.size(); ++i)
             EXPECT_EQ(graph.connections()[i], expected[i]);
     }
 
+    /// @brief Test case: complete destination identity keeps nodes ports and indices independent.
     TEST(InputOccupancy, CompleteDestinationIdentityKeepsNodesPortsAndIndicesIndependent) {
         DAG graph;
         const auto source = graph.add<OccupancyNode>();
@@ -55,6 +69,7 @@ namespace {
         ASSERT_TRUE(graph.compile());
     }
 
+    /// @brief Test case: A second producer is rejected for in and aux without changing the old plan.
     TEST(InputOccupancy, ASecondProducerIsRejectedForInAndAuxWithoutChangingTheOldPlan) {
         for (const auto port : {PortType::In, PortType::Aux}) {
             SCOPED_TRACE(static_cast<unsigned>(port));
@@ -95,6 +110,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: exact duplicate precedes occupancy but another output of the same node is occupied.
     TEST(InputOccupancy, ExactDuplicatePrecedesOccupancyButAnotherOutputOfTheSameNodeIsOccupied) {
         DAG graph;
         const auto source = graph.add<OccupancyNode>();
@@ -113,6 +129,7 @@ namespace {
         EXPECT_EQ(graph.connections().size(), 2U);
     }
 
+    /// @brief Test case: disconnect frees only the removed destination and keeps other occupancy.
     TEST(InputOccupancy, DisconnectFreesOnlyTheRemovedDestinationAndKeepsOtherOccupancy) {
         DAG graph;
         const auto first = graph.add<OccupancyNode>();
@@ -143,6 +160,7 @@ namespace {
         EXPECT_EQ(graph.connections().size(), 3U);
     }
 
+    /// @brief Test case: removing producers and consumers releases only their incident destinations.
     TEST(InputOccupancy, RemovingProducersAndConsumersReleasesOnlyTheirIncidentDestinations) {
         DAG graph;
         const auto first = graph.add<OccupancyNode>();

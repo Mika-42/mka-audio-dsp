@@ -1,3 +1,8 @@
+/**
+ * @file test_delay_line_oracle.cpp
+ * @brief Tests for delay line oracle.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -11,8 +16,18 @@ import mka.audio.dsp.delay_line;
 
 namespace {
     using namespace mka::audio::dsp;
+    /// @brief Sentinel identifying sample positions outside the writable callback range.
     constexpr float guard=-9876.F;
-    enum class Wave { Impulses,Ramp,Alternating };
+    /// @brief Selects the deterministic waveform used by a delay-line oracle.
+    enum class Wave {
+        /// @brief Select the impulses fixture case.
+        Impulses,
+        /// @brief Select the deterministic ramp waveform.
+        Ramp,
+        /// @brief Select alternating signed input samples.
+        Alternating
+    };
+    /// @brief Return the selected deterministic impulse, ramp or alternating waveform sample.
     float sample(Wave wave,std::size_t n) {
         if (wave==Wave::Ramp) return static_cast<float>(static_cast<int>(n%257)-128)*0.125F;
         if (wave==Wave::Alternating) return n%2 ? -0.75F : 1.25F;
@@ -24,6 +39,7 @@ namespace {
         return 0.F;
     }
 
+    /// @brief Render the requested block through the fixture or independent sample model.
     std::vector<float> render(std::uint64_t delay,Wave wave,std::span<const FrameCount> partition) {
         constexpr std::size_t total=2048;
         DelayLine line;
@@ -57,6 +73,7 @@ namespace {
         return result;
     }
 
+    /// @brief Test case: impulses ramps and alternation match each sample for all delay and block boundaries.
     TEST(DelayLineOracle, ImpulsesRampsAndAlternationMatchEachSampleForAllDelayAndBlockBoundaries) {
         const std::array<FrameCount,9> variable{0,1,2,7,128,0,2,1,7};
         for (const std::uint64_t delay : {0U,1U,3U,64U,256U,513U,1025U})
@@ -66,6 +83,7 @@ namespace {
             }
     }
 
+    /// @brief Test case: absolute output is invariant under single sample fixed and variable partitions.
     TEST(DelayLineOracle, AbsoluteOutputIsInvariantUnderSingleSampleFixedAndVariablePartitions) {
         const std::array<FrameCount,1> single{1},fixed{128};
         const std::array<FrameCount,8> variable{0,7,1,128,2,0,7,2};
@@ -80,6 +98,7 @@ namespace {
             }
     }
 
+    /// @brief Test case: long runs of empty null blocks never advance A history or write destination.
     TEST(DelayLineOracle, LongRunsOfEmptyNullBlocksNeverAdvanceAHistoryOrWriteDestination) {
         DelayLine line; ASSERT_TRUE(line.prepare(3));
         const std::array<float,4> first{1,2,3,4},second{5,6,7,8}; std::array<float,4> output{};
@@ -92,6 +111,7 @@ namespace {
         line.process(second.data(),output.data(),4); EXPECT_EQ(output,(std::array<float,4>{2,3,4,5}));
     }
 
+    /// @brief Test case: explicit reprepare resets only after success even at exact budget and overflow limits.
     TEST(DelayLineOracle, ExplicitReprepareResetsOnlyAfterSuccessEvenAtExactBudgetAndOverflowLimits) {
         DelayLine line; ASSERT_TRUE(line.prepare(64,DelayLineLimits{.memoryBudgetBytes=64*sizeof(float)}));
         std::array<float,128> input{},output{};

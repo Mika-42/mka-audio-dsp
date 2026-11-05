@@ -1,3 +1,8 @@
+/**
+ * @file test_dag_editing.cpp
+ * @brief Tests for dag editing.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -14,61 +19,95 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
 
-    enum class Role : std::size_t { Source, Gain, Mix, Output };
+    /// @brief Selects a processor's role in the fixture signal path.
+    enum class Role : std::size_t {
+        /// @brief Produce the fixture's source signal.
+        Source,
+        /// @brief Apply the fixture's scalar gain.
+        Gain,
+        /// @brief Sum the fixture's main and auxiliary signals.
+        Mix,
+        /// @brief Select the output fixture case.
+        Output
+    };
 
+    /// @brief Counts processor calls and lifetime events during desired-graph edits.
     struct EditingTrace {
+        /// @brief Per-processor destruction counts retained outside the owned Nodes.
         std::array<unsigned, 4> destructions{};
+        /// @brief Number of processing calls observed by the fixture.
         unsigned processCalls = 0;
+        /// @brief Whether all observed destructors ran on the recorded control thread.
         bool destroyedOnControl = true;
+        /// @brief Thread identity owning graph edits and expected processor destruction.
         std::thread::id control = std::this_thread::get_id();
     };
 
     /** Test-owned trace outlives the DAG; this scenario never calls process. */
     class EditingNode : public Node {
     public:
+        /// @brief Record fixture destruction and release owned state on the calling thread.
         ~EditingNode() override {
             ++trace_.destructions[static_cast<std::size_t>(role_)];
             trace_.destroyedOnControl = trace_.destroyedOnControl &&
                 std::this_thread::get_id() == trace_.control;
         }
 
+        /// @brief Count the callback without reading or writing samples.
         void process(const ProcessContext&) noexcept final { ++trace_.processCalls; }
 
     protected:
+        /// @brief Store the logical layout and borrow the role-specific lifetime trace.
         EditingNode(NodeID id, const Config& config, EditingTrace& trace, Role role)
             : Node(id, config), trace_(trace), role_(role) {}
 
     private:
+        /// @brief Borrowed lifetime or binding trace; it must outlive the fixture processor.
         EditingTrace& trace_;
+        /// @brief Immutable processor role selecting this fixture's signal behavior.
         Role role_;
     };
 
+    /// @brief Copies a physical input into a logical signal for downstream processors.
     class Source final : public EditingNode {
     public:
+        /// @brief Declare the source's logical outputs while leaving physical-input selection to
+        /// processing.
         Source(NodeID id, EditingTrace& trace)
             : EditingNode(id, Config{.layoutOutput = {0}}, trace, Role::Source) {}
     };
+    /// @brief Applies a fixed gain to its logical input signal.
     class Gain final : public EditingNode {
     public:
+        /// @brief Declare the logical ports and store the immutable gain multiplier.
         Gain(NodeID id, EditingTrace& trace)
             : EditingNode(id, Config{.layoutInput = {0}, .layoutOutput = {0}}, trace, Role::Gain) {}
     };
+    /// @brief Adds main and auxiliary signals into one logical output.
     class Mix final : public EditingNode {
     public:
+        /// @brief Declare the main, auxiliary and logical output channels of the junction.
         Mix(NodeID id, EditingTrace& trace)
             : EditingNode(id, Config{.layoutInput = {0, 1}, .layoutAuxiliary = {0},
                                      .layoutOutput = {0}}, trace, Role::Mix) {}
     };
+    /// @brief Copies a logical signal into the selected physical output.
     class Output final : public EditingNode {
     public:
+        /// @brief Declare the logical input consumed by this physical-output processor.
         Output(NodeID id, EditingTrace& trace)
             : EditingNode(id, Config{.layoutInput = {0}}, trace, Role::Output) {}
     };
 
+    /// @brief Independent node, connection and output-marker state after graph edits.
     struct ExpectedEditingState {
+        /// @brief Node identities or independently owned node metadata belonging to this snapshot.
         std::vector<std::pair<NodeID, Node*>> nodes;
+        /// @brief Complete logical connections retained by the graph snapshot or reference model.
         std::vector<Connection> edges;
+        /// @brief Output channel descriptors or physical sample pointers used by this state.
         std::vector<NodeID> outputs;
+        /// @brief Per-processor destruction counts retained outside the owned Nodes.
         std::array<unsigned, 4> destructions{};
     };
 
@@ -104,6 +143,7 @@ namespace {
         EXPECT_EQ(trace.processCalls, 0U);
     }
 
+    /// @brief Test case: source gain mix output edits preserve exact desired state without audio.
     TEST(EditableDAGIntegration, SourceGainMixOutputEditsPreserveExactDesiredStateWithoutAudio) {
         EditingTrace trace;
         {

@@ -1,3 +1,8 @@
+/**
+ * @file test_backend_sources.cpp
+ * @brief Tests for backend sources.
+ * @author Mika
+ */
 #include <array>
 #include <vector>
 #include <gtest/gtest.h>
@@ -8,6 +13,7 @@ namespace {
     using namespace mka::audio::dsp;
     using namespace backend_test;
 
+    /// @brief Test case: compile roles from all incoming edges independently of layouts and output markers.
     TEST(BackendSources, CompileRolesFromAllIncomingEdgesIndependentlyOfLayoutsAndOutputMarkers) {
         std::array<Observation,6> seen;
         DAG graph;
@@ -53,6 +59,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: desired graph edits and failed preparation never change an old source list.
     TEST(BackendSources, DesiredGraphEditsAndFailedPreparationNeverChangeAnOldSourceList) {
         std::array<Observation,2> seen;
         DAG graph;

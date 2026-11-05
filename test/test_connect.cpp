@@ -1,3 +1,8 @@
+/**
+ * @file test_connect.cpp
+ * @brief Tests for connect.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <cstddef>
@@ -14,11 +19,14 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
 
+    /// @brief Minimal processor used to exercise connection validation.
     class ConnectNode final : public Node {
     public:
+        /// @brief Declare the mono main, auxiliary and output channels used by connection cases.
         explicit ConnectNode(const NodeID id)
             : Node(id, Config{.layoutInput = {0}, .layoutAuxiliary = {0}, .layoutOutput = {0}}) {}
 
+        /// @brief Render main plus auxiliary input and a Node-identity offset while recording physical views.
         void process(const ProcessContext& context) noexcept override {
             ++calls;
             backendCount = context.backendOutputs.size();
@@ -31,12 +39,15 @@ namespace {
             }
         }
 
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls = 0;
+        /// @brief Number of physical output descriptors observed during the callback.
         std::size_t backendCount = 0; // Numeric observations only, no retained callback pointers.
     };
 
     static_assert(std::same_as<decltype(std::declval<DAG&>().connect(ChannelID{}, ChannelID{})),
                                std::expected<void, GraphError>>);
+    /// @brief Error categories accepted for invalid logical graph edits.
     constexpr std::array semanticErrors{GraphError::NodeNotFound, GraphError::InvalidPort,
         GraphError::InvalidDirection, GraphError::ConnectionExists, GraphError::InputOccupied,
         GraphError::CycleDetected};
@@ -47,21 +58,25 @@ namespace {
         return true;
     }());
 
+    /// @brief Pack raw node, port and channel fields for invalid-port and direction test cases.
     constexpr ChannelID raw(const NodeID id, const std::uint16_t port, const ChannelIndex index = 0) {
         return (ChannelID{id} << 32U) | (ChannelID{port} << 16U) | ChannelID{index};
     }
 
+    /// @brief Require the expected numeric error while preserving its node/channel context.
     void expectError(const Result& result, const GraphError error) {
         ASSERT_FALSE(result);
         EXPECT_EQ(result.error().code, error.code);
     }
 
+    /// @brief Compare the desired logical-edge set with the expected connections.
     void expectEdges(const DAG& graph, const std::span<const Connection> expected) {
         ASSERT_EQ(graph.connections().size(), expected.size());
         for (std::size_t i = 0; i < expected.size(); ++i)
             EXPECT_EQ(graph.connections()[i], expected[i]);
     }
 
+    /// @brief Test case: destination comes first and inverted arguments do not create an edge.
     TEST(ConnectContract, DestinationComesFirstAndInvertedArgumentsDoNotCreateAnEdge) {
         DAG graph;
         const auto source = graph.add<ConnectNode>();
@@ -79,6 +94,7 @@ namespace {
         expectEdges(graph, expected);
     }
 
+    /// @brief Test case: every semantic refusal preserves desired edges addresses and the old audio plan.
     TEST(ConnectTransaction, EverySemanticRefusalPreservesDesiredEdgesAddressesAndTheOldAudioPlan) {
         DAG graph;
         const auto a = graph.add<ConnectNode>();
@@ -96,7 +112,8 @@ namespace {
         auto oldPlan = graph.compile(config);
         ASSERT_TRUE(oldPlan);
         const std::vector<Node*> oldTasks{oldPlan->tasks().begin(), oldPlan->tasks().end()};
-        struct RejectedEdge { ChannelID destination; ChannelID source; GraphError error; };
+        /// @brief Candidate connection and the error expected when it is inserted.
+        struct RejectedEdge { /** Borrowed writable sample buffer for the delayed signal. */ ChannelID destination; /** Borrowed producer sample pointer or identity selected for this operation. */ ChannelID source; /** Numeric failure expected or retained for this reference case. */ GraphError error; };
         const std::array cases{
             RejectedEdge{encode(*c, PortType::In, 42), encode(maxNodeID, PortType::Out, 0), GraphError::NodeNotFound},
             RejectedEdge{encode(*c, PortType::In, 42), raw(*a, 0x1001), GraphError::InvalidPort},
@@ -130,6 +147,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: aux and undeclared channels participate in indirect cycles and self loops.
     TEST(ConnectCycles, AuxAndUndeclaredChannelsParticipateInIndirectCyclesAndSelfLoops) {
         DAG graph;
         const auto a = graph.add<ConnectNode>();
@@ -152,6 +170,7 @@ namespace {
         ASSERT_TRUE(graph.compile());
     }
 
+    /// @brief Test case: port then direction then existence then duplicate and occupancy have stable priority.
     TEST(ConnectErrors, PortThenDirectionThenExistenceThenDuplicateAndOccupancyHaveStablePriority) {
         DAG graph;
         const auto a = graph.add<ConnectNode>();
@@ -175,6 +194,7 @@ namespace {
         expectEdges(graph, expected);
     }
 
+    /// @brief Test case: undefined port bits are never normalized to valid low port bits.
     TEST(ConnectDecoding, UndefinedPortBitsAreNeverNormalizedToValidLowPortBits) {
         DAG graph;
         const auto source = graph.add<ConnectNode>();
@@ -197,6 +217,7 @@ namespace {
         ASSERT_TRUE(graph.connect(in, out));
     }
 
+    /// @brief Test case: uses destination first and separates invalid port from invalid direction.
     TEST(ConnectLegacyAdapter, UsesDestinationFirstAndSeparatesInvalidPortFromInvalidDirection) {
         DAG graph;
         const auto source = graph.add<ConnectNode>();

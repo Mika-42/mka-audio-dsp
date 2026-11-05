@@ -1,3 +1,8 @@
+/**
+ * @file test_prepared_plan.cpp
+ * @brief Tests for prepared plan.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <cstddef>
@@ -19,9 +24,12 @@ namespace {
     static_assert(std::same_as<decltype(std::declval<const ExecutionPlan&>().references(NodeID{})),bool>);
     static_assert(std::is_aggregate_v<AudioProcessContext>);
 
+    /// @brief Records calls made through a prepared execution plan.
     class PreparedNode final : public Node {
     public:
+        /// @brief Declare the sparse logical output used to observe stable prepared bindings.
         explicit PreparedNode(NodeID id) : Node(id,Config{.layoutOutput={42}}) {}
+        /// @brief Double the first input, or produce unity, into logical and physical output buffers.
         void process(const ProcessContext& context) noexcept override {
             ++calls;
             for (FrameCount i=0;i<context.frames;++i) {
@@ -30,9 +38,11 @@ namespace {
                 for (const auto& output : context.backendOutputs) output.buffer[i]=sample;
             }
         }
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls=0;
     };
 
+    /// @brief Test case: canonical callbacks keep stable tasks descriptors and internal samples.
     TEST(PreparedPlan, CanonicalCallbacksKeepStableTasksDescriptorsAndInternalSamples) {
         DAG graph;
         const auto id=graph.add<PreparedNode>(); ASSERT_TRUE(id);
@@ -56,6 +66,7 @@ namespace {
         EXPECT_EQ(static_cast<PreparedNode*>(graph.node(*id))->calls,8U);
     }
 
+    /// @brief Test case: references are generation membership rather than desired graph membership.
     TEST(PreparedPlan, ReferencesAreGenerationMembershipRatherThanDesiredGraphMembership) {
         DAG graph;
         ExecutionPlan free;
@@ -75,6 +86,7 @@ namespace {
         EXPECT_EQ(graph.collectRetiredNodes(),1U);
     }
 
+    /// @brief Test case: failed audio budget preserves old buffers contexts and executable generation.
     TEST(PreparedPlan, FailedAudioBudgetPreservesOldBuffersContextsAndExecutableGeneration) {
         DAG graph;
         const auto id=graph.add<PreparedNode>(); ASSERT_TRUE(id);

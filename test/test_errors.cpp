@@ -1,3 +1,8 @@
+/**
+ * @file test_errors.cpp
+ * @brief Tests for errors.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <cstdint>
@@ -14,18 +19,26 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
 
+    /// @brief Minimal processor used to exercise structured graph errors.
     class ErrorNode final : public Node {
     public:
+        /// @brief Create a metadata-only processor for structured error cases.
         explicit ErrorNode(NodeID id) : Node(id, Config{}) {}
+        /// @brief Leave sample buffers unchanged; this processor supplies structural metadata only.
         void process(const ProcessContext&) noexcept override {}
     };
+    /// @brief Exception tag used to exercise constructor-error translation.
     struct ConstructorFailure {};
+    /// @brief Throws during construction so insertion can report a preparation failure.
     class FailingNode final : public Node {
     public:
+        /// @brief Throw during processor construction so DAG insertion reports preparation failure.
         explicit FailingNode(NodeID id) : Node(id, Config{}) { throw ConstructorFailure{}; }
+        /// @brief Leave sample buffers unchanged; this processor supplies structural metadata only.
         void process(const ProcessContext&) noexcept override {}
     };
 
+    /// @brief Complete corpus of stable numeric error categories.
     constexpr std::array codes{
         ErrorCode::InvalidParameter, ErrorCode::NodeNotFound, ErrorCode::InvalidPort,
         ErrorCode::InvalidDirection, ErrorCode::ConnectionExists, ErrorCode::InputOccupied,
@@ -65,6 +78,7 @@ namespace {
         EXPECT_EQ(result.error(), expected);
     }
 
+    /// @brief Test case: every canonical family round trips through the shared expected value.
     TEST(StructuredErrors, EveryCanonicalFamilyRoundTripsThroughTheSharedExpectedValue) {
         constexpr NodeID node = 0xFEDCBA98U;
         constexpr ChannelID channel = 0xFEDCBA980001FFFFULL;
@@ -90,6 +104,7 @@ namespace {
         ASSERT_NO_FATAL_FAILURE(expectError(legacy, Error{ErrorCode::MemoryBudgetExceeded}));
     }
 
+    /// @brief Test case: connection port direction and missing endpoint keep the full offending channel.
     TEST(StructuredErrors, ConnectionPortDirectionAndMissingEndpointKeepTheFullOffendingChannel) {
         DAG graph;
         const auto a = graph.add<ErrorNode>(), b = graph.add<ErrorNode>();
@@ -119,6 +134,7 @@ namespace {
         EXPECT_TRUE(graph.outputNodes().empty());
     }
 
+    /// @brief Test case: duplicate occupation and cycle identify the destination without mutation.
     TEST(StructuredErrors, DuplicateOccupationAndCycleIdentifyTheDestinationWithoutMutation) {
         DAG graph;
         const auto a = graph.add<ErrorNode>(), b = graph.add<ErrorNode>(), c = graph.add<ErrorNode>();
@@ -136,6 +152,7 @@ namespace {
         EXPECT_EQ(graph.connections()[0], original);
     }
 
+    /// @brief Test case: node operations carry identity and config errors preserve the owned snapshot.
     TEST(StructuredErrors, NodeOperationsCarryIdentityAndConfigErrorsPreserveTheOwnedSnapshot) {
         DAG graph;
         const auto node = graph.add<ErrorNode>();
@@ -161,6 +178,7 @@ namespace {
         EXPECT_TRUE(graph.outputNodes().empty());
     }
 
+    /// @brief Test case: construction and quota failures keep the attempted identity without consuming it.
     TEST(StructuredErrors, ConstructionAndQuotaFailuresKeepTheAttemptedIdentityWithoutConsumingIt) {
         DAG disabled{0};
         ASSERT_NO_FATAL_FAILURE(expectError(disabled.add<ErrorNode>(),
@@ -175,6 +193,7 @@ namespace {
         EXPECT_EQ(*retry, 1U);
     }
 
+    /// @brief Test case: preparation errors carry link or marker context and preserve the old prepared state.
     TEST(StructuredErrors, PreparationErrorsCarryLinkOrMarkerContextAndPreserveTheOldPreparedState) {
         DAG graph;
         const auto a = graph.add<ErrorNode>(), b = graph.add<ErrorNode>();
@@ -203,6 +222,7 @@ namespace {
         EXPECT_EQ(sample, 0);
     }
 
+    /// @brief Test case: null logical samples keep the channel while physical views keep zero context.
     TEST(StructuredErrors, NullLogicalSamplesKeepTheChannelWhilePhysicalViewsKeepZeroContext) {
         const auto input = encode(NodeID{0xFEDCBA98U}, PortType::In, 65535);
         const auto output = encode(NodeID{0x80000001U}, PortType::Out, 42);

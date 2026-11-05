@@ -1,3 +1,8 @@
+/**
+ * @file test_disconnect.cpp
+ * @brief Tests for disconnect.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <expected>
@@ -9,9 +14,12 @@ import mka.audio.dsp.dag;
 
 namespace {
     using namespace mka::audio::dsp;
+    /// @brief Minimal processor used to exercise exact-edge disconnection.
     class DisconnectNode final : public Node {
     public:
+        /// @brief Declare the mono input/output path used by exact-edge removal cases.
         explicit DisconnectNode(NodeID id) : Node(id, Config{.layoutInput={0}, .layoutOutput={0}}) {}
+        /// @brief Render the selected input with a Node-identity offset into logical and physical outputs.
         void process(const ProcessContext& ctx) noexcept override {
             for (FrameCount i=0; i<ctx.frames; ++i) {
                 const float sample = (ctx.inputs.empty() ? 0.F : ctx.inputs[0].buffer[i]) + id();
@@ -22,11 +30,13 @@ namespace {
     };
     static_assert(std::same_as<decltype(std::declval<DAG&>().disconnect(ChannelID{},ChannelID{})),
                                std::expected<bool,GraphError>>);
+    /// @brief Check the successful disconnect result and whether the exact edge was present.
     void expectRemoved(const std::expected<bool,GraphError>& result, bool value) {
         ASSERT_TRUE(result);
         EXPECT_EQ(*result,value);
     }
 
+    /// @brief Test case: removes only the named channel and aux while preserving other edges.
     TEST(ExactDisconnect, RemovesOnlyTheNamedChannelAndAuxWhilePreservingOtherEdges) {
         DAG graph;
         auto a=graph.add<DisconnectNode>(); auto b=graph.add<DisconnectNode>();
@@ -51,6 +61,7 @@ namespace {
         EXPECT_EQ(graph.connections().size(),2U);
     }
 
+    /// @brief Test case: absent pair is successful false on empty graph with live endpoints.
     TEST(ExactDisconnect, AbsentPairIsSuccessfulFalseOnEmptyGraphWithLiveEndpoints) {
         DAG graph;
         auto a=graph.add<DisconnectNode>(); auto b=graph.add<DisconnectNode>();
@@ -64,13 +75,16 @@ namespace {
         EXPECT_TRUE(graph.connections().empty());
     }
 
+    /// @brief Test case: malformed directions and missing nodes preserve all edges.
     TEST(ExactDisconnect, MalformedDirectionsAndMissingNodesPreserveAllEdges) {
         DAG graph;
         auto a=graph.add<DisconnectNode>(); auto b=graph.add<DisconnectNode>();
         ASSERT_TRUE(a); ASSERT_TRUE(b);
         const auto out=encode(*a,PortType::Out,0), in=encode(*b,PortType::In,0);
         ASSERT_TRUE(graph.connect(in,out));
-        struct Case { ChannelID destination,source; GraphError error; };
+        /// @brief Input values and expected behavior for one table-driven test case.
+        struct Case { ChannelID destination /**< Borrowed writable sample buffer for the delayed signal. */,
+                          source /**< Borrowed producer sample pointer or identity selected for this operation. */; /** Numeric failure expected or retained for this reference case. */ GraphError error; };
         const auto malformed=(ChannelID{*a}<<32U)|(ChannelID{0x8001}<<16U);
         for (const auto& item : std::array{
             Case{out,in,GraphError::InvalidDirection},
@@ -85,6 +99,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: existing plan keeps its routing after an exact removal.
     TEST(ExactDisconnect, ExistingPlanKeepsItsRoutingAfterAnExactRemoval) {
         DAG graph;
         auto a=graph.add<DisconnectNode>(); auto b=graph.add<DisconnectNode>();

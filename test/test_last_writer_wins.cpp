@@ -1,3 +1,8 @@
+/**
+ * @file test_last_writer_wins.cpp
+ * @brief Tests for last writer wins.
+ * @author Mika
+ */
 #include <array>
 #include <expected>
 #include <vector>
@@ -9,6 +14,7 @@ namespace {
     using namespace mka::audio::dsp;
     using namespace backend_test;
 
+    /// @brief Test case: effective sample writes respect topology partial ranges and independent writers.
     TEST(LastWriterWins, EffectiveSampleWritesRespectTopologyPartialRangesAndIndependentWriters) {
         for (bool reversed : {false,true}) {
             std::array<Observation,5> seen;

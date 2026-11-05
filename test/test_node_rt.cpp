@@ -1,3 +1,8 @@
+/**
+ * @file test_node_rt.cpp
+ * @brief Tests for node rt.
+ * @author Mika
+ */
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -39,17 +44,28 @@ import mka.audio.dsp.plan_switcher;
 
 namespace {
     // Constant-initialized thread-local counters avoid allocation in the probe.
+    /// @brief Whether this thread is inside an instrumented callback window.
     thread_local bool measuring = false;
+    /// @brief Number of heap acquisitions recorded inside the measured window.
     thread_local std::size_t allocations = 0;
+    /// @brief Number of measured releases of non-null allocated storage.
     thread_local std::size_t deallocations = 0;
+    /// @brief Number of direct mutex acquisition attempts inside the measurement window.
     thread_local std::size_t mutexAttempts = 0;
+    /// @brief Number of direct wait calls recorded in the measured callback window.
     thread_local std::size_t waitAttempts = 0;
+    /// @brief Number of direct output calls recorded in the measured callback window.
     thread_local std::size_t logAttempts = 0;
+    /// @brief Number of direct exception throws recorded in the measured window.
     thread_local std::size_t exceptionAttempts = 0;
+    /// @brief Whether deterministic allocation failure injection is armed on this thread.
     thread_local bool failing = false;
+    /// @brief Remaining successful allocations before the injected failure.
     thread_local std::size_t allocationsBeforeFailure = 0;
+    /// @brief Number of failures injected during the current control-side scope.
     thread_local unsigned injectedFailures = 0;
 
+    /// @brief Throw at the armed allocation point, leaving unarmed allocations unchanged.
     void checkAllocationFailure() {
         if (!failing) return;
         if (allocationsBeforeFailure == 0) {
@@ -59,6 +75,7 @@ namespace {
         --allocationsBeforeFailure;
     }
 
+    /// @brief Allocate ordinary test storage and record or inject the configured heap event.
     void* allocate(std::size_t bytes) {
         if (measuring) ++allocations;
         checkAllocationFailure();
@@ -66,6 +83,7 @@ namespace {
         throw std::bad_alloc{};
     }
 
+    /// @brief Allocate aligned test storage after checked size rounding and optional failure injection.
     void* allocateAligned(std::size_t bytes, const std::size_t alignment) {
         if (measuring) ++allocations;
         checkAllocationFailure();
@@ -78,12 +96,15 @@ namespace {
         throw std::bad_alloc{};
     }
 
+    /// @brief Count measured releases and return non-null storage to the underlying allocator.
     void release(void* memory) noexcept {
         if (measuring && memory != nullptr) ++deallocations;
         std::free(memory);
     }
 
+    /// @brief Scopes thread-local measurement of heap and forbidden callback operations.
     struct AllocationWindow {
+        /// @brief Reset thread-local event counters and enable measurement until scope exit.
         AllocationWindow() noexcept {
             allocations = 0;
             deallocations = 0;
@@ -91,103 +112,132 @@ namespace {
             waitAttempts = logAttempts = exceptionAttempts = 0;
             measuring = true;
         }
+        /// @brief Disable this thread's scoped allocation failure or measurement policy.
         ~AllocationWindow() { measuring = false; }
     };
 
+    /// @brief Scopes deterministic allocation failures during control-side preparation.
     struct FailureWindow {
+        /// @brief Arm a failure after the requested number of successful control-side allocations.
         explicit FailureWindow(const std::size_t failAfter) noexcept {
             allocationsBeforeFailure = failAfter;
             injectedFailures = 0;
             failing = true;
         }
+        /// @brief Disable this thread's scoped allocation failure or measurement policy.
         ~FailureWindow() { failing = false; }
     };
 }
 
 #ifdef MKA_WRAP_PTHREAD_MUTEX
-extern "C" int __real_pthread_mutex_lock(pthread_mutex_t*);
-extern "C" int __real_pthread_mutex_trylock(pthread_mutex_t*);
-extern "C" int __real_pthread_mutex_timedlock(pthread_mutex_t*,const struct timespec*);
-extern "C" int __wrap_pthread_mutex_lock(pthread_mutex_t* mutex) {
+extern "C" /** Linker alias for the unwrapped pthread_mutex_lock implementation. */ int __real_pthread_mutex_lock(pthread_mutex_t*);
+extern "C" /** Linker alias for the unwrapped pthread_mutex_trylock implementation. */ int __real_pthread_mutex_trylock(pthread_mutex_t*);
+extern "C" /** Linker alias for the unwrapped pthread_mutex_timedlock implementation. */ int __real_pthread_mutex_timedlock(pthread_mutex_t*,const struct timespec*);
+extern "C" /** Count measured pthread_mutex_lock calls and forward to the unwrapped implementation. */ int __wrap_pthread_mutex_lock(pthread_mutex_t* mutex) {
     if (measuring) ++mutexAttempts;
     return __real_pthread_mutex_lock(mutex);
 }
-extern "C" int __wrap_pthread_mutex_trylock(pthread_mutex_t* mutex) {
+extern "C" /** Count measured pthread_mutex_trylock calls and forward to the unwrapped implementation. */ int __wrap_pthread_mutex_trylock(pthread_mutex_t* mutex) {
     if (measuring) ++mutexAttempts;
     return __real_pthread_mutex_trylock(mutex);
 }
-extern "C" int __wrap_pthread_mutex_timedlock(pthread_mutex_t* mutex,const struct timespec* until) {
+extern "C" /** Count measured pthread_mutex_timedlock calls and forward to the unwrapped implementation. */ int __wrap_pthread_mutex_timedlock(pthread_mutex_t* mutex,const struct timespec* until) {
     if (measuring) ++mutexAttempts;
     return __real_pthread_mutex_timedlock(mutex,until);
 }
-extern "C" int __real_pthread_cond_wait(pthread_cond_t*,pthread_mutex_t*);
-extern "C" int __wrap_pthread_cond_wait(pthread_cond_t* condition,pthread_mutex_t* mutex) {
+extern "C" /** Linker alias for the unwrapped pthread_cond_wait implementation. */ int __real_pthread_cond_wait(pthread_cond_t*,pthread_mutex_t*);
+extern "C" /** Count measured pthread_cond_wait calls and forward to the unwrapped implementation. */ int __wrap_pthread_cond_wait(pthread_cond_t* condition,pthread_mutex_t* mutex) {
     if (measuring) ++waitAttempts;
     return __real_pthread_cond_wait(condition,mutex);
 }
-extern "C" int __real_nanosleep(const timespec*,timespec*);
-extern "C" int __wrap_nanosleep(const timespec* requested,timespec* remaining) {
+extern "C" /** Linker alias for the unwrapped nanosleep implementation. */ int __real_nanosleep(const timespec*,timespec*);
+extern "C" /** Count measured nanosleep calls and forward to the unwrapped implementation. */ int __wrap_nanosleep(const timespec* requested,timespec* remaining) {
     if (measuring) ++waitAttempts;
     return __real_nanosleep(requested,remaining);
 }
-extern "C" ssize_t __real_write(int,const void*,std::size_t);
-extern "C" ssize_t __wrap_write(int fd,const void* bytes,std::size_t count) {
+extern "C" /** Linker alias for the unwrapped write implementation. */ ssize_t __real_write(int,const void*,std::size_t);
+extern "C" /** Count measured write calls and forward to the unwrapped implementation. */ ssize_t __wrap_write(int fd,const void* bytes,std::size_t count) {
     if (measuring) ++logAttempts;
     return __real_write(fd,bytes,count);
 }
-extern "C" std::size_t __real_fwrite(const void*,std::size_t,std::size_t,FILE*);
-extern "C" std::size_t __wrap_fwrite(const void* bytes,std::size_t size,std::size_t count,FILE* stream) {
+extern "C" /** Linker alias for the unwrapped fwrite implementation. */ std::size_t __real_fwrite(const void*,std::size_t,std::size_t,FILE*);
+extern "C" /** Count measured fwrite calls and forward to the unwrapped implementation. */ std::size_t __wrap_fwrite(const void* bytes,std::size_t size,std::size_t count,FILE* stream) {
     if (measuring) ++logAttempts;
     return __real_fwrite(bytes,size,count,stream);
 }
-extern "C" [[noreturn]] void __real___cxa_throw(void*,void*,void (*)(void*));
-extern "C" [[noreturn]] void __wrap___cxa_throw(void* exception,void* type,void (*destroy)(void*)) {
+extern "C" /** Linker alias for the unwrapped __cxa_throw implementation. */ [[noreturn]] void __real___cxa_throw(void*,void*,void (*)(void*));
+extern "C" /** Count measured __cxa_throw calls and forward to the unwrapped implementation. */ [[noreturn]] void __wrap___cxa_throw(void* exception,void* type,void (*destroy)(void*)) {
     if (measuring) ++exceptionAttempts;
     __real___cxa_throw(exception,type,destroy);
 }
 #endif
 
 // Replacements belong only to mka-node-rt-tests, never to the DSP library.
+/// @brief Allocate storage through the measured test allocator; allocation failure throws on the calling
+/// thread.
 void* operator new(const std::size_t size) { return allocate(size); }
+/// @brief Allocate storage through the measured test allocator; allocation failure throws on the calling
+/// thread.
 void* operator new[](const std::size_t size) { return allocate(size); }
+/// @brief Allocate aligned storage through the measured test allocator; allocation failure throws on the
+/// calling thread.
 void* operator new(const std::size_t size, const std::align_val_t alignment) {
     return allocateAligned(size, static_cast<std::size_t>(alignment));
 }
+/// @brief Allocate aligned storage through the measured test allocator; allocation failure throws on the
+/// calling thread.
 void* operator new[](const std::size_t size, const std::align_val_t alignment) {
     return allocateAligned(size, static_cast<std::size_t>(alignment));
 }
+/// @brief Allocate storage through the measured test allocator; return null on failure.
 void* operator new(const std::size_t size, const std::nothrow_t&) noexcept {
     try { return allocate(size); } catch (...) { return nullptr; }
 }
+/// @brief Allocate storage through the measured test allocator; return null on failure.
 void* operator new[](const std::size_t size, const std::nothrow_t&) noexcept {
     try { return allocate(size); } catch (...) { return nullptr; }
 }
+/// @brief Allocate aligned storage through the measured test allocator; return null on failure.
 void* operator new(const std::size_t size, const std::align_val_t alignment,
                    const std::nothrow_t&) noexcept {
     try { return allocateAligned(size, static_cast<std::size_t>(alignment)); }
     catch (...) { return nullptr; }
 }
+/// @brief Allocate aligned storage through the measured test allocator; return null on failure.
 void* operator new[](const std::size_t size, const std::align_val_t alignment,
                      const std::nothrow_t&) noexcept {
     try { return allocateAligned(size, static_cast<std::size_t>(alignment)); }
     catch (...) { return nullptr; }
 }
+/// @brief Release storage through the measured test allocator; never propagate exceptions.
 void operator delete(void* memory) noexcept { release(memory); }
+/// @brief Release storage through the measured test allocator; never propagate exceptions.
 void operator delete[](void* memory) noexcept { release(memory); }
+/// @brief Release storage through the measured test allocator; never propagate exceptions.
 void operator delete(void* memory, std::size_t) noexcept { release(memory); }
+/// @brief Release storage through the measured test allocator; never propagate exceptions.
 void operator delete[](void* memory, std::size_t) noexcept { release(memory); }
+/// @brief Release storage through the measured test allocator; never propagate exceptions.
 void operator delete(void* memory, std::align_val_t) noexcept { release(memory); }
+/// @brief Release storage through the measured test allocator; never propagate exceptions.
 void operator delete[](void* memory, std::align_val_t) noexcept { release(memory); }
+/// @brief Release storage through the measured test allocator; never propagate exceptions.
 void operator delete(void* memory, std::size_t, std::align_val_t) noexcept { release(memory); }
+/// @brief Release storage through the measured test allocator; never propagate exceptions.
 void operator delete[](void* memory, std::size_t, std::align_val_t) noexcept { release(memory); }
+/// @brief Release storage through the measured test allocator; never propagate exceptions.
 void operator delete(void* memory, const std::nothrow_t&) noexcept { release(memory); }
+/// @brief Release storage through the measured test allocator; never propagate exceptions.
 void operator delete[](void* memory, const std::nothrow_t&) noexcept { release(memory); }
+/// @brief Release storage through the measured test allocator; never propagate exceptions.
 void operator delete(void* memory, std::align_val_t, const std::nothrow_t&) noexcept { release(memory); }
+/// @brief Release storage through the measured test allocator; never propagate exceptions.
 void operator delete[](void* memory, std::align_val_t, const std::nothrow_t&) noexcept { release(memory); }
 
 namespace {
     using namespace mka::audio::dsp;
 
+    /// @brief Test case: persistent active and ready plans have no callback heap operations.
     TEST(PlanSwitcherRealtime, PersistentActiveAndReadyPlansHaveNoCallbackHeapOperations) {
         DAG graph; PlanSwitcher switcher;
         const auto id=graph.add<switcher_test::SignalNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
@@ -202,6 +252,7 @@ namespace {
         EXPECT_EQ(switcher.audioGeneration(),1U);
     }
 
+    /// @brief Test case: boundary swap and acknowledgment never allocate delete or lock.
     TEST(PlanSwitcherRealtime, BoundarySwapAndAcknowledgmentNeverAllocateDeleteOrLock) {
         DAG graph; PlanSwitcher switcher;
         const auto id=graph.add<switcher_test::GenerationNode>(switcher); ASSERT_TRUE(id);
@@ -219,6 +270,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: retirement and node destruction occur only on control after ack.
     TEST(PlanSwitcherRealtime, RetirementAndNodeDestructionOccurOnlyOnControlAfterAck) {
         switcher_test::LifetimeTrace trace;
         DAG graph; PlanSwitcher switcher;
@@ -244,6 +296,7 @@ namespace {
         EXPECT_EQ(graph.collectRetiredNodes(),1U); EXPECT_EQ(trace.destroyedOnAudio.load(),0U);
     }
 
+    /// @brief Test case: every candidate allocation failure preserves the active generation and desired graph.
     TEST(PlanSwitcherFailure, EveryCandidateAllocationFailurePreservesTheActiveGenerationAndDesiredGraph) {
         DAG graph; PlanSwitcher switcher;
         const auto id=graph.add<switcher_test::SignalNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
@@ -271,6 +324,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: ten thousand threaded swaps have zero audio allocations deletes or mutexes.
     TEST(PlanSwitcherRealtime, TenThousandThreadedSwapsHaveZeroAudioAllocationsDeletesOrMutexes) {
         const switcher_test::StressHooks hooks{
             .before=[]() noexcept { allocations=deallocations=mutexAttempts=0; measuring=true; },
@@ -286,6 +340,7 @@ namespace {
         EXPECT_EQ(result.created,result.destroyed); EXPECT_EQ(result.destroyedOnAudio,0U);
     }
 
+    /// @brief Test case: fixed physical shapes and rejections never allocate or lock.
     TEST(BackendCapacityRealtime, FixedPhysicalShapesAndRejectionsNeverAllocateOrLock) {
         for (const std::uint32_t count : {0U,1U,2U,6U}) {
             backend_test::Observation observation; observation.expectOutput=true;
@@ -311,6 +366,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: two sources share six read only pointers with no heap or mutex.
     TEST(PhysicalInputsRealtime, TwoSourcesShareSixReadOnlyPointersWithNoHeapOrMutex) {
         std::array<backend_test::Observation,2> seen;
         seen[1].expectOutput=true;
@@ -331,6 +387,7 @@ namespace {
         for (const auto& o : seen) { EXPECT_EQ(o.calls,32U); EXPECT_TRUE(o.directInputs); EXPECT_TRUE(o.directOutputs); }
     }
 
+    /// @brief Test case: repeated partial writes cannot leave residues on unused channels.
     TEST(HardwareSilenceRealtime, RepeatedPartialWritesCannotLeaveResiduesOnUnusedChannels) {
         backend_test::Observation seen; seen.expectOutput=true;
         backend_test::WritePolicy policy{.lanes=1U<<2,.begin=2,.end=7,.stride=2,.physicalValue=40.F};
@@ -355,6 +412,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: three direct writers and logical successor require no conflict search or heap.
     TEST(LastWriterRealtime, ThreeDirectWritersAndLogicalSuccessorRequireNoConflictSearchOrHeap) {
         std::array<backend_test::Observation,5> seen;
         std::array<backend_test::WritePolicy,4> policies;
@@ -375,6 +433,7 @@ namespace {
             EXPECT_EQ(backend->outputs[c][f],backend_test::lastWriterSample(c,f,policies));
     }
 
+    /// @brief Test case: physical pairs and logical successor render without heap or mutex.
     TEST(TwoSixRoutingRealtime, PhysicalPairsAndLogicalSuccessorRenderWithoutHeapOrMutex) {
         for (const std::uint32_t outputs : {2U,6U}) {
             std::array<NodeID,3> ids;
@@ -396,6 +455,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: end to end gain two pairs and last writer remain heap and mutex free.
     TEST(HeadphonePipelineRealtime, EndToEndGainTwoPairsAndLastWriterRemainHeapAndMutexFree) {
         std::array<NodeID,4> ids;
         std::array<backend_test::PairRouting,4> routing;
@@ -422,6 +482,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: recycled fanout and persistent delay need no heap or mutex on callbacks.
     TEST(PoolRealtime, RecycledFanoutAndPersistentDelayNeedNoHeapOrMutexOnCallbacks) {
         pool_test::Pipeline p;
         const auto a=p.add(), b=p.add(), c=p.add(), d=p.add();
@@ -444,6 +505,7 @@ namespace {
         EXPECT_EQ(allocations,0U); EXPECT_EQ(deallocations,0U); EXPECT_EQ(mutexAttempts,0U);
     }
 
+    /// @brief Test case: full block corpus with ten readers and zero three256 sample delays allocates nothing.
     TEST(PoolRealtime, FullBlockCorpusWithTenReadersAndZeroThree256SampleDelaysAllocatesNothing) {
         pool_test::Pipeline p;
         const auto source=p.add();
@@ -475,6 +537,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: every failure during delayed preparation keeps the active generation.
     TEST(PoolAllocation, EveryFailureDuringDelayedPreparationKeepsTheActiveGeneration) {
         pool_test::Pipeline p;
         const auto a=p.add(), b=p.add();
@@ -517,6 +580,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: allocation failure preserves previously prepared slots.
     TEST(BufferPoolFailure, AllocationFailurePreservesPreviouslyPreparedSlots) {
         BufferPool pool;
         ASSERT_TRUE(pool.prepare(1, 128));
@@ -534,6 +598,7 @@ namespace {
         EXPECT_EQ(old[0], 19.F);
     }
 
+    /// @brief Test case: silence allocation failure also preserves both old allocations.
     TEST(BufferPoolFailure, SilenceAllocationFailureAlsoPreservesBothOldAllocations) {
         BufferPool pool;
         ASSERT_TRUE(pool.prepare(1, 128));
@@ -559,11 +624,14 @@ namespace {
         EXPECT_EQ(mutexAttempts, 0U);
     }
 
+    /// @brief Applies gain while exposing logical and hardware writes for callback checks.
     class GainNode final : public Node {
     public:
+        /// @brief Declare a mono gain path with independently controlled logical and physical writes.
         explicit GainNode(const NodeID id = 1) : Node(id, Config{.layoutInput = {0}, .layoutAuxiliary = {},
                                     .layoutOutput = {0}}) {}
 
+        /// @brief Render logical gain output and separately selected physical samples without allocating.
         void process(const ProcessContext& context) noexcept override {
             ++calls;
             backendChannels = context.backendOutputs.size();
@@ -575,12 +643,16 @@ namespace {
             }
         }
 
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls = 0; // Numeric state only; no retained context or pointer.
+        /// @brief Whether the writer intentionally leaves some sample positions untouched.
         bool partial=false;
+        /// @brief Number of physical output views observed by the processor.
         std::size_t backendChannels = 0;
     };
 
 #ifdef MKA_WRAP_PTHREAD_MUTEX
+    /// @brief Test case: detects an explicit mutex acquisition.
     TEST(RealtimeMutexProbe, DetectsAnExplicitMutexAcquisition) {
         pthread_mutex_t mutex=PTHREAD_MUTEX_INITIALIZER;
         int locked=-1;
@@ -594,6 +666,7 @@ namespace {
     }
 #endif
 
+    /// @brief Test case: detects an explicit cpp allocation and deallocation.
     TEST(NodeAllocationProbe, DetectsAnExplicitCppAllocationAndDeallocation) {
         {
             const AllocationWindow window;
@@ -604,6 +677,7 @@ namespace {
         EXPECT_EQ(deallocations, 1U);
     }
 
+    /// @brief Test case: process and context binding use no cpp heap operations.
     TEST(NodeRealtimeContract, ProcessAndContextBindingUseNoCppHeapOperations) {
         // All owning allocations/construction occur before measurement.
         GainNode node;
@@ -639,6 +713,7 @@ namespace {
         // outside the measured process window.
     }
 
+    /// @brief Test case: prepared graph rebinds and processes without cpp heap operations.
     TEST(BackendRealtimeContract, PreparedGraphRebindsAndProcessesWithoutCppHeapOperations) {
         DAG graph;
         const auto addedSource = graph.add<GainNode>();
@@ -681,6 +756,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: canonical callbacks and reference queries do not allocate or release.
     TEST(PreparedPlanRealtime, CanonicalCallbacksAndReferenceQueriesDoNotAllocateOrRelease) {
         DAG graph;
         const auto id=graph.add<GainNode>(); ASSERT_TRUE(id);
@@ -700,6 +776,7 @@ namespace {
         EXPECT_EQ(static_cast<GainNode*>(graph.node(*id))->calls,64U);
     }
 
+    /// @brief Test case: valid rejected and zero frame canonical callbacks use no heap or mutex.
     TEST(ExecutionRealtime, ValidRejectedAndZeroFrameCanonicalCallbacksUseNoHeapOrMutex) {
         DAG graph;
         const auto id=graph.add<GainNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
@@ -722,6 +799,7 @@ namespace {
         EXPECT_EQ(plan->callbackDiagnostics(),0U);
     }
 
+    /// @brief Test case: partial writers leave zero holes with no heap or mutex operations.
     TEST(LogicalOutputRealtime, PartialWritersLeaveZeroHolesWithNoHeapOrMutexOperations) {
         DAG graph;
         const auto id=graph.add<GainNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
@@ -744,6 +822,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: compiled stereo pipeline uses no heap or mutex across changing and rejected blocks.
     TEST(OfflinePipelineRealtime, CompiledStereoPipelineUsesNoHeapOrMutexAcrossChangingAndRejectedBlocks) {
         DAG graph;
         std::array<NodeID,3> ids{}; ASSERT_TRUE(offline_test::buildPipeline(graph,ids));
@@ -769,22 +848,31 @@ namespace {
         EXPECT_EQ(plan->takeCallbackDiagnostics(),static_cast<std::uint32_t>(CallbackDiagnostic::FrameCapacityExceeded));
     }
 
+    /// @brief Records constructor and destructor activity during allocation failures.
     struct ConstructionTrace {
+        /// @brief Number of constructor steps completed before a simulated failure.
         unsigned completed = 0;
+        /// @brief Number of processor instances destroyed on control or during the measured scope.
         unsigned destroyed = 0;
     };
+    /// @brief Allocates a payload during construction to exercise insertion rollback.
     class AllocationNode final : public Node {
     public:
+        /// @brief Declare the processor logical ports under the supplied stable Node identity.
         AllocationNode(const NodeID id, ConstructionTrace& trace)
             : Node(id, Config{.layoutInput = {0}, .layoutOutput = {0}}), trace_(trace) {
             ++trace_.completed;
         }
+        /// @brief Record fixture destruction and release owned state on the calling thread.
         ~AllocationNode() override { ++trace_.destroyed; }
+        /// @brief Leave sample buffers unchanged; this processor supplies structural metadata only.
         void process(const ProcessContext&) noexcept override {}
     private:
+        /// @brief Borrowed lifetime or binding trace; it must outlive the fixture processor.
         ConstructionTrace& trace_;
     };
 
+    /// @brief Test case: every add allocation rolls back ownership and identity without changing the old plan.
     TEST(DAGAllocationFailure, EveryAddAllocationRollsBackOwnershipAndIdentityWithoutChangingTheOldPlan) {
         std::size_t allocationPoints = 0;
         {
@@ -841,6 +929,7 @@ namespace {
         EXPECT_TRUE(observedPostConstructionCleanup);
     }
 
+    /// @brief Test case: every connection allocation preserves the graph and old plan on failure.
     TEST(DAGAllocationFailure, EveryConnectionAllocationPreservesTheGraphAndOldPlanOnFailure) {
         const BackendConfig config{.maxFrames = 1, .inputChannels = 1, .outputChannels = 1};
         std::size_t allocationPoints = 0;
@@ -919,6 +1008,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: failed retirement preserves node edges output roles and old plan.
     TEST(DAGAllocationFailure, FailedRetirementPreservesNodeEdgesOutputRolesAndOldPlan) {
         DAG graph;
         const auto source = graph.add<GainNode>();
@@ -967,6 +1057,7 @@ namespace {
         EXPECT_EQ(output, 103); // Sink is now a topological source in this plan.
     }
 
+    /// @brief Test case: failed mark is transactional and repeated mark and unmark do not allocate.
     TEST(OutputMarkerFailure, FailedMarkIsTransactionalAndRepeatedMarkAndUnmarkDoNotAllocate) {
         ConstructionTrace trace;
         DAG graph;
@@ -1005,6 +1096,7 @@ namespace {
         EXPECT_TRUE(graph.outputNodes().empty());
     }
 
+    /// @brief Test case: every config copy failure keeps owned layouts edges and identity.
     TEST(ConfigAllocationFailure, EveryConfigCopyFailureKeepsOwnedLayoutsEdgesAndIdentity) {
         const Config next{.layoutInput={2,6},.layoutAuxiliary={2,6},.layoutOutput={2,6}};
         std::size_t points=0;
@@ -1049,6 +1141,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: every allocation failure leaves the desired graph and old plan intact.
     TEST(TopologyAllocationFailure, EveryAllocationFailureLeavesTheDesiredGraphAndOldPlanIntact) {
         std::size_t points=0;
         {
@@ -1092,6 +1185,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: backend compile catches every allocation and preserves the old prepared plan.
     TEST(StructuredErrorAllocation, BackendCompileCatchesEveryAllocationAndPreservesTheOldPreparedPlan) {
         const BackendConfig config{.maxFrames=1,.outputChannels=1};
         std::size_t points=0;
@@ -1133,6 +1227,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: every allocation preserves the prepared target and releases candidate borrows.
     TEST(StructuralCompileAllocation, EveryAllocationPreservesThePreparedTargetAndReleasesCandidateBorrows) {
         const BackendConfig backend{.maxFrames=1,.inputChannels=1,.outputChannels=1};
         std::size_t points=0;
@@ -1227,6 +1322,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: every preparation allocation preserves target and separate active contexts.
     TEST(InternalBindingAllocation, EveryPreparationAllocationPreservesTargetAndSeparateActiveContexts) {
         const BackendConfig oldConfig{.maxFrames=1,.inputChannels=1,.outputChannels=1};
         const BackendConfig nextConfig{.maxFrames=2,.inputChannels=1,.outputChannels=1};
@@ -1282,6 +1378,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: unmark keeps the old role with no heap operations during callbacks.
     TEST(OutputMarkerRealtime, UnmarkKeepsTheOldRoleWithNoHeapOperationsDuringCallbacks) {
         DAG graph;
         auto id = graph.add<GainNode>();
@@ -1310,6 +1407,7 @@ namespace {
 }
 
 namespace {
+    /// @brief Test case: automatic compensation beyond block size uses no heap deletes or mutexes.
     TEST(PdcRealtime, AutomaticCompensationBeyondBlockSizeUsesNoHeapDeletesOrMutexes) {
         using namespace mka::audio::dsp;
         DAG graph;
@@ -1339,6 +1437,7 @@ namespace {
 }
 
 namespace {
+    /// @brief Test case: every automatic preparation failure preserves active history and tables.
     TEST(PdcAllocation, EveryAutomaticPreparationFailurePreservesActiveHistoryAndTables) {
         using namespace mka::audio::dsp;
         DAG graph;
@@ -1398,6 +1497,7 @@ namespace {
 }
 
 namespace {
+    /// @brief Test case: persistent processing including empty blocks uses no heap deletes or mutexes.
     TEST(DelayLineRealtime, PersistentProcessingIncludingEmptyBlocksUsesNoHeapDeletesOrMutexes) {
         using namespace mka::audio::dsp;
         for (const std::uint64_t delay : {0U,1U,3U,256U}) {
@@ -1415,6 +1515,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: failed history allocation preserves the running stream.
     TEST(DelayLineAllocation, FailedHistoryAllocationPreservesTheRunningStream) {
         using namespace mka::audio::dsp;
         DelayLine line; ASSERT_TRUE(line.prepare(3));
@@ -1433,6 +1534,7 @@ namespace {
 }
 
 namespace {
+    /// @brief Test case: preparing zero needs no allocation even when an allocation failure is armed.
     TEST(DelayLineAllocation, PreparingZeroNeedsNoAllocationEvenWhenAnAllocationFailureIsArmed) {
         using namespace mka::audio::dsp;
         DelayLine line; ASSERT_TRUE(line.prepare(256));
@@ -1452,6 +1554,7 @@ namespace {
 }
 
 namespace {
+    /// @brief Test case: compiled concrete task executes without heap deletes or mutexes.
     TEST(DelayTaskRealtime, CompiledConcreteTaskExecutesWithoutHeapDeletesOrMutexes) {
         using namespace mka::audio::dsp;
         for (const std::uint64_t delay : {1U,3U,256U,512U}) {
@@ -1470,6 +1573,7 @@ namespace {
 }
 
 namespace {
+    /// @brief Test case: complete stereo P01 P02 P03 plans use no heap deletes or mutexes.
     TEST(DelayAudioPdcRealtime, CompleteStereoP01P02P03PlansUseNoHeapDeletesOrMutexes) {
         using namespace mka::audio::dsp;
         using namespace audio_pdc_test;
@@ -1505,6 +1609,7 @@ namespace {
 }
 
 namespace {
+    /// @brief Test case: invalid callbacks and admission rejection use no heap or mutex.
     TEST(ControlDiagnosticsRealtime, InvalidCallbacksAndAdmissionRejectionUseNoHeapOrMutex) {
         using namespace mka::audio::dsp;
         PlanSwitcher sw; std::array<float,4> out{1,2,3,4}; const std::array outputs{out.data()};
@@ -1519,9 +1624,11 @@ namespace {
 
 namespace {
 #ifdef MKA_WRAP_PTHREAD_MUTEX
+    /// @brief Test case: detects explicit wait log and exception.
     TEST(RealtimeForbiddenOperationsProbe, DetectsExplicitWaitLogAndException) {
         const int fd=::open("/dev/null",O_WRONLY); ASSERT_GE(fd,0);
         const timespec zero{}; int slept=-1; ssize_t written=-1;
+        /// @brief Exception tag used to verify that the throw probe is linked and active.
         struct ProbeException {};
         bool caught=false;
         try {
@@ -1535,6 +1642,7 @@ namespace {
     }
 #endif
 
+    /// @brief Test case: complete routing PDC and failed candidate remain heap and mutex free.
     TEST(V1AcceptanceRealtime, CompleteRoutingPDCAndFailedCandidateRemainHeapAndMutexFree) {
         using namespace mka::audio::dsp;
         for(unsigned delay : {0U,64U,256U,512U}) for(unsigned outputs : {2U,6U}) {

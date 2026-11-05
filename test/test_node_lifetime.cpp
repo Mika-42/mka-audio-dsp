@@ -1,3 +1,8 @@
+/**
+ * @file test_node_lifetime.cpp
+ * @brief Tests for node lifetime.
+ * @author Mika
+ */
 #include <cstddef>
 #include <optional>
 #include <thread>
@@ -23,36 +28,50 @@ namespace {
     static_assert(!std::is_copy_constructible_v<DAG> && !std::is_copy_assignable_v<DAG>);
     static_assert(!std::is_move_constructible_v<DAG> && !std::is_move_assignable_v<DAG>);
 
+    /// @brief Counts construction and destruction, including destruction inside audio processing.
     struct LifetimeTrace {
+        /// @brief Per-processor destruction counts retained outside the owned Nodes.
         unsigned destructions = 0;
+        /// @brief Number of processing calls observed by the fixture.
         unsigned processCalls = 0;
+        /// @brief Whether every recorded destructor used the owner thread.
         bool destroyedOnOwner = true;
+        /// @brief Thread identity expected to destroy the fixture processors.
         std::thread::id owner = std::this_thread::get_id();
     };
 
+    /// @brief Lifetime observer used while constructing and retiring fixture processors.
     thread_local LifetimeTrace* constructionTrace = nullptr;
 
+    /// @brief Temporarily selects the lifetime trace used by processor instances.
     class TraceScope {
     public:
+        /// @brief Install the selected lifetime trace and remember the prior trace.
         explicit TraceScope(LifetimeTrace& trace) noexcept
             : previous_(std::exchange(constructionTrace, &trace)) {}
+        /// @brief Restore the previously selected synchronous observation scope.
         ~TraceScope() { constructionTrace = previous_; }
 
     private:
+        /// @brief Previously installed lifetime observer, restored when the scope ends.
         LifetimeTrace* previous_;
     };
 
+    /// @brief Records construction, processing and destruction through a borrowed trace.
     class LifetimeNode final : public Node {
     public:
+        /// @brief Borrow the active construction trace without retaining any backend pointers.
         explicit LifetimeNode(const NodeID id)
             : Node(id, Config{}), trace_(constructionTrace) {}
 
+        /// @brief Record fixture destruction and release owned state on the calling thread.
         ~LifetimeNode() override {
             ++trace_->destructions;
             trace_->destroyedOnOwner = trace_->destroyedOnOwner &&
                 std::this_thread::get_id() == trace_->owner;
         }
 
+        /// @brief Record the callback while leaving borrowed sample storage unchanged.
         void process(const ProcessContext&) noexcept override {
             // Test consumer deliberately performs no allocation, locks, waits,
             // I/O or pointer retention. All worker access is joined before read.
@@ -60,14 +79,17 @@ namespace {
         }
 
     private:
+        /// @brief Borrowed lifetime or binding trace; it must outlive the fixture processor.
         LifetimeTrace* trace_;
     };
 
+    /// @brief Require the expected graph error category without changing ownership.
     void expectGraphError(const Result& result, const ErrorType error) {
         ASSERT_FALSE(result.has_value());
         EXPECT_EQ(result.error().code, error.code);
     }
 
+    /// @brief Compile a structural snapshot or report the fixture failure and return no plan.
     std::optional<ExecutionPlan> compiledPlan(DAG& graph) {
         auto compiled = graph.compile();
         if (!compiled) {
@@ -77,6 +99,7 @@ namespace {
         return std::move(*compiled);
     }
 
+    /// @brief Test case: removed node remains alive for an old plan and disappears from the desired graph.
     TEST(NodePlanLifetime, RemovedNodeRemainsAliveForAnOldPlanAndDisappearsFromTheDesiredGraph) {
         LifetimeTrace trace;
         const TraceScope tracking{trace};
@@ -115,6 +138,7 @@ namespace {
         EXPECT_TRUE(trace.destroyedOnOwner);
     }
 
+    /// @brief Test case: releasing plan allows exactly one polymorphic destruction.
     TEST(NodePlanLifetime, ReleasingPlanAllowsExactlyOnePolymorphicDestruction) {
         LifetimeTrace trace;
         const TraceScope tracking{trace};
@@ -140,6 +164,7 @@ namespace {
         EXPECT_TRUE(trace.destroyedOnOwner);
     }
 
+    /// @brief Test case: independent compiled plans each keep their borrow until retirement.
     TEST(NodePlanLifetime, IndependentCompiledPlansEachKeepTheirBorrowUntilRetirement) {
         LifetimeTrace trace;
         const TraceScope tracking{trace};
@@ -160,6 +185,7 @@ namespace {
         EXPECT_EQ(trace.destructions, 1U);
     }
 
+    /// @brief Test case: copy and move construction preserve borrows and empty moved from tasks.
     TEST(NodePlanLifetime, CopyAndMoveConstructionPreserveBorrowsAndEmptyMovedFromTasks) {
         LifetimeTrace trace;
         const TraceScope tracking{trace};
@@ -184,6 +210,7 @@ namespace {
         EXPECT_EQ(trace.destructions, 1U);
     }
 
+    /// @brief Test case: copy assignment releases old borrow and retains the new one including self copy.
     TEST(NodePlanLifetime, CopyAssignmentReleasesOldBorrowAndRetainsTheNewOneIncludingSelfCopy) {
         LifetimeTrace trace;
         const TraceScope tracking{trace};
@@ -216,6 +243,7 @@ namespace {
         EXPECT_EQ(trace.destructions, 2U);
     }
 
+    /// @brief Test case: move assignment releases old borrow and survives self move.
     TEST(NodePlanLifetime, MoveAssignmentReleasesOldBorrowAndSurvivesSelfMove) {
         LifetimeTrace trace;
         const TraceScope tracking{trace};
@@ -248,6 +276,7 @@ namespace {
         EXPECT_EQ(trace.destructions, 2U);
     }
 
+    /// @brief Test case: worker process borrows without owning or destroying the node.
     TEST(NodePlanLifetime, WorkerProcessBorrowsWithoutOwningOrDestroyingTheNode) {
         LifetimeTrace trace;
         const TraceScope tracking{trace};

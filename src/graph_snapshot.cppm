@@ -1,3 +1,8 @@
+/**
+ * @file graph_snapshot.cppm
+ * @brief Detached numeric snapshots of desired graph structure.
+ * @author Mika
+ */
 module;
 #include <vector>
 

@@ -1,3 +1,8 @@
+/**
+ * @file test_pdc_outputs.cpp
+ * @brief Tests for pdc outputs.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -12,10 +17,14 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
     using namespace pdc_test;
+    /// @brief Writes freely selected physical lanes without assigning them graph identities.
     class FreeRouter final : public Node {
     public:
+        /// @brief Store the immutable physical lane mask, sample offset and selected frame range.
         FreeRouter(NodeID id,std::uint32_t lanes,float bias=0.F,FrameCount begin=0,FrameCount end=UINT32_MAX)
             : Node(id,ports()),lanes_(lanes),bias_(bias),begin_(begin),end_(end) {}
+        /// @brief Write configured physical lanes and frame ranges independently of logical channel
+        /// identities.
         void process(const ProcessContext& ctx) noexcept override {
             for (FrameCount f=0;f<ctx.frames;++f) {
                 float logical=0.F;
@@ -28,11 +37,15 @@ namespace {
             }
         }
     private:
+        /// @brief Immutable physical output bit mask selected for this processor.
         const std::uint32_t lanes_;
+        /// @brief Immutable offset added to distinguish the physical lane writes.
         const float bias_;
-        const FrameCount begin_,end_;
+        const FrameCount begin_ /**< Begin retained by the fixture. */,
+            end_ /**< End retained by the fixture. */;
     };
 
+    /// @brief Test case: common logical junction aligns three and eight before free routing to lanes two and five.
     TEST(PdcOutputs, CommonLogicalJunctionAlignsThreeAndEightBeforeFreeRoutingToLanesTwoAndFive) {
         DAG graph;
         const auto a=graph.add<UniformDelayNode>(3U),b=graph.add<UniformDelayNode>(8U);
@@ -55,6 +68,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: independent marked nodes keep their own physical timings without invented alignment.
     TEST(PdcOutputs, IndependentMarkedNodesKeepTheirOwnPhysicalTimingsWithoutInventedAlignment) {
         DAG graph;
         const auto a=graph.add<UniformDelayNode>(3U,ports(),5U),b=graph.add<UniformDelayNode>(8U,ports(),2U);
@@ -77,6 +91,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: marked router with successor keeps logical samples separate from arbitrary hardware writes.
     TEST(PdcOutputs, MarkedRouterWithSuccessorKeepsLogicalSamplesSeparateFromArbitraryHardwareWrites) {
         DAG graph;
         const auto a=graph.add<UniformDelayNode>(3U),b=graph.add<UniformDelayNode>(8U);
@@ -101,6 +116,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: multiple writers keep per sample last writer wins after logical compensation.
     TEST(PdcOutputs, MultipleWritersKeepPerSampleLastWriterWinsAfterLogicalCompensation) {
         DAG graph;
         const auto a=graph.add<UniformDelayNode>(3U),b=graph.add<UniformDelayNode>(8U);

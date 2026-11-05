@@ -1,3 +1,8 @@
+/**
+ * @file test_pdc_warmup.cpp
+ * @brief Tests for pdc warmup.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -13,6 +18,7 @@ import mka.audio.dsp.plan_switcher;
 #include "v1_fixture.hpp"
 namespace {
     using namespace mka::audio::dsp;
+    /// @brief Test case: fresh generation starts at zero regardless of A warm history and block partition.
     TEST(PdcWarmup, FreshGenerationStartsAtZeroRegardlessOfAWarmHistoryAndBlockPartition) {
         for (const std::uint64_t delay : {0U,3U,256U}) {
             SCOPED_TRACE(delay); DAG graph; PlanSwitcher sw;

@@ -1,3 +1,8 @@
+/**
+ * @file test_remove.cpp
+ * @brief Tests for remove.
+ * @author Mika
+ */
 #include <array>
 #include <atomic>
 #include <concepts>
@@ -18,27 +23,36 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
 
+    /// @brief Tracks processor destruction during desired-graph removal.
     struct RemovalTrace {
+        /// @brief Per-processor destruction counts retained outside the owned Nodes.
         unsigned destructions = 0;
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls = 0;
+        /// @brief Number of physical output descriptors observed during the callback.
         std::size_t backendCount = 0;
+        /// @brief Whether all observed destructors ran on the recorded control thread.
         bool destroyedOnControl = true;
+        /// @brief Thread identity owning graph edits and expected processor destruction.
         std::thread::id control = std::this_thread::get_id();
     };
 
     /** Trace storage outlives its DAG; callback observations are read after join. */
     class RemovalNode final : public Node {
     public:
+        /// @brief Declare main, auxiliary and output channels and borrow the removal trace.
         RemovalNode(const NodeID id, RemovalTrace& trace)
             : Node(id, Config{.layoutInput = {0}, .layoutAuxiliary = {0}, .layoutOutput = {0}}),
               trace_(trace) {}
 
+        /// @brief Record fixture destruction and release owned state on the calling thread.
         ~RemovalNode() override {
             ++trace_.destructions;
             trace_.destroyedOnControl = trace_.destroyedOnControl &&
                 std::this_thread::get_id() == trace_.control;
         }
 
+        /// @brief Record callback roles and render main plus auxiliary input with a Node-identity offset.
         void process(const ProcessContext& context) noexcept override {
             ++trace_.calls;
             trace_.backendCount = context.backendOutputs.size();
@@ -52,26 +66,31 @@ namespace {
         }
 
     private:
+        /// @brief Borrowed lifetime or binding trace; it must outlive the fixture processor.
         RemovalTrace& trace_; // Test control-owned counters, never callback buffers.
     };
 
     static_assert(std::same_as<decltype(&DAG::remove),
                                std::expected<void, GraphError> (DAG::*)(NodeID)>);
 
+    /// @brief Require the expected numeric error while preserving its node/channel context.
     void expectError(const Result& result, const GraphError error) {
         ASSERT_FALSE(result);
         EXPECT_EQ(result.error().code, error.code);
     }
 
+    /// @brief Compare the desired logical-edge set with the expected connections.
     void expectEdges(const DAG& graph, const std::span<const Connection> expected) {
         ASSERT_EQ(graph.connections().size(), expected.size());
         for (std::size_t i = 0; i < expected.size(); ++i)
             EXPECT_EQ(graph.connections()[i], expected[i]);
     }
 
+    /// @brief Backend shape used to exercise a compiled plan after desired-node removal.
     constexpr BackendConfig callbackConfig{
         .maxFrames = 1, .inputChannels = 1, .outputChannels = 1};
 
+    /// @brief Test case: absent identity preserves edges node addresses output roles and old plan.
     TEST(NodeRemoval, AbsentIdentityPreservesEdgesNodeAddressesOutputRolesAndOldPlan) {
         RemovalTrace sourceTrace, sinkTrace;
         DAG graph;
@@ -104,6 +123,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: isolated unborrowed node is destroyed immediately once on control.
     TEST(NodeRemoval, IsolatedUnborrowedNodeIsDestroyedImmediatelyOnceOnControl) {
         RemovalTrace trace;
         DAG graph;
@@ -122,6 +142,7 @@ namespace {
         EXPECT_TRUE(empty->tasks().empty());
     }
 
+    /// @brief Test case: removes all incident edges and output marker but keeps unrelated edges and old bindings.
     TEST(NodeRemoval, RemovesAllIncidentEdgesAndOutputMarkerButKeepsUnrelatedEdgesAndOldBindings) {
         RemovalTrace aTrace, sideTrace, victimTrace, sinkTrace;
         DAG graph;
@@ -177,6 +198,7 @@ namespace {
         EXPECT_TRUE(victimTrace.destroyedOnControl);
     }
 
+    /// @brief Test case: failed replacement while pending preserves all referencing generations.
     TEST(NodeRemoval, FailedReplacementWhilePendingPreservesAllReferencingGenerations) {
         RemovalTrace trace;
         DAG graph;
@@ -223,6 +245,7 @@ namespace {
         EXPECT_TRUE(trace.destroyedOnControl);
     }
 
+    /// @brief Test case: callback acknowledgment does not release other generations or destroy on audio.
     TEST(NodeRemoval, CallbackAcknowledgmentDoesNotReleaseOtherGenerationsOrDestroyOnAudio) {
         RemovalTrace trace;
         DAG graph;

@@ -1,3 +1,8 @@
+/**
+ * @file test_pdc_edges.cpp
+ * @brief Tests for pdc edges.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -13,12 +18,14 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
     using namespace pdc_test;
+    /// @brief Check the compensation stored for the complete logical connection.
     void checkDelay(const PdcAnalysis& analysis,Connection connection,std::uint64_t expected) {
         SCOPED_TRACE(::testing::Message()<<"from="<<connection.from<<" to="<<connection.to<<" D="<<expected);
         const auto* value=analysis.find(connection); ASSERT_NE(value,nullptr);
         EXPECT_EQ(value->samples,expected);
     }
 
+    /// @brief Test case: three and eight produce five and zero for exact main and auxiliary edges.
     TEST(PdcEdges, ThreeAndEightProduceFiveAndZeroForExactMainAndAuxiliaryEdges) {
         DAG graph;
         const auto fast=graph.add<UniformDelayNode>(3U),slow=graph.add<UniformDelayNode>(8U);
@@ -37,6 +44,7 @@ namespace {
         EXPECT_EQ(plan->tasks().size(),3U); // Internal delay is not a public Node.
     }
 
+    /// @brief Test case: impulses align across two four frame callbacks at the logical junction.
     TEST(PdcEdges, ImpulsesAlignAcrossTwoFourFrameCallbacksAtTheLogicalJunction) {
         DAG graph;
         const auto fast=graph.add<UniformDelayNode>(1U),slow=graph.add<UniformDelayNode>(6U);
@@ -57,6 +65,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: consumer intrinsic delay is counted and rendered once after input alignment.
     TEST(PdcEdges, ConsumerIntrinsicDelayIsCountedAndRenderedOnceAfterInputAlignment) {
         DAG graph;
         const auto fast=graph.add<UniformDelayNode>(3U),slow=graph.add<UniformDelayNode>(8U);
@@ -75,6 +84,7 @@ namespace {
         EXPECT_EQ(node(graph,*join).mainLog[8],1.F); EXPECT_EQ(node(graph,*join).auxLog[8],1.F);
     }
 
+    /// @brief Test case: zero compensation uses direct pointers without delay operations or history.
     TEST(PdcEdges, ZeroCompensationUsesDirectPointersWithoutDelayOperationsOrHistory) {
         DAG graph;
         const auto a=graph.add<UniformDelayNode>(8U),b=graph.add<UniformDelayNode>(8U),join=graph.add<UniformDelayNode>(0U);
@@ -90,6 +100,7 @@ namespace {
         EXPECT_EQ(plan->delayTaskCount(),0U);
     }
 
+    /// @brief Test case: same output receives different compensation on two exact fanout connections.
     TEST(PdcEdges, SameOutputReceivesDifferentCompensationOnTwoExactFanoutConnections) {
         DAG graph;
         const auto source=graph.add<UniformDelayNode>(0U),slow3=graph.add<UniformDelayNode>(3U),slow8=graph.add<UniformDelayNode>(8U);
@@ -115,6 +126,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: large intrinsic difference stays wide in exact edge table.
     TEST(PdcEdges, LargeIntrinsicDifferenceStaysWideInExactEdgeTable) {
         const auto maximum=std::numeric_limits<LatencySamples>::max();
         const LatencySnapshot snapshot{48000,{{1,0},{2,maximum},{3,maximum},{4,0}}};

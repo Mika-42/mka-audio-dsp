@@ -1,3 +1,8 @@
+/**
+ * @file test_physical_output_views.cpp
+ * @brief Tests for physical output views.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <span>
@@ -11,6 +16,7 @@ namespace {
     static_assert(std::same_as<decltype(OutputChannel::buffer),float*>);
     static_assert(std::same_as<decltype(ProcessContext::backendOutputs),std::span<const OutputChannel>>);
 
+    /// @brief Test case: source output with successor writes hardware without changing logical production.
     TEST(PhysicalOutputViews, SourceOutputWithSuccessorWritesHardwareWithoutChangingLogicalProduction) {
         for (const std::uint32_t count : {0U,1U,2U,6U}) {
             std::array<Observation,3> seen;
@@ -42,6 +48,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: marker snapshot and physical channel choice do not depend on edges.
     TEST(PhysicalOutputViews, MarkerSnapshotAndPhysicalChannelChoiceDoNotDependOnEdges) {
         Observation seen; seen.expectOutput=true;
         WritePolicy writer{.lanes=1U<<5,.physicalValue=20.F};

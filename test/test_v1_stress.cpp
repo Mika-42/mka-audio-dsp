@@ -1,3 +1,8 @@
+/**
+ * @file test_v1_stress.cpp
+ * @brief Tests for v1 stress.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -15,11 +20,14 @@ import mka.audio.dsp.plan_switcher;
 #include "v1_fixture.hpp"
 namespace {
     using namespace mka::audio::dsp;
+    /// @brief Test case: ten thousand latency edits publications and retirements across two threads.
     TEST(V1Stress, TenThousandLatencyEditsPublicationsAndRetirementsAcrossTwoThreads) {
         v1_test::Graph g; ASSERT_TRUE(g.make(0)); PlanSwitcher sw;
         BackendConfig config{.maxFrames=128,.inputChannels=2,.outputChannels=6,.sampleRate=48000};
         ASSERT_TRUE(sw.initialize(g.dag,config));
-        struct Command { GenerationID generation=1; unsigned delay=0,out=6; FrameCount frames=7; bool invalid=false; } cmd;
+        /// @brief Immutable driver request transferred to the audio stress thread.
+        struct Command { /** Monotonic identity of the prepared graph snapshot. */ GenerationID generation=1; unsigned delay=0 /**< Delay retained by the fixture. */,
+                                                        out=6 /**< Raw output port code used by the independent model. */; /** Effective samples per channel for this processing block. */ FrameCount frames=7; /** Whether the driver request intentionally announces an oversized block. */ bool invalid=false; } cmd;
         std::atomic<unsigned> requested{0},completed{0}; std::atomic<bool> running{true};
         std::atomic<unsigned> failures{0};
         std::thread audio([&] {

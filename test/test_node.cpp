@@ -1,3 +1,8 @@
+/**
+ * @file test_node.cpp
+ * @brief Tests for node.
+ * @author Mika
+ */
 #include <array>
 #include <concepts>
 #include <cstdint>
@@ -29,24 +34,31 @@ namespace {
     static_assert(std::same_as<decltype(&Node::config), const Config& (Node::*)() const noexcept>);
     static_assert(std::same_as<Node::Config, Config>);
 
+    /// @brief Whether a processor exposes a prepare member independently of the Node contract.
     template<typename T>
     concept HasPrepareMember = requires { &T::prepare; };
     static_assert(!HasPrepareMember<Node>);
 
+    /// @brief Implements only processing and inherits the default zero latency.
     class ProcessOnlyNode final : public Node {
     public:
         using Node::Node;
+        /// @brief Record the invocation and frame count without touching borrowed buffers.
         void process(const ProcessContext& context) noexcept override {
             ++calls;
             lastFrames = context.frames;
         }
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls = 0;
+        /// @brief Frame count observed during the most recent processing invocation.
         FrameCount lastFrames = 0;
     };
 
+    /// @brief Declares latency but remains abstract because processing is not implemented.
     class LatencyOnlyNode : public Node {
     public:
         using Node::Node;
+        /// @brief Return the fixed algorithmic delay declared by this fixture processor.
         std::uint32_t latencySamples() const noexcept override { return 128; }
     };
 
@@ -60,32 +72,47 @@ namespace {
     static_assert(std::is_nothrow_destructible_v<ProcessOnlyNode>);
     static_assert(!std::is_nothrow_constructible_v<ProcessOnlyNode, NodeID, const Config&>);
 
+    /// @brief Exposes a fixed intrinsic latency for declaration-contract checks.
     class DeclaredLatencyNode final : public Node {
     public:
+        /// @brief Declare the processor logical ports under the supplied stable Node identity.
         DeclaredLatencyNode(const NodeID id, const std::uint32_t latency)
             : Node(id, Config{}), latency_(latency) {}
+        /// @brief Leave sample buffers unchanged; this processor supplies structural metadata only.
         void process(const ProcessContext&) noexcept override {}
+        /// @brief Return the fixed algorithmic delay declared by this fixture processor.
         std::uint32_t latencySamples() const noexcept override { return latency_; }
     private:
+        /// @brief Fixed intrinsic algorithmic latency declared by the processor.
         const std::uint32_t latency_;
     };
 
+    /// @brief Hides base accessors to exercise identity and configuration contracts.
     class HidingAccessorsNode final : public Node {
     public:
+        /// @brief Declare the processor logical ports under the supplied stable Node identity.
         HidingAccessorsNode() : Node(11, Config{.layoutInput = {0}, .layoutOutput = {1}}) {}
+        /// @brief Leave sample buffers unchanged; this processor supplies structural metadata only.
         void process(const ProcessContext&) noexcept override {}
+        /// @brief Return a deliberately hidden identity to exercise the base Node identity contract.
         NodeID id() const noexcept { return 99; }
+        /// @brief Return a deliberately hidden channel identity to exercise the base-accessor contract.
         ChannelID channel(PortType, ChannelIndex) const noexcept { return 123; }
+        /// @brief Return the intentionally hidden alternate layout used by accessor-contract tests.
         const Config& config() const noexcept { return alternate_; }
     private:
+        /// @brief Owned alternate layout returned by an intentionally hidden accessor.
         Config alternate_{.layoutInput = {9}, .layoutOutput = {10}};
     };
 
     // All retained state is scalar. Callback descriptor/sample pointers are
     // consumed synchronously and are deliberately not fields of this effect.
+    /// @brief Multiplies borrowed input samples by a fixed scalar gain.
     class ScalarGainNode final : public Node {
     public:
+        /// @brief Initialize the fixed gain and logical layouts used by sample-processing checks.
         explicit ScalarGainNode(const NodeID id) : Node(id, Config{}) {}
+        /// @brief Multiply the borrowed input samples by the configured fixed scalar gain.
         void process(const ProcessContext& context) noexcept override {
             ++calls;
             lastTotal = 0.F;
@@ -97,10 +124,13 @@ namespace {
                 lastTotal += value;
             }
         }
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls = 0;
+        /// @brief Sum of input samples observed during the most recent processor call.
         float lastTotal = 0.F;
     };
 
+    /// @brief Test case: ordinary accessors preserve identity and read only configuration.
     TEST(NodeInterface, OrdinaryAccessorsPreserveIdentityAndReadOnlyConfiguration) {
         const Config config{.layoutInput = {2, 6}, .layoutAuxiliary = {7}, .layoutOutput = {0}};
         const ProcessOnlyNode node{42, config};
@@ -112,6 +142,7 @@ namespace {
         EXPECT_EQ(&base.config(), &base.config());
     }
 
+    /// @brief Test case: channel returns the specified numeric golden identity.
     TEST(NodeInterface, ChannelReturnsTheSpecifiedNumericGoldenIdentity) {
         const ProcessOnlyNode node{0x12345678U, Config{}};
         EXPECT_EQ(node.channel(PortType::Out, 0xABCD), 0x123456780001ABCDULL);
@@ -119,6 +150,7 @@ namespace {
         EXPECT_EQ(node.channel(PortType::Aux, 65535), 0x123456780002FFFFULL);
     }
 
+    /// @brief Test case: valid ports and boundary indices preserve the exact node identity.
     TEST(NodeInterface, ValidPortsAndBoundaryIndicesPreserveTheExactNodeIdentity) {
         constexpr std::array<NodeID, 3> identities{1, 0x80000000U, UINT32_MAX};
         constexpr std::array ports{PortType::In, PortType::Out, PortType::Aux};
@@ -138,6 +170,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: default latency is exactly zero without an override.
     TEST(NodeInterface, DefaultLatencyIsExactlyZeroWithoutAnOverride) {
         const ProcessOnlyNode node{1, Config{}};
         const Node& base = node;
@@ -145,6 +178,7 @@ namespace {
         EXPECT_EQ(node.latencySamples(), 0U);
     }
 
+    /// @brief Test case: virtual latency override dispatches through the base interface.
     TEST(NodeInterface, VirtualLatencyOverrideDispatchesThroughTheBaseInterface) {
         const DeclaredLatencyNode delayed{1, 128};
         const DeclaredLatencyNode maximum{2, std::numeric_limits<std::uint32_t>::max()};
@@ -154,6 +188,7 @@ namespace {
         EXPECT_EQ(maximumBase.latencySamples(), UINT32_MAX);
     }
 
+    /// @brief Test case: gain and lookahead declare samples independently of block size and tail.
     TEST(NodeInterface, GainAndLookaheadDeclareSamplesIndependentlyOfBlockSizeAndTail) {
         const ScalarGainNode gain{1};
         EXPECT_EQ(gain.latencySamples(), 0U);
@@ -174,6 +209,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: identity channel and config accessors are non virtual.
     TEST(NodeInterface, IdentityChannelAndConfigAccessorsAreNonVirtual) {
         const HidingAccessorsNode node;
         const Node& base = node;
@@ -186,6 +222,7 @@ namespace {
         EXPECT_NE(&node.config(), &base.config());
     }
 
+    /// @brief Test case: configuration remains owned after caller storage changes.
     TEST(NodeInterface, ConfigurationRemainsOwnedAfterCallerStorageChanges) {
         Config caller{.layoutInput = {0, 65535}, .layoutOutput = {1}};
         const ProcessOnlyNode node{1, caller};
@@ -196,6 +233,7 @@ namespace {
         EXPECT_EQ(node.config().layoutOutput, (std::vector<ChannelIndex>{1}));
     }
 
+    /// @brief Test case: virtual process uses fresh backend views without retaining their pointers.
     TEST(NodeProcessingContract, VirtualProcessUsesFreshBackendViewsWithoutRetainingTheirPointers) {
         ScalarGainNode effect{1};
         Node& base = effect;
@@ -233,6 +271,7 @@ namespace {
         EXPECT_FLOAT_EQ(effect.lastTotal, 52.F);
     }
 
+    /// @brief Test case: zero and invalid blocks do not invoke the effect.
     TEST(NodeProcessingContract, ZeroAndInvalidBlocksDoNotInvokeTheEffect) {
         ScalarGainNode effect{1};
         const std::array<float, 2> input{2.F, 3.F};

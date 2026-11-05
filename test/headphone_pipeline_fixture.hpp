@@ -1,3 +1,8 @@
+/**
+ * @file headphone_pipeline_fixture.hpp
+ * @brief Test fixtures for headphone pipeline fixture.
+ * @author Mika
+ */
 #pragma once
 #include <array>
 #include <expected>
@@ -25,6 +30,7 @@ namespace backend_test {
         return {};
     }
 
+    /// @brief Compute the reference headphone sample from the fake backend's original input.
     inline float headphoneSample(unsigned channel,FrameCount frame,const FakeBackend<>& backend) noexcept {
         if (channel==0) return backend.inputs[1][frame]*(frame%2==0 ? 1.F : 0.5F);
         if (channel==1 || channel==3) return backend.inputs[5][frame]*0.5F;

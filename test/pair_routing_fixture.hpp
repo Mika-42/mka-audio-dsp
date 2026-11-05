@@ -1,3 +1,8 @@
+/**
+ * @file pair_routing_fixture.hpp
+ * @brief Test fixtures for pair routing fixture.
+ * @author Mika
+ */
 #pragma once
 #include <array>
 #include <expected>
@@ -6,17 +11,26 @@
 namespace backend_test {
     /** Routing is entirely a Node policy, with physical indices checked in process. */
     struct PairRouting {
+        /// @brief Input channel descriptors or physical sample pointers used by this state.
         std::array<ChannelIndex,2> inputs{0,1};
+        /// @brief Physical output pairs selected for each routing processor.
         std::array<std::array<ChannelIndex,2>,3> destinations{{{0,1},{2,3},{4,5}}};
-        unsigned pairs=1,writeMask=3;
+        unsigned pairs=1 /**< Pairs retained by the fixture. */,
+            writeMask=3 /**< Bit mask selecting the enabled physical destination pairs. */;
+        /// @brief Scalar multiplication factor configured for this fixture path.
         float gain=1.F;
-        FrameCount begin=0,end=UINT32_MAX,stride=1;
+        FrameCount begin=0 /**< First sample position selected for the physical write. */,
+            end=UINT32_MAX /**< Exclusive end of the physical write range. */,
+            stride=1 /**< Spacing between selected physical writes; zero disables them. */;
     };
 
+    /// @brief Routes a logical stereo pair to selected physical lanes and optional successors.
     class PairRouter final : public Node {
     public:
+        /// @brief Borrow the pair-routing policy and binding observer for the supplied layouts.
         PairRouter(NodeID id,PairRouting& routing,Observation& seen,Config cfg={.layoutOutput={0,1}})
             : Node(id,cfg),routing_(routing),seen_(seen) {}
+        /// @brief Copy the selected input pair to its configured physical lanes and logical successors.
         void process(const ProcessContext& ctx) noexcept override {
             ++seen_.calls; seen_.inputs=ctx.inputs.size(); seen_.physicalOutputs=ctx.backendOutputs.size();
             seen_.frames=ctx.frames;
@@ -48,10 +62,13 @@ namespace backend_test {
             }
         }
     private:
+        /// @brief Borrowed channel-pair routing policy selected by the control path.
         PairRouting& routing_;
+        /// @brief Borrowed callback observations; no backend samples are owned here.
         Observation& seen_;
     };
 
+    /// @brief Build processors that route stereo pairs to the configured physical output lanes.
     inline Result buildPairRouting(DAG& graph,std::array<NodeID,3>& ids,std::array<PairRouting,3>& routing,
                                   std::array<Observation,3>& seen,std::uint32_t outputs) {
         routing[0].inputs={1,5};
@@ -73,6 +90,7 @@ namespace backend_test {
         return {};
     }
 
+    /// @brief Compute the independent physical-lane sample for the selected routing configuration.
     inline float routedPairSample(std::uint32_t outputs,unsigned channel,FrameCount frame,const FakeBackend<>& backend) noexcept {
         const auto left=backend.inputs[1][frame],right=backend.inputs[5][frame];
         if (outputs==2) return channel==0 ? left*0.5F : right*0.5F;

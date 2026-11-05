@@ -1,3 +1,8 @@
+/**
+ * @file test_plan_switcher_handshake.cpp
+ * @brief Tests for plan switcher handshake.
+ * @author Mika
+ */
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -15,6 +20,7 @@ namespace {
     using namespace switcher_test;
     static_assert(std::is_same_v<std::underlying_type_t<HandshakeState>,std::uint8_t>);
 
+    /// @brief Test case: idle pending acknowledged idle keeps indices and slot ownership coherent.
     TEST(PlanSwitcherHandshake, IdlePendingAcknowledgedIdleKeepsIndicesAndSlotOwnershipCoherent) {
         DAG graph; PlanSwitcher switcher;
         const auto id=graph.add<SignalNode>(); ASSERT_TRUE(id); ASSERT_TRUE(graph.markAsOutput(*id));
@@ -42,6 +48,7 @@ namespace {
         ASSERT_TRUE(switcher.prepareInactivePlan(graph,cfg)); EXPECT_EQ(switcher.readyGeneration(),3U);
     }
 
+    /// @brief Test case: release acquire publishes complete descriptors and retires only after ack.
     TEST(PlanSwitcherHandshake, ReleaseAcquirePublishesCompleteDescriptorsAndRetiresOnlyAfterAck) {
         DAG graph; PlanSwitcher switcher;
         std::array<NodeID,2> ids; Connection edge;

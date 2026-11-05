@@ -1,3 +1,8 @@
+/**
+ * @file test_internal_bindings.cpp
+ * @brief Tests for internal bindings.
+ * @author Mika
+ */
 #include <array>
 #include <cstddef>
 #include <gtest/gtest.h>
@@ -6,12 +11,15 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
     using mka::audio::AudioProcessContext;
+    /// @brief Records the internal descriptors bound to a prepared task.
     class BindingNode final : public Node {
     public:
+        /// @brief Select producer or consumer layouts and the lane inspected by the binding oracle.
         BindingNode(NodeID id, bool producer, std::size_t lane=0)
             : Node(id,producer ? Config{.layoutOutput={0,1}} :
                 Config{.layoutInput={3},.layoutAuxiliary={4},.layoutOutput={0}}),
               producer_(producer),lane_(lane) {}
+        /// @brief Expose the selected internal input/output binding and write the fixture's scalar value.
         void process(const ProcessContext& context) noexcept override {
             ++calls;
             for (FrameCount i=0;i<context.frames;++i) {
@@ -28,13 +36,18 @@ namespace {
                 if (lane_<context.backendOutputs.size()) context.backendOutputs[lane_].buffer[i]=result;
             }
         }
+        /// @brief Configured scalar signal value or expected value for this fixture case.
         float value=0;
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls=0;
     private:
+        /// @brief Whether this fixture instance produces the signal inspected by downstream tasks.
         bool producer_;
+        /// @brief Logical or physical lane selected by this processor.
         std::size_t lane_;
     };
 
+    /// @brief Test case: fan out and auxiliary share only the intended producer storage.
     TEST(InternalBindings, FanOutAndAuxiliaryShareOnlyTheIntendedProducerStorage) {
         DAG graph;
         const auto source=graph.add<BindingNode>(true), first=graph.add<BindingNode>(false,0), second=graph.add<BindingNode>(false,1);
@@ -88,6 +101,7 @@ namespace {
         EXPECT_EQ(cloned[2].context.auxiliary[0].buffer,cloned[0].context.outputs[0].buffer);
     }
 
+    /// @brief Test case: desired graph rewiring never changes an already prepared binding.
     TEST(InternalBindings, DesiredGraphRewiringNeverChangesAnAlreadyPreparedBinding) {
         DAG graph;
         const auto a=graph.add<BindingNode>(true), b=graph.add<BindingNode>(true), sink=graph.add<BindingNode>(false);
@@ -112,6 +126,7 @@ namespace {
         old->exec(AudioProcessContext{.outputs=outputs,.frames=1}); EXPECT_EQ(output,11.F);
     }
 
+    /// @brief Test case: duplicate and occupied destinations are distinct and preserve the target.
     TEST(InternalBindings, DuplicateAndOccupiedDestinationsAreDistinctAndPreserveTheTarget) {
         DAG graph;
         const auto a=graph.add<BindingNode>(true), b=graph.add<BindingNode>(true), sink=graph.add<BindingNode>(false);

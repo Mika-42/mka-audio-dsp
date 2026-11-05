@@ -1,3 +1,8 @@
+/**
+ * @file latency_snapshot.cppm
+ * @brief Immutable intrinsic-latency declarations captured for one generation.
+ * @author Mika
+ */
 module;
 #include <algorithm>
 #include <cstdint>
@@ -13,8 +18,11 @@ export import mka.audio.dsp.node;
 export namespace mka::audio::dsp {
     /// One value captured on control, independent of Node DSP storage.
     struct IntrinsicLatency {
+        /// @brief Borrowed processor or numeric node identity associated with this record.
         NodeID node = invalidNodeID;
+        /// @brief Frozen intrinsic latency declared by the selected Node.
         LatencySamples samples = 0;
+        /// @brief Compare all value fields for equality.
         bool operator==(const IntrinsicLatency&) const noexcept = default;
     };
 
@@ -25,9 +33,12 @@ export namespace mka::audio::dsp {
      * copied values are detached and cannot edit a pending/active generation.
      */
     struct LatencySnapshot {
+        /// @brief Effective sampling frequency in Hz; zero means unspecified.
         std::uint32_t sampleRate = 0;
+        /// @brief Intrinsic declarations sorted by NodeID, owned by this snapshot.
         std::vector<IntrinsicLatency> nodes;
 
+        /// @brief Borrow the matching immutable metadata entry, or return null when it is absent.
         [[nodiscard]] const IntrinsicLatency* find(const NodeID id) const noexcept {
             const auto it=std::lower_bound(nodes.begin(),nodes.end(),id,
                 [](const IntrinsicLatency& entry,NodeID key) { return entry.node<key; });

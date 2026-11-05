@@ -1,3 +1,8 @@
+/**
+ * @file memory_budget.cppm
+ * @brief Checked storage arithmetic and retained plan-memory accounting.
+ * @author Mika
+ */
 module;
 #include <cstddef>
 #include <cstdint>
@@ -18,6 +23,7 @@ export namespace mka::audio::dsp {
         return static_cast<std::size_t>(a) * static_cast<std::size_t>(b);
     }
 
+    /// @brief Add byte counts, returning ArithmeticOverflow before size_t wraparound.
     [[nodiscard]] constexpr std::expected<std::size_t, CompileError>
     checkedSizeAdd(const std::size_t a, const std::size_t b) noexcept {
         if (a > std::numeric_limits<std::size_t>::max() - b)
@@ -43,25 +49,39 @@ export namespace mka::audio::dsp {
 
     /// Requested retained array payload and deterministic alignment allowance.
     struct MemoryArray {
+        /// @brief Requested number of retained array elements.
         std::uint64_t count = 0;
+        /// @brief Size in bytes of one retained array element.
         std::uint64_t elementBytes = 0;
+        /// @brief Required power-of-two alignment for the retained array.
         std::size_t alignment = 1;
     };
 
+    /// @brief Borrowed array counts used to estimate retained storage before allocation.
     struct PlanMemoryRequest {
+        /// @brief Requested number of temporary mono sample slots.
         std::uint64_t slotCount = 0;
+        /// @brief Prepared maximum samples per channel.
         std::uint64_t maxFrames = 0;
+        /// @brief Borrowed per-edge history lengths included in retained-memory accounting.
         std::span<const std::uint64_t> delaySamples;
+        /// @brief Borrowed retained-array descriptions used during byte accounting.
         std::span<const MemoryArray> metadata;
     };
 
     /** Requested retained storage; excludes allocator bookkeeping and control temporaries. */
     struct PlanMemoryUsage {
+        /// @brief Requested temporary mono-slot sample payload in bytes.
         std::size_t slotBytes = 0;
+        /// @brief Requested immutable zero-buffer payload in bytes.
         std::size_t silenceBytes = 0;
+        /// @brief Requested persistent compensation-history payload in bytes.
         std::size_t historyBytes = 0;
+        /// @brief Requested retained schedule, lookup and descriptor payload in bytes.
         std::size_t metadataBytes = 0;
+        /// @brief Deterministic alignment allowance included in retained-storage accounting.
         std::size_t paddingBytes = 0;
+        /// @brief Sum of all retained payload and alignment allowances.
         std::size_t totalBytes = 0;
     };
 

@@ -1,3 +1,8 @@
+/**
+ * @file four_node_oracle.hpp
+ * @brief Test fixtures for four node oracle.
+ * @author Mika
+ */
 #pragma once
 
 #include <algorithm>
@@ -11,40 +16,72 @@
  * Values and vectors belong to the test on control; nothing reaches audio.
  */
 namespace four_node_oracle {
+    /// @brief Independent reference-model node identity type.
     using NodeId = std::uint32_t;
+    /// @brief Independent reference-model numeric channel identity type.
     using ChannelId = std::uint64_t;
-    inline constexpr std::uint16_t in = 0, out = 1, aux = 2;
+    inline constexpr std::uint16_t in = 0 /**< Raw main-input port code used by the independent model. */,
+         out = 1 /**< Raw output port code used by the independent model. */,
+         aux = 2 /**< Raw auxiliary port code used by the independent model. */;
+    /// @brief Number of vertices in the exhaustive four-node graph corpus.
     inline constexpr std::size_t nodeCount = 4;
+    /// @brief Number of directed-edge masks enumerated by the exhaustive corpus.
     inline constexpr unsigned maskCount = 1U << 12U;
 
+    /// @brief Numeric source and destination used by the independent graph model.
     struct Edge {
+        /// @brief Complete logical producer identity in this reference edge.
         ChannelId from{};
+        /// @brief Complete logical consumer identity in this reference edge.
         ChannelId to{};
+        /// @brief Compare all value fields for equality.
         constexpr bool operator==(const Edge&) const noexcept = default;
     };
 
+    /// @brief Expected outcome of an edit in the independent graph model.
     enum class Decision : std::uint16_t {
-        Accepted, InvalidPort, InvalidDirection, NodeNotFound,
-        ConnectionExists, InputOccupied, CycleDetected
+        /// @brief The independent model accepts the requested graph edit.
+        Accepted,
+        /// @brief A port code is outside the supported main/output/auxiliary domain.
+        InvalidPort,
+        /// @brief The proposed edge is not Out to In or Aux.
+        InvalidDirection,
+        /// @brief A required logical node identity is absent.
+        NodeNotFound,
+        /// @brief The exact logical connection is already present.
+        ConnectionExists,
+        /// @brief Another producer already feeds this complete destination channel.
+        InputOccupied,
+        /// @brief The desired dependency relation contains a cycle.
+        CycleDetected
+
     };
 
+    /// @brief Boolean transitive-reachability matrix used by the independent graph model.
     using Closure = std::array<std::array<bool, nodeCount>, nodeCount>;
 
+    /// @brief Encode the reference model's node, port and index without using production helpers.
     [[nodiscard]] constexpr ChannelId channel(NodeId node, std::uint16_t port,
                                                std::uint16_t index) noexcept {
         return (ChannelId{node} << 32U) | (ChannelId{port} << 16U) | ChannelId{index};
     }
+    /// @brief Extract the reference model's node field from a numeric channel identity.
     [[nodiscard]] constexpr NodeId nodeOf(ChannelId id) noexcept {
         return static_cast<NodeId>(id >> 32U);
     }
+    /// @brief Extract the reference model's port field without normalizing undefined values.
     [[nodiscard]] constexpr std::uint16_t portOf(ChannelId id) noexcept {
         return static_cast<std::uint16_t>((id >> 16U) & ChannelId{0xFFFF});
     }
 
+    /// @brief Owns a fixture DAG and the node identities used to build its signal paths.
     struct Graph {
+        /// @brief Node identities or independently owned node metadata belonging to this snapshot.
         std::array<NodeId, nodeCount> nodes{1, 2, 3, 4};
+        /// @brief Complete logical connections retained by the graph snapshot or reference model.
         std::vector<Edge> edges;
 
+        /// @brief Return the model node position, or nodeCount when the identity is absent.
         [[nodiscard]] std::size_t indexOf(NodeId id) const noexcept {
             for (std::size_t i = 0; i < nodes.size(); ++i)
                 if (nodes[i] == id) return i;
@@ -68,6 +105,8 @@ namespace four_node_oracle {
             return reach;
         }
 
+        /// @brief Report whether the independently computed reachability matrix has no self-reachable
+        /// vertex.
         [[nodiscard]] bool acyclic() const noexcept {
             const auto reach = closure();
             for (std::size_t i = 0; i < nodeCount; ++i)

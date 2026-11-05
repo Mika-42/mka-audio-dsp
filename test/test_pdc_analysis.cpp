@@ -1,3 +1,8 @@
+/**
+ * @file test_pdc_analysis.cpp
+ * @brief Tests for pdc analysis.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <cstdint>
@@ -15,24 +20,32 @@ namespace {
     static_assert(std::same_as<decltype(NodeLatency{}.arrival),std::uint64_t>);
     static_assert(std::same_as<decltype(NodeLatency{}.cumulative),std::uint64_t>);
     static_assert(noexcept(checkedLatencyAdd(0,0)));
+    /// @brief Build the complete logical edge identity used by the fixture.
     constexpr Connection edge(NodeID from,NodeID to,PortType port=PortType::In,ChannelIndex channel=0) {
         return {encode(from,PortType::Out,0),encode(to,port,channel)};
     }
+    /// @brief Exposes intrinsic latency while recording preparation-time metadata queries.
     class MetadataNode final : public Node {
     public:
+        /// @brief Copy logical layouts and store the declared intrinsic latency for analysis.
         MetadataNode(NodeID id,LatencySamples latency,Config cfg={.layoutInput={0},.layoutAuxiliary={0},.layoutOutput={0}})
             : Node(id,cfg),latency_(latency) {}
+        /// @brief Return the fixed algorithmic delay declared by this fixture processor.
         LatencySamples latencySamples() const noexcept override { return latency_; }
+        /// @brief Leave sample buffers unchanged; this processor supplies structural metadata only.
         void process(const ProcessContext&) noexcept override {}
     private:
+        /// @brief Fixed intrinsic algorithmic latency declared by the processor.
         const LatencySamples latency_;
     };
+    /// @brief Check a node's intrinsic, arrival and cumulative latency entries.
     void expectNode(const PdcAnalysis& analysis,NodeID id,LatencySamples p,std::uint64_t a,std::uint64_t l) {
         SCOPED_TRACE(::testing::Message()<<"NodeID="<<id<<" P="<<p<<" A="<<a<<" L="<<l);
         const auto* value=analysis.find(id); ASSERT_NE(value,nullptr);
         EXPECT_EQ(value->intrinsic,p); EXPECT_EQ(value->arrival,a); EXPECT_EQ(value->cumulative,l);
     }
 
+    /// @brief Test case: empty and independent sources have zero arrival.
     TEST(PdcAnalysis, EmptyAndIndependentSourcesHaveZeroArrival) {
         const auto empty=analyzeLatencies(LatencySnapshot{}, {}, {}); ASSERT_TRUE(empty);
         EXPECT_TRUE(empty->nodes.empty()); EXPECT_EQ(empty->find(1),nullptr);
@@ -42,6 +55,7 @@ namespace {
         for (const auto& value : snapshot.nodes) expectNode(*analysis,value.node,value.samples,0,value.samples);
     }
 
+    /// @brief Test case: chain accumulates intrinsic latency exactly once.
     TEST(PdcAnalysis, ChainAccumulatesIntrinsicLatencyExactlyOnce) {
         const LatencySnapshot snapshot{48000,{{1,3},{2,8},{3,512}}};
         const std::array<NodeID,3> order{1,2,3}; const std::array edges{edge(1,2),edge(2,3)};
@@ -49,6 +63,7 @@ namespace {
         expectNode(*analysis,1,3,0,3); expectNode(*analysis,2,8,3,11); expectNode(*analysis,3,512,11,523);
     }
 
+    /// @brief Test case: diamond and auxiliary take maximum of all audio predecessors.
     TEST(PdcAnalysis, DiamondAndAuxiliaryTakeMaximumOfAllAudioPredecessors) {
         const LatencySnapshot snapshot{48000,{{1,3},{2,8},{3,512},{4,64}}};
         const std::array<NodeID,4> order{1,3,2,4};
@@ -58,6 +73,7 @@ namespace {
         expectNode(*analysis,3,512,3,515); expectNode(*analysis,4,64,515,579);
     }
 
+    /// @brief Test case: intrinsic uint32 limits accumulate in uint64.
     TEST(PdcAnalysis, IntrinsicUint32LimitsAccumulateInUint64) {
         const auto maximum=std::numeric_limits<LatencySamples>::max();
         const LatencySnapshot snapshot{48000,{{1,maximum},{2,maximum}}};
@@ -66,6 +82,7 @@ namespace {
         expectNode(*analysis,2,maximum,maximum,std::uint64_t{maximum}*2);
     }
 
+    /// @brief Test case: checked addition rejects overflow before adding.
     TEST(PdcAnalysis, CheckedAdditionRejectsOverflowBeforeAdding) {
         constexpr auto maximum=std::numeric_limits<std::uint64_t>::max();
         EXPECT_EQ(checkedLatencyAdd(maximum,0).value(),maximum);
@@ -75,6 +92,7 @@ namespace {
         EXPECT_EQ(checkedLatencyAdd(1,maximum).error().code,ErrorCode::LatencyOverflow);
     }
 
+    /// @brief Test case: invalid snapshot order and audio endpoints return control errors.
     TEST(PdcAnalysis, InvalidSnapshotOrderAndAudioEndpointsReturnControlErrors) {
         const LatencySnapshot snapshot{48000,{{1,3},{2,8}}};
         const std::array<NodeID,2> order{1,2},reversed{2,1},duplicate{1,1};
@@ -94,6 +112,7 @@ namespace {
         EXPECT_EQ(analyzeLatencies(snapshot,order,wrongPort).error().code,ErrorCode::InvalidPort);
     }
 
+    /// @brief Test case: compilation uses only materialized audio ports and keeps structural edges.
     TEST(PdcAnalysis, CompilationUsesOnlyMaterializedAudioPortsAndKeepsStructuralEdges) {
         DAG graph;
         const auto fast=graph.add<MetadataNode>(3U),slow=graph.add<MetadataNode>(8U);
@@ -114,6 +133,7 @@ namespace {
         EXPECT_LT(*plan->taskIndexOf(*ignored),*plan->taskIndexOf(*sink));
     }
 
+    /// @brief Test case: node storage order does not replace topological order.
     TEST(PdcAnalysis, NodeStorageOrderDoesNotReplaceTopologicalOrder) {
         DAG graph;
         const auto sink=graph.add<MetadataNode>(8U),middle=graph.add<MetadataNode>(3U),source=graph.add<MetadataNode>(512U);

@@ -1,3 +1,8 @@
+/**
+ * @file buffer_pool.cppm
+ * @brief Prepared mono sample slots and immutable silence storage.
+ * @author Mika
+ */
 module;
 #include <cassert>
 #include <cstddef>
@@ -26,10 +31,15 @@ export namespace mka::audio::dsp {
      */
     class BufferPool final {
     public:
+        /// @brief Construct an empty pool without allocating sample storage.
         BufferPool() noexcept = default;
+        /// @brief Copy slot and silence samples into independent storage; callers must rebind borrowed views.
         BufferPool(const BufferPool&) = default;
+        /// @brief Disable copying to preserve stable ownership and borrowed addresses.
         BufferPool& operator=(const BufferPool&) = delete;
+        /// @brief Disable moving to preserve stable ownership and borrowed addresses.
         BufferPool(BufferPool&&) = delete;
+        /// @brief Disable moving to preserve stable ownership and borrowed addresses.
         BufferPool& operator=(BufferPool&&) = delete;
 
         /// Requested slots + silence bytes, excluding allocator bookkeeping/owner object.
@@ -74,20 +84,27 @@ export namespace mka::audio::dsp {
             assert(id < slots_);
             return frames_ == 0 ? nullptr : storage_.data() + static_cast<std::size_t>(id) * frames_;
         }
+        /// @brief Return the number of prepared mono slots without accessing their samples.
         [[nodiscard]] std::uint32_t slotCapacity() const noexcept { return slots_; }
+        /// @brief Return the prepared per-channel sample capacity.
         [[nodiscard]] FrameCount maxFrames() const noexcept { return frames_; }
         /// Separate immutable zero storage: no BufferId, writable view or recycling.
         [[nodiscard]] const float* silence() const noexcept {
             return frames_ == 0 ? nullptr : silence_.data();
         }
+        /// @brief Return the retained slot and silence payload in bytes.
         [[nodiscard]] std::size_t allocatedBytes() const noexcept {
             return (storage_.size() + silence_.size()) * sizeof(float);
         }
 
     private:
+        /// @brief Owned contiguous temporary mono-slot samples.
         std::vector<float> storage_;
+        /// @brief Owned zero samples, kept outside the reusable slot pool.
         std::vector<float> silence_;
+        /// @brief Number of prepared temporary mono sample slots.
         std::uint32_t slots_ = 0;
+        /// @brief Prepared per-channel sample capacity.
         FrameCount frames_ = 0;
     };
 }

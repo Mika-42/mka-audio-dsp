@@ -1,3 +1,8 @@
+/**
+ * @file identifiers.cppm
+ * @brief Fixed-width identities, channel indices and sample counts.
+ * @author Mika
+ */
 module;
 #include <cstdint>
 #include <limits>

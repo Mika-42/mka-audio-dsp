@@ -1,3 +1,8 @@
+/**
+ * @file test_dag_storage.cpp
+ * @brief Tests for dag storage.
+ * @author Mika
+ */
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -17,52 +22,77 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
 
+    /// @brief Minimal processor with no sample-processing side effects.
     class EmptyNode : public Node {
     public:
+        /// @brief Construct a processor with the supplied identity and no declared logical ports.
         explicit EmptyNode(const NodeID id) : Node(id, Config{}) {}
+        /// @brief Count processing calls without accessing samples or changing ownership.
         void process(const ProcessContext&) noexcept override { ++calls; }
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls = 0;
     };
 
+    /// @brief Owns an additional payload so node-address stability can be exercised.
     class PayloadNode final : public Node {
     public:
+        /// @brief Allocate an owned payload and retain its stable configuration address.
         PayloadNode(const NodeID id, std::unique_ptr<int> payload, int& setting)
             : Node(id, Config{}), payload(std::move(payload)), setting(&setting) {}
+        /// @brief Leave sample buffers unchanged; this processor supplies structural metadata only.
         void process(const ProcessContext&) noexcept override {}
+        /// @brief Extra owned allocation used to expose node lifetime and address stability.
         std::unique_ptr<int> payload;
+        /// @brief Borrowed configuration payload whose address must survive graph insertions.
         int* setting; // Test control data, owned by the caller outside the DAG.
     };
 
+    /// @brief Reports its destruction through an external counter.
     class CountedNode final : public EmptyNode {
     public:
+        /// @brief Borrow the destruction counter used to observe ownership release.
         CountedNode(const NodeID id, unsigned& constructions) : EmptyNode(id) { ++constructions; }
     };
 
+    /// @brief Exception tag used to exercise failed processor construction.
     struct ConstructionFailure {};
+    /// @brief Throws during construction to exercise transactional DAG insertion.
     class ThrowingNode final : public EmptyNode {
     public:
+        /// @brief Throw the fixture exception to exercise transactional insertion failure.
         explicit ThrowingNode(const NodeID id) : EmptyNode(id) { throw ConstructionFailure{}; }
     };
+    /// @brief Throws an allocation error during construction to exercise error translation.
     class BadAllocNode final : public EmptyNode {
     public:
+        /// @brief Throw bad_alloc to exercise insertion failure before the DAG takes ownership.
         explicit BadAllocNode(const NodeID id) : EmptyNode(id) { throw std::bad_alloc{}; }
     };
+    /// @brief Intentionally exposes an identity inconsistent with the DAG assignment.
     class WrongIdentityNode final : public EmptyNode {
     public:
+        /// @brief Construct a processor with a deliberately mismatched base identity.
         explicit WrongIdentityNode(NodeID) : EmptyNode(invalidNodeID) {}
     };
+    /// @brief Hides the identity accessor to exercise insertion-time identity validation.
     class HiddenIdentityNode final : public EmptyNode {
     public:
         using EmptyNode::EmptyNode;
+        /// @brief Return a deliberately hidden identity to exercise the base Node identity contract.
         NodeID id() const noexcept { return 99; }
     };
+    /// @brief Abstract processor used to exercise the add<T> construction constraints.
     class AbstractNode : public Node { public: using Node::Node; };
+    /// @brief Nonpublic processor constructor used to exercise add<T> constraints.
     class PrivateNode : private EmptyNode { public: using EmptyNode::EmptyNode; };
+    /// @brief Processor without the required NodeID constructor argument.
     class NoIdentityConstructor final : public EmptyNode {
     public:
+        /// @brief Construct the negative fixture without the NodeID argument required by DAG::add.
         NoIdentityConstructor() : EmptyNode(1) {}
     };
 
+    /// @brief Whether DAG::add accepts the processor type and constructor arguments.
     template<class T, class... Args>
     concept Addable = requires(DAG& graph, Args&&... args) {
         graph.template add<T>(std::forward<Args>(args)...);
@@ -83,11 +113,13 @@ namespace {
     static_assert(noexcept(std::declval<const DAG&>().node(NodeID{})));
     static_assert(noexcept(std::declval<DAG&>().collectRetiredNodes()));
 
+    /// @brief Require the expected insertion error without dereferencing a failed NodeID result.
     void expectAddError(const std::expected<NodeID, GraphError>& result, const GraphError error) {
         ASSERT_FALSE(result);
         EXPECT_EQ(result.error().code, error.code);
     }
 
+    /// @brief Test case: mixed types forward arguments and expose borrowed mutable and const lookups.
     TEST(DAGStorage, MixedTypesForwardArgumentsAndExposeBorrowedMutableAndConstLookups) {
         int setting = 42;
         auto payload = std::make_unique<int>(7);
@@ -114,6 +146,7 @@ namespace {
         EXPECT_EQ(empty->calls, 3U);
     }
 
+    /// @brief Test case: absent and invalid identities return null from both overloads.
     TEST(DAGStorage, AbsentAndInvalidIdentitiesReturnNullFromBothOverloads) {
         DAG graph;
         const DAG& readOnly = graph;
@@ -128,6 +161,7 @@ namespace {
         EXPECT_EQ(readOnly.node(*id), nullptr);
     }
 
+    /// @brief Test case: growing and reordering owner storage preserves every live address and old tasks.
     TEST(DAGStorage, GrowingAndReorderingOwnerStoragePreservesEveryLiveAddressAndOldTasks) {
         DAG graph;
         const auto root = graph.add<EmptyNode>();
@@ -153,6 +187,7 @@ namespace {
         EXPECT_EQ(static_cast<EmptyNode*>(rootAddress)->calls, 1U);
     }
 
+    /// @brief Test case: removed identities are never reused even after collection.
     TEST(DAGStorage, RemovedIdentitiesAreNeverReusedEvenAfterCollection) {
         DAG graph;
         const auto first = graph.add<EmptyNode>();
@@ -176,6 +211,7 @@ namespace {
         EXPECT_EQ(graph.node(*second), nullptr);
     }
 
+    /// @brief Test case: quota rejects before construction and does not consume an identity.
     TEST(DAGStorage, QuotaRejectsBeforeConstructionAndDoesNotConsumeAnIdentity) {
         unsigned constructions = 0;
         DAG disabled{0};
@@ -193,6 +229,7 @@ namespace {
         EXPECT_EQ(constructions, 2U);
     }
 
+    /// @brief Test case: retired nodes count against quota until every plan releases its borrow and control collects.
     TEST(DAGStorage, RetiredNodesCountAgainstQuotaUntilEveryPlanReleasesItsBorrowAndControlCollects) {
         DAG graph{1};
         const auto first = graph.add<EmptyNode>();
@@ -214,6 +251,7 @@ namespace {
         EXPECT_EQ(*next, 2U);
     }
 
+    /// @brief Test case: constructor exception preserves the old graph plan and next identity.
     TEST(DAGStorage, ConstructorExceptionPreservesTheOldGraphPlanAndNextIdentity) {
         DAG graph;
         const auto first = graph.add<EmptyNode>();
@@ -233,6 +271,7 @@ namespace {
         EXPECT_EQ(*next, 2U);
     }
 
+    /// @brief Test case: constructor bad alloc returns allocation failure and preserves the candidate.
     TEST(DAGStorage, ConstructorBadAllocReturnsAllocationFailureAndPreservesTheCandidate) {
         DAG graph;
         expectAddError(graph.add<BadAllocNode>(), GraphError::AllocationFailed);
@@ -242,6 +281,7 @@ namespace {
         EXPECT_EQ(*next, 1U);
     }
 
+    /// @brief Test case: rejects constructors that ignore the assigned base identity.
     TEST(DAGStorage, RejectsConstructorsThatIgnoreTheAssignedBaseIdentity) {
         DAG graph;
         expectAddError(graph.add<WrongIdentityNode>(), GraphError::InvalidNodeIdentity);
@@ -255,6 +295,7 @@ namespace {
         EXPECT_EQ(static_cast<HiddenIdentityNode*>(graph.node(*next))->id(), 99U);
     }
 
+    /// @brief Test case: checks the actual uint32 boundary before narrowing and never wraps.
     TEST(DAGIdentitySequence, ChecksTheActualUint32BoundaryBeforeNarrowingAndNeverWraps) {
         detail::NodeIDSequence ids{std::uint64_t{maxNodeID} - 1};
         ASSERT_TRUE(ids.candidate());
@@ -269,6 +310,7 @@ namespace {
         expectAddError(ids.candidate(), GraphError::NodeIDExhausted);
     }
 
+    /// @brief Test case: invalid or already exhausted cursors cannot yield truncated identities.
     TEST(DAGIdentitySequence, InvalidOrAlreadyExhaustedCursorsCannotYieldTruncatedIdentities) {
         for (const auto initial : {std::uint64_t{0}, std::uint64_t{maxNodeID} + 1,
                                    std::numeric_limits<std::uint64_t>::max()}) {

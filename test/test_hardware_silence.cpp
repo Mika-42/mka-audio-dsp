@@ -1,3 +1,8 @@
+/**
+ * @file test_hardware_silence.cpp
+ * @brief Tests for hardware silence.
+ * @author Mika
+ */
 #include <array>
 #include <gtest/gtest.h>
 import mka.audio.dsp.dag;
@@ -7,18 +12,24 @@ namespace {
     using namespace mka::audio::dsp;
     using namespace backend_test;
 
+    /// @brief Checks that hardware outputs start silent before any writer runs.
     class ZeroObserver final : public Node {
     public:
+        /// @brief Create a processor that can observe physical clearing before later writers run.
         explicit ZeroObserver(NodeID id) : Node(id,Config{}) {}
+        /// @brief Record whether physical outputs are already silent before subsequent writers execute.
         void process(const ProcessContext& ctx) noexcept override {
             ++calls;
             for (const auto& output : ctx.backendOutputs) for (FrameCount f=0;f<ctx.frames;++f)
                 allZero=allZero && output.buffer[f]==0.F;
         }
+        /// @brief Number of processor invocations observed by the fixture.
         unsigned calls=0;
+        /// @brief Whether every inspected physical sample was cleared before processing.
         bool allZero=true;
     };
 
+    /// @brief Test case: empty graph zeros every announced channel and only the current frame range.
     TEST(HardwareSilence, EmptyGraphZerosEveryAnnouncedChannelAndOnlyTheCurrentFrameRange) {
         for (std::uint32_t channels : {0U,1U,2U,6U}) {
             DAG graph;
@@ -34,6 +45,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: all outputs are zero before first process and partial writers leave silent holes.
     TEST(HardwareSilence, AllOutputsAreZeroBeforeFirstProcessAndPartialWritersLeaveSilentHoles) {
         Observation seen; seen.expectOutput=true;
         WritePolicy policy{.lanes=(1U<<0)|(1U<<3),.begin=2,.end=7,.stride=2,.physicalValue=40.F};

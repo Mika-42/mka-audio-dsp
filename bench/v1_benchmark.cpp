@@ -1,3 +1,8 @@
+/**
+ * @file v1_benchmark.cpp
+ * @brief Reproducible callback CPU, memory and forbidden-operation measurements.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -22,13 +27,19 @@ import mka.audio.dsp.plan_switcher;
 #include "../test/v1_fixture.hpp"
 #include "rt_probe.hpp"
 using namespace mka::audio::dsp;
+/// @brief Terminate the benchmark on a failed control-side graph or preparation result.
 void require(Result r) { if(!r) { std::fprintf(stderr,"control error %u\n",unsigned(r.error().code)); std::exit(2); } }
+/// @brief Owns a graph, retained snapshots and observations for one generated workload.
 struct Scenario {
-    v1_test::Trace trace; DAG graph;
+    /// @brief Externally observed lifetime, order or context data used by this fixture.
+    v1_test::Trace trace; /** Owned desired DAG or detached graph values used by this fixture. */ DAG graph;
+    /// @brief Insert a fixture processor and retain its identity for later graph construction.
     NodeID add(v1_test::Role role,unsigned delay=0) { auto id=graph.add<v1_test::Processor>(role,trace,delay); if(!id) std::exit(2); return *id; }
+    /// @brief Connect the selected logical channels and propagate any graph-edit error.
     void link(NodeID from,NodeID to,PortType port=PortType::In) {
         for(ChannelIndex c=0;c<2;++c) require(graph.connect(encode(to,port,c),encode(from,PortType::Out,c)));
     }
+    /// @brief Build the selected fixture topology and mark its physical-output processors.
     void make(std::string shape,unsigned branches,bool pdc) {
         auto source=add(v1_test::Role::Source),fast=add(v1_test::Role::Gain); link(source,fast);
         auto other=(branches>=8) ? add(v1_test::Role::Source) : source;
@@ -40,6 +51,7 @@ struct Scenario {
         }
     }
 };
+/// @brief Measure the benchmark corpus and write raw samples, summaries and resource counters.
 int main(int argc,char** argv) {
     if(argc!=2) { std::fprintf(stderr,"usage: mka-v1-benchmark output-directory\n"); return 2; }
     const std::string root=argv[1];

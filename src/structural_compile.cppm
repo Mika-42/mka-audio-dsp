@@ -1,3 +1,8 @@
+/**
+ * @file structural_compile.cppm
+ * @brief Validated structural schedules and stable task lookup tables.
+ * @author Mika
+ */
 module;
 #include <cstddef>
 #include <expected>
@@ -51,7 +56,7 @@ export namespace mka::audio::dsp::detail {
      * No process(), latency query, backend access or PCM preparation occurs.
      * @pre Serialize all edits and compile/retire only after target quiescence;
      * each selected Node owner outlives the resulting plan and borrowed views.
-     * This internal fixture boundary never owns or validates pointer lifetimes.
+     * This internal compilation boundary never owns or validates pointer lifetimes.
      */
     [[nodiscard]] Result compileSnapshot(const std::span<Node* const> owners,
         const GraphSnapshot& graph, ExecutionPlan& target, const CompileConfig& config) try {

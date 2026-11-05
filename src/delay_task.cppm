@@ -1,3 +1,8 @@
+/**
+ * @file delay_task.cppm
+ * @brief Prepared edge-compensation operations and sample-range validation.
+ * @author Mika
+ */
 module;
 #include <cstdint>
 #include <expected>
@@ -39,9 +44,13 @@ export namespace mka::audio::dsp::detail {
      * preparation and destruction require quiescence. Never resize or rebind RT.
      */
     struct DelayTask {
+        /// @brief Read-only producer samples in a stable pool slot.
         const float* source=nullptr;
+        /// @brief Borrowed writable sample buffer for the delayed signal.
         float* destination=nullptr;
+        /// @brief Positive whole-sample compensation applied by this operation.
         std::uint64_t delaySamples=0;
+        /// @brief Persistent history owned by this compensation operation.
         DelayLine line;
 
         /// D=0 belongs to a direct binding, never a materialized DelayTask.

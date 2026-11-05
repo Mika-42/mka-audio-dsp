@@ -1,3 +1,8 @@
+/**
+ * @file test_latency_recompile.cpp
+ * @brief Tests for latency recompile.
+ * @author Mika
+ */
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -12,6 +17,7 @@ import mka.audio.dsp.plan_switcher;
 #include "v1_fixture.hpp"
 namespace {
     using namespace mka::audio::dsp;
+    /// @brief Test case: zero64 then256 then zero uses new DSP and new compensation only at boundary.
     TEST(LatencyRecompile, Zero64Then256ThenZeroUsesNewDSPAndNewCompensationOnlyAtBoundary) {
         v1_test::Graph g; ASSERT_TRUE(g.make(0)); PlanSwitcher sw;
         const BackendConfig cfg{.maxFrames=128,.inputChannels=2,.outputChannels=6,.sampleRate=48000};
@@ -41,6 +47,7 @@ namespace {
         EXPECT_EQ(g.trace.destroyedInAudio.load(),0U);
         EXPECT_EQ(g.dag.setConfig(g.gain,Config{}).error().code,ErrorCode::NodeInUse);
     }
+    /// @brief Test case: desired latency change during pending cannot alter published snapshot.
     TEST(LatencyRecompile, DesiredLatencyChangeDuringPendingCannotAlterPublishedSnapshot) {
         v1_test::Graph g; ASSERT_TRUE(g.make(0)); PlanSwitcher sw;
         const BackendConfig cfg{.maxFrames=128,.inputChannels=2,.outputChannels=6};

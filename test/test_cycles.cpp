@@ -1,3 +1,8 @@
+/**
+ * @file test_cycles.cpp
+ * @brief Tests for cycles.
+ * @author Mika
+ */
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -11,24 +16,31 @@ import mka.audio.dsp.dag;
 namespace {
     using namespace mka::audio::dsp;
 
+    /// @brief Minimal processor used to exercise cycle detection.
     class CycleNode final : public Node {
     public:
+        /// @brief Create a metadata-only processor for graph cycle cases.
         explicit CycleNode(NodeID id) : Node(id, Config{}) {}
+        /// @brief Count callbacks without affecting sample buffers.
         void process(const ProcessContext&) noexcept override { ++processCalls; }
+        /// @brief Number of processing calls observed by the fixture.
         unsigned processCalls = 0;
     };
 
+    /// @brief Require the expected numeric error while preserving its node/channel context.
     void expectError(const Result& result, GraphError error) {
         ASSERT_FALSE(result.has_value());
         EXPECT_EQ(result.error().code, error.code);
     }
 
+    /// @brief Compare the desired logical-edge set with the expected connections.
     void expectEdges(const DAG& graph, std::span<const Connection> expected) {
         ASSERT_EQ(graph.connections().size(), expected.size());
         for (std::size_t i = 0; i < expected.size(); ++i)
             EXPECT_EQ(graph.connections()[i], expected[i]);
     }
 
+    /// @brief Test case: one two and four node cycles leave edges markers and borrowed tasks unchanged.
     TEST(CycleReachability, OneTwoAndFourNodeCyclesLeaveEdgesMarkersAndBorrowedTasksUnchanged) {
         for (const std::size_t count : {1U, 2U, 4U}) {
             SCOPED_TRACE(count);
@@ -70,6 +82,7 @@ namespace {
         }
     }
 
+    /// @brief Test case: diamond fan out and parallel logical edges remain legal.
     TEST(CycleReachability, DiamondFanOutAndParallelLogicalEdgesRemainLegal) {
         DAG graph;
         std::array<NodeID, 4> ids;
@@ -100,6 +113,7 @@ namespace {
         EXPECT_EQ(plan->tasks().back()->id(), ids[3]);
     }
 
+    /// @brief Test case: undeclared auxiliary edges count and disconnect removes their reachability.
     TEST(CycleReachability, UndeclaredAuxiliaryEdgesCountAndDisconnectRemovesTheirReachability) {
         DAG graph;
         std::array<NodeID, 4> ids;
@@ -125,6 +139,7 @@ namespace {
         ASSERT_TRUE(graph.compile());
     }
 
+    /// @brief Test case: long chain uses no recursion and handles gaps and an isolated node.
     TEST(CycleReachability, LongChainUsesNoRecursionAndHandlesGapsAndAnIsolatedNode) {
         DAG graph;
         std::vector<NodeID> allocated;
@@ -161,6 +176,7 @@ namespace {
         EXPECT_EQ(plan->tasks().size(), 1025U);
     }
 
+    /// @brief Test case: sampled four node reachability matches independent transitive closure.
     TEST(CycleReachability, SampledFourNodeReachabilityMatchesIndependentTransitiveClosure) {
         // Representative masks only: exhaustive enumeration belongs to S03-04.
         // Oracle arithmetic/matrix storage never calls the production traversal.
