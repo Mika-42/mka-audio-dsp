@@ -29,8 +29,14 @@ namespace {
     static_assert(std::numeric_limits<FrameCount>::digits == 32);
     static_assert(std::is_unsigned_v<NodeID> && std::is_unsigned_v<ChannelID> &&
                   std::is_unsigned_v<ChannelIndex> && std::is_unsigned_v<FrameCount>);
-    static_assert(std::is_trivial_v<NodeID> && std::is_trivial_v<ChannelID> &&
-                  std::is_trivial_v<ChannelIndex> && std::is_trivial_v<FrameCount>);
+    static_assert(std::is_trivially_default_constructible_v<NodeID> &&
+                  std::is_trivially_copyable_v<NodeID>);
+    static_assert(std::is_trivially_default_constructible_v<ChannelID> &&
+                  std::is_trivially_copyable_v<ChannelID>);
+    static_assert(std::is_trivially_default_constructible_v<ChannelIndex> &&
+                  std::is_trivially_copyable_v<ChannelIndex>);
+    static_assert(std::is_trivially_default_constructible_v<FrameCount> &&
+                  std::is_trivially_copyable_v<FrameCount>);
 
     static_assert(invalidNodeID == 0 && maxNodeID == UINT32_MAX);
     static_assert(maxChannelIndex == 65535);
